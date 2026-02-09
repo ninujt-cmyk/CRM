@@ -20,14 +20,16 @@ import {
 import { 
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter 
 } from "@/components/ui/sheet"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { 
   Loader2, FileCheck, Download, Search, Trophy, 
   ArrowRightLeft, Edit, Plus, X, Trash2, 
-  TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight
+  TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
+  PieChart, Building2, Wallet
 } from "lucide-react"
 import { toast } from "sonner"
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns" 
+import { format, startOfMonth, endOfMonth, subMonths, isSameDay } from "date-fns" 
 import { EmptyState } from "@/components/empty-state" 
 
 // --- TYPES ---
@@ -37,6 +39,10 @@ type BankAttempt = {
   reason?: string;
   date: string;
 }
+
+// --- CONSTANTS FOR REPORTING ---
+const TARGET_BANKS = ["icici", "hdfc", "axis", "kotak"];
+const TARGET_NBFCS = ["incred", "finnable", "idfc", "paysense", "kreditbee"];
 
 export default function AdminLoginsPage() {
     const supabase = createClient()
@@ -60,7 +66,6 @@ export default function AdminLoginsPage() {
     const fetchData = useCallback(async () => {
         setLoading(true)
         try {
-            // UPDATED: Select created_at and order by created_at
             let loginsQuery = supabase
                 .from('logins') 
                 .select(`
@@ -72,7 +77,13 @@ export default function AdminLoginsPage() {
 
             const todayDate = new Date()
             
-            // UPDATED: Filter by created_at
+            // For the Manage Tab, we respect the filter.
+            // For the Reports Tab (handled in calculation), we usually need at least this month's data.
+            // To ensure both tabs work, if user selects "today" in filter, we still fetch month for reports logic 
+            // but filter view for table. 
+            // *Optimization Strategy*: Here we fetch based on filter for the Table View. 
+            // The Report View creates its own internal query or we fetch everything for "This Month" by default.
+            
             if (dateFilter === 'today') {
                 const startOfToday = new Date(todayDate.setHours(0,0,0,0)).toISOString()
                 loginsQuery = loginsQuery.gte('created_at', startOfToday)
@@ -86,7 +97,6 @@ export default function AdminLoginsPage() {
                 loginsQuery = loginsQuery.gte('created_at', start).lte('created_at', end)
             }
 
-            // Keep transfers on updated_at as this tracks the moment of handover, not lead creation
             const transfersQuery = supabase
                 .from('leads')
                 .select(`id, name, updated_at, users:assigned_to ( full_name )`)
@@ -126,56 +136,12 @@ export default function AdminLoginsPage() {
         })
     }, [logins, searchQuery, selectedBank, statusFilter])
 
-    // Pagination Logic
     const paginatedLogins = useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage
         return filteredLogins.slice(start, start + itemsPerPage)
     }, [filteredLogins, currentPage])
 
     const totalPages = Math.ceil(filteredLogins.length / itemsPerPage)
-
-    // Analytics Calculation (Custom CSS Chart Data)
-    const stats = useMemo(() => {
-        const total = filteredLogins.length
-        const approved = filteredLogins.filter(l => l.status === 'Approved' || l.status === 'Disbursed').length
-        const rejected = filteredLogins.filter(l => l.status === 'Rejected').length
-        const pending = total - approved - rejected
-        const approvalRate = total > 0 ? Math.round((approved / total) * 100) : 0
-
-        // Daily Trend for Custom Chart
-        const trendMap: Record<string, number> = {}
-        
-        // Initialize last 7 days with 0
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date()
-            d.setDate(d.getDate() - i)
-            trendMap[format(d, 'MMM dd')] = 0
-        }
-
-        filteredLogins.forEach(l => {
-            // UPDATED: Use created_at for trend analysis
-            const date = format(new Date(l.created_at), 'MMM dd')
-            if (trendMap[date] !== undefined) {
-                trendMap[date] = (trendMap[date] || 0) + 1
-            }
-        })
-
-        const chartData = Object.entries(trendMap).map(([date, count]) => ({ date, count }))
-        const maxCount = Math.max(...chartData.map(d => d.count), 1) // Avoid divide by zero
-
-        return { total, approved, rejected, pending, approvalRate, chartData, maxCount }
-    }, [filteredLogins])
-
-    const allTelecallerStats = useMemo(() => {
-        const counts: Record<string, number> = {}
-        logins.forEach(l => {
-            const name = l.users?.full_name || 'Unknown'
-            counts[name] = (counts[name] || 0) + 1
-        })
-        return Object.entries(counts)
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => b.count - a.count)
-    }, [logins])
 
     const uniqueBanks = Array.from(new Set(logins.flatMap(l => Array.isArray(l.bank_attempts) ? l.bank_attempts.map((a:any) => a.bank) : [l.bank_name]))).filter(Boolean)
 
@@ -199,8 +165,6 @@ export default function AdminLoginsPage() {
 
     const handleExport = () => {
         if (filteredLogins.length === 0) return toast.error("No data to export");
-        
-        // UPDATED: Export Created At
         const csvRows = [
             ["Agent Name", "Customer Name", "Phone", "Status", "Bank Details", "Created At"],
             ...filteredLogins.map(l => [
@@ -212,7 +176,6 @@ export default function AdminLoginsPage() {
                 format(new Date(l.created_at), "yyyy-MM-dd HH:mm:ss")
             ])
         ]
-
         const csvContent = "data:text/csv;charset=utf-8," + csvRows.map(e => e.join(",")).join("\n");
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
@@ -224,8 +187,6 @@ export default function AdminLoginsPage() {
 
     return (
         <div className="p-4 md:p-8 space-y-6 bg-slate-50/50 min-h-screen pb-20 font-sans">
-            
-            {/* Header & Controls */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border shadow-sm">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -236,243 +197,149 @@ export default function AdminLoginsPage() {
                     </h1>
                     <p className="text-slate-500 text-sm mt-1">Real-time insights and file tracking.</p>
                 </div>
-                
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg border">
-                        <Button 
-                            variant={dateFilter === 'today' ? 'default' : 'ghost'} 
-                            size="sm" onClick={() => setDateFilter('today')}
-                            className={dateFilter === 'today' ? 'shadow-sm bg-white text-indigo-600 hover:bg-white' : 'text-slate-500'}
-                        >Today</Button>
-                        <Button 
-                            variant={dateFilter === 'this_month' ? 'default' : 'ghost'} 
-                            size="sm" onClick={() => setDateFilter('this_month')}
-                            className={dateFilter === 'this_month' ? 'shadow-sm bg-white text-indigo-600 hover:bg-white' : 'text-slate-500'}
-                        >This Month</Button>
-                         <Button 
-                            variant={dateFilter === 'last_month' ? 'default' : 'ghost'} 
-                            size="sm" onClick={() => setDateFilter('last_month')}
-                            className={dateFilter === 'last_month' ? 'shadow-sm bg-white text-indigo-600 hover:bg-white' : 'text-slate-500'}
-                        >Last Month</Button>
-                    </div>
+            </div>
+
+            <Tabs defaultValue="manage" className="w-full">
+                <TabsList className="grid w-full max-w-[400px] grid-cols-2 mb-6">
+                    <TabsTrigger value="manage">Manage Logins</TabsTrigger>
+                    <TabsTrigger value="reports">Login Reports</TabsTrigger>
+                </TabsList>
+
+                {/* --- TAB 1: MANAGE LIST --- */}
+                <TabsContent value="manage" className="space-y-6">
                     
-                    <Button variant="outline" size="sm" onClick={handleExport} className="h-9">
-                        <Download className="w-4 h-4 mr-2" /> Export CSV
-                    </Button>
-                </div>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="border-l-4 border-indigo-500 shadow-sm relative overflow-hidden">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-slate-500">Total Logins</CardTitle></CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold text-slate-800 mb-4">{stats.total}</div>
-                        {/* Custom CSS Mini Bar Chart */}
-                        <div className="h-12 w-full flex items-end justify-between gap-1">
-                            {stats.chartData.map((d, i) => (
-                                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group">
-                                    <div 
-                                        className="w-full bg-indigo-500 rounded-t-sm transition-all group-hover:bg-indigo-600"
-                                        style={{ height: `${(d.count / stats.maxCount) * 100}%` }}
-                                    ></div>
-                                </div>
-                            ))}
+                    {/* Controls */}
+                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white p-4 rounded-lg border">
+                        <div className="flex gap-2">
+                            <Button variant={dateFilter === 'today' ? 'default' : 'outline'} size="sm" onClick={() => setDateFilter('today')}>Today</Button>
+                            <Button variant={dateFilter === 'this_month' ? 'default' : 'outline'} size="sm" onClick={() => setDateFilter('this_month')}>This Month</Button>
+                            <Button variant={dateFilter === 'last_month' ? 'default' : 'outline'} size="sm" onClick={() => setDateFilter('last_month')}>Last Month</Button>
                         </div>
-                    </CardContent>
-                </Card>
-                <Card className="border-l-4 border-green-500 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-slate-500">Approvals</CardTitle></CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold text-slate-800">{stats.approved}</div>
-                        <p className="text-xs text-green-600 flex items-center mt-1">
-                            <TrendingUp className="h-3 w-3 mr-1" /> {stats.approvalRate}% Rate
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className="border-l-4 border-red-500 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-slate-500">Rejections</CardTitle></CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold text-slate-800">{stats.rejected}</div>
-                        <p className="text-xs text-slate-400 mt-1">Requires attention</p>
-                    </CardContent>
-                </Card>
-                <Card className="border-l-4 border-amber-500 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-slate-500">Pending</CardTitle></CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold text-slate-800">{stats.pending}</div>
-                        <p className="text-xs text-amber-600 flex items-center mt-1">
-                            <Clock className="h-3 w-3 mr-1" /> In Process
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                
-                {/* Main Table Section (9 cols) */}
-                <div className="lg:col-span-9 space-y-4">
-                    <Card className="shadow-lg border-0 ring-1 ring-slate-200">
-                        <div className="p-4 border-b flex flex-col md:flex-row gap-4 justify-between items-center bg-white rounded-t-xl">
-                            <div className="relative w-full md:w-64">
-                                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                                <Input placeholder="Search files..." className="pl-9 bg-slate-50 border-slate-200 focus:bg-white transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <div className="relative w-full sm:w-64">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                <Input placeholder="Search..." className="pl-9" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                             </div>
-                            <div className="flex gap-2 w-full md:w-auto">
-                                <Select value={selectedBank} onValueChange={setSelectedBank}>
-                                    <SelectTrigger className="w-full md:w-[150px]"><SelectValue placeholder="Bank" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Banks</SelectItem>
-                                        {uniqueBanks.map((b: any) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                                    <SelectTrigger className="w-full md:w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Status</SelectItem>
-                                        <SelectItem value="Pending">Pending</SelectItem>
-                                        <SelectItem value="Approved">Approved</SelectItem>
-                                        <SelectItem value="Rejected">Rejected</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            <Button variant="outline" onClick={handleExport}><Download className="w-4 h-4" /></Button>
                         </div>
+                    </div>
 
-                        <Table>
-                            <TableHeader className="bg-slate-50">
-                                <TableRow>
-                                    <TableHead>Customer Details</TableHead>
-                                    <TableHead className="hidden md:table-cell">Bank Status</TableHead>
-                                    <TableHead className="hidden md:table-cell">Agent</TableHead>
-                                    <TableHead>Created Date</TableHead>
-                                    <TableHead className="w-[80px]"></TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow><TableCell colSpan={5} className="h-48 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-600" /></TableCell></TableRow>
-                                ) : paginatedLogins.length === 0 ? (
-                                    <TableRow><TableCell colSpan={5} className="h-48 text-center"><EmptyState icon={Search} title="No Records Found" description="Try adjusting your filters." /></TableCell></TableRow>
-                                ) : (
-                                    paginatedLogins.map((item) => (
-                                        <TableRow key={item.id} className="group hover:bg-slate-50/80 transition-colors">
-                                            <TableCell>
-                                                <div>
-                                                    <span className="font-semibold text-slate-900 block">{item.name}</span>
-                                                    <span className="text-xs text-slate-500 font-mono">{item.phone}</span>
-                                                </div>
-                                            </TableCell>
-                                            
-                                            <TableCell className="hidden md:table-cell">
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {Array.isArray(item.bank_attempts) && item.bank_attempts.length > 0 ? (
-                                                        item.bank_attempts.map((att: BankAttempt, idx: number) => (
-                                                            <Badge key={idx} variant="outline" className={`gap-1.5 py-1 px-2 ${getStatusColor(att.status)}`}>
-                                                                {getStatusIcon(att.status)}
-                                                                <span className="font-medium">{att.bank}</span>
-                                                            </Badge>
-                                                        ))
-                                                    ) : (
-                                                        <Badge variant="outline" className="bg-slate-100 text-slate-500">{item.bank_name || 'No Bank'}</Badge>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-
-                                            <TableCell className="hidden md:table-cell">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700">
-                                                        {(item.users?.full_name || 'U')[0]}
-                                                    </div>
-                                                    <span className="text-sm text-slate-600">{item.users?.full_name?.split(' ')[0] || 'Unknown'}</span>
-                                                </div>
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {/* UPDATED: Display created_at */}
-                                                <div className="text-sm text-slate-600">{format(new Date(item.created_at), "MMM dd")}</div>
-                                                <div className="text-[10px] text-slate-400">{format(new Date(item.created_at), "hh:mm a")}</div>
-                                            </TableCell>
-
-                                            <TableCell>
-                                                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" onClick={() => setEditingLogin(item)}>
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
-                                            </TableCell>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        <div className="lg:col-span-9 space-y-4">
+                            <Card className="shadow-lg border-0 ring-1 ring-slate-200">
+                                <Table>
+                                    <TableHeader className="bg-slate-50">
+                                        <TableRow>
+                                            <TableHead>Customer Details</TableHead>
+                                            <TableHead className="hidden md:table-cell">Bank Status</TableHead>
+                                            <TableHead className="hidden md:table-cell">Agent</TableHead>
+                                            <TableHead>Created Date</TableHead>
+                                            <TableHead className="w-[80px]"></TableHead>
                                         </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                        
-                        {/* Pagination */}
-                        <div className="p-4 border-t bg-slate-50/50 flex items-center justify-between">
-                            <span className="text-xs text-slate-500">
-                                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredLogins.length)} of {filteredLogins.length}
-                            </span>
-                            <div className="flex gap-1">
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage === 1}><ChevronLeft className="h-4 w-4"/></Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage === totalPages}><ChevronRight className="h-4 w-4"/></Button>
-                            </div>
-                        </div>
-                    </Card>
-                </div>
-
-                {/* Sidebar (3 cols) */}
-                <div className="lg:col-span-3 space-y-6">
-                    {/* Leaderboard */}
-                    <Card className="shadow-md border-0 ring-1 ring-slate-200">
-                        <CardHeader className="bg-gradient-to-r from-amber-50 to-orange-50 pb-3 border-b border-amber-100">
-                            <div className="flex items-center gap-2">
-                                <Trophy className="h-5 w-5 text-amber-500" />
-                                <CardTitle className="text-base text-amber-900">Top Performers</CardTitle>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="max-h-[300px] overflow-y-auto">
-                                {allTelecallerStats.map((agent, i) => (
-                                    <div key={agent.name} className="flex items-center justify-between p-3 border-b last:border-0 hover:bg-slate-50">
-                                        <div className="flex items-center gap-3">
-                                            <span className={`text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full ${i<3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{i+1}</span>
-                                            <span className="text-sm font-medium text-slate-700 truncate max-w-[120px]" title={agent.name}>{agent.name}</span>
-                                        </div>
-                                        <Badge variant="secondary" className="font-mono">{agent.count}</Badge>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {loading ? (
+                                            <TableRow><TableCell colSpan={5} className="h-48 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-600" /></TableCell></TableRow>
+                                        ) : paginatedLogins.length === 0 ? (
+                                            <TableRow><TableCell colSpan={5} className="h-48 text-center"><EmptyState icon={Search} title="No Records Found" description="Try adjusting your filters." /></TableCell></TableRow>
+                                        ) : (
+                                            paginatedLogins.map((item) => (
+                                                <TableRow key={item.id} className="group hover:bg-slate-50/80 transition-colors">
+                                                    <TableCell>
+                                                        <div>
+                                                            <span className="font-semibold text-slate-900 block">{item.name}</span>
+                                                            <span className="text-xs text-slate-500 font-mono">{item.phone}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="hidden md:table-cell">
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {Array.isArray(item.bank_attempts) && item.bank_attempts.length > 0 ? (
+                                                                item.bank_attempts.map((att: BankAttempt, idx: number) => (
+                                                                    <Badge key={idx} variant="outline" className={`gap-1.5 py-1 px-2 ${getStatusColor(att.status)}`}>
+                                                                        {getStatusIcon(att.status)}
+                                                                        <span className="font-medium">{att.bank}</span>
+                                                                    </Badge>
+                                                                ))
+                                                            ) : (
+                                                                <Badge variant="outline" className="bg-slate-100 text-slate-500">{item.bank_name || 'No Bank'}</Badge>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="hidden md:table-cell">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700">
+                                                                {(item.users?.full_name || 'U')[0]}
+                                                            </div>
+                                                            <span className="text-sm text-slate-600">{item.users?.full_name?.split(' ')[0] || 'Unknown'}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="text-sm text-slate-600">{format(new Date(item.created_at), "MMM dd")}</div>
+                                                        <div className="text-[10px] text-slate-400">{format(new Date(item.created_at), "hh:mm a")}</div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" onClick={() => setEditingLogin(item)}>
+                                                            <Edit className="h-4 w-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                                
+                                {/* Pagination */}
+                                <div className="p-4 border-t bg-slate-50/50 flex items-center justify-between">
+                                    <span className="text-xs text-slate-500">
+                                        Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredLogins.length)} of {filteredLogins.length}
+                                    </span>
+                                    <div className="flex gap-1">
+                                        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage === 1}><ChevronLeft className="h-4 w-4"/></Button>
+                                        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage === totalPages}><ChevronRight className="h-4 w-4"/></Button>
                                     </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* KYC Handover */}
-                    <Card className="shadow-md border-0 ring-1 ring-slate-200">
-                        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 pb-3 border-b border-indigo-100">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <ArrowRightLeft className="h-4 w-4 text-indigo-600" />
-                                    <CardTitle className="text-sm text-indigo-900">Live Handover</CardTitle>
                                 </div>
-                                <span className="text-xs font-bold bg-white text-indigo-600 px-2 py-0.5 rounded-full shadow-sm">{transfers.length}</span>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="max-h-[250px] overflow-y-auto">
-                                {transfers.length === 0 ? (
-                                    <div className="p-4 text-center text-xs text-slate-400">No handovers yet.</div>
-                                ) : (
-                                    transfers.map((t) => (
-                                        <div key={t.id} className="p-3 border-b last:border-0 hover:bg-indigo-50/30 transition-colors">
-                                            <div className="flex justify-between items-start">
-                                                <span className="text-xs font-semibold text-slate-700">{t.users?.full_name || 'Unknown'}</span>
-                                                <span className="text-[10px] text-slate-400">{format(new Date(t.updated_at), "hh:mm a")}</span>
-                                            </div>
-                                            <div className="text-xs text-slate-500 mt-1 truncate">{t.name}</div>
+                            </Card>
+                        </div>
+
+                        {/* Sidebar (3 cols) */}
+                        <div className="lg:col-span-3 space-y-6">
+                            <Card className="shadow-md border-0 ring-1 ring-slate-200">
+                                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 pb-3 border-b border-indigo-100">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <ArrowRightLeft className="h-4 w-4 text-indigo-600" />
+                                            <CardTitle className="text-sm text-indigo-900">Live Handover</CardTitle>
                                         </div>
-                                    ))
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
+                                        <span className="text-xs font-bold bg-white text-indigo-600 px-2 py-0.5 rounded-full shadow-sm">{transfers.length}</span>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <div className="max-h-[400px] overflow-y-auto">
+                                        {transfers.length === 0 ? (
+                                            <div className="p-4 text-center text-xs text-slate-400">No handovers yet.</div>
+                                        ) : (
+                                            transfers.map((t) => (
+                                                <div key={t.id} className="p-3 border-b last:border-0 hover:bg-indigo-50/30 transition-colors">
+                                                    <div className="flex justify-between items-start">
+                                                        <span className="text-xs font-semibold text-slate-700">{t.users?.full_name || 'Unknown'}</span>
+                                                        <span className="text-[10px] text-slate-400">{format(new Date(t.updated_at), "hh:mm a")}</span>
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 mt-1 truncate">{t.name}</div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </div>
+                </TabsContent>
+
+                {/* --- TAB 2: REPORTS --- */}
+                <TabsContent value="reports">
+                    <ReportsView logins={logins} />
+                </TabsContent>
+            </Tabs>
 
             {/* EDIT SHEET */}
             <EditLoginSheet 
@@ -496,6 +363,192 @@ export default function AdminLoginsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div>
+    )
+}
+
+// --- REPORT VIEW COMPONENT ---
+function ReportsView({ logins }: { logins: any[] }) {
+    const today = new Date();
+    
+    // 1. Calculate Today's Data
+    const todayLogins = logins.filter(l => isSameDay(new Date(l.created_at), today));
+    
+    // 2. Calculate MTD (Month Till Date)
+    const startOfCurrentMonth = startOfMonth(today);
+    const mtdLogins = logins.filter(l => new Date(l.created_at) >= startOfCurrentMonth);
+
+    // 3. Telecaller Wise (Today)
+    const telecallerStats = useMemo(() => {
+        const stats: Record<string, number> = {};
+        todayLogins.forEach(l => {
+            const name = l.users?.full_name || 'Unknown';
+            stats[name] = (stats[name] || 0) + 1;
+        });
+        return Object.entries(stats).sort((a,b) => b[1] - a[1]);
+    }, [todayLogins]);
+
+    // 4. Bank vs NBFC Breakdown (Today)
+    const bankBreakdown = useMemo(() => {
+        const stats: Record<string, number> = {};
+        
+        todayLogins.forEach(l => {
+            // Determine Bank Name either from 'bank_name' column or the first attempt in 'bank_attempts'
+            let bankName = l.bank_name || '';
+            if (!bankName && Array.isArray(l.bank_attempts) && l.bank_attempts.length > 0) {
+                bankName = l.bank_attempts[0].bank;
+            }
+            bankName = bankName.toLowerCase().trim();
+
+            if (bankName) {
+                // Normalize names or group them
+                const isTargetBank = TARGET_BANKS.some(tb => bankName.includes(tb));
+                const isTargetNBFC = TARGET_NBFCS.some(tn => bankName.includes(tn));
+
+                let category = 'Other';
+                let displayName = bankName;
+
+                if (isTargetBank) {
+                    category = 'Banks';
+                    displayName = bankName.toUpperCase(); // Or format nicely
+                } else if (isTargetNBFC) {
+                    category = 'NBFC';
+                    displayName = bankName.toUpperCase();
+                } else {
+                    category = 'NBFC'; // Default bucket if unknown, or keep 'Other'
+                    displayName = bankName.toUpperCase();
+                }
+
+                const key = `${category}|${displayName}`;
+                stats[key] = (stats[key] || 0) + 1;
+            }
+        });
+
+        const banks: {name: string, count: number}[] = [];
+        const nbfcs: {name: string, count: number}[] = [];
+
+        Object.entries(stats).forEach(([key, count]) => {
+            const [cat, name] = key.split('|');
+            if (cat === 'Banks') banks.push({ name, count });
+            else nbfcs.push({ name, count });
+        });
+
+        return { banks, nbfcs };
+    }, [todayLogins]);
+
+    return (
+        <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Top Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card className="bg-indigo-50 border-indigo-100">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-indigo-600">Today's Total Logins</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-4xl font-bold text-indigo-900">{todayLogins.length}</div>
+                    </CardContent>
+                </Card>
+                <Card className="bg-emerald-50 border-emerald-100">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-emerald-600">MTD Logins (Month-Till-Date)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-4xl font-bold text-emerald-900">{mtdLogins.length}</div>
+                        <div className="text-xs text-emerald-600 mt-1">Since {format(startOfCurrentMonth, 'MMM 01')}</div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* 1. Telecaller Wise (Today) */}
+                <Card className="shadow-sm">
+                    <CardHeader className="bg-slate-50 border-b pb-3">
+                        <div className="flex items-center gap-2">
+                            <Trophy className="h-5 w-5 text-amber-500" />
+                            <CardTitle className="text-base">Today's Leaderboard</CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Telecaller Name</TableHead>
+                                    <TableHead className="text-right">Logins Today</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {telecallerStats.length === 0 ? (
+                                    <TableRow><TableCell colSpan={2} className="text-center py-8 text-slate-400">No logins today yet.</TableCell></TableRow>
+                                ) : (
+                                    telecallerStats.map(([name, count], index) => (
+                                        <TableRow key={name}>
+                                            <TableCell className="font-medium flex items-center gap-2">
+                                                <span className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-full ${index < 3 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {index + 1}
+                                                </span>
+                                                {name}
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-slate-700">{count}</TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+
+                {/* 2. Institution Wise (Today) */}
+                <div className="space-y-6">
+                    {/* Banks */}
+                    <Card className="shadow-sm border-blue-100">
+                        <CardHeader className="bg-blue-50/50 border-b border-blue-100 pb-3">
+                            <div className="flex items-center gap-2">
+                                <Building2 className="h-5 w-5 text-blue-600" />
+                                <CardTitle className="text-base text-blue-900">Today's Banks</CardTitle>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                            {bankBreakdown.banks.length === 0 ? (
+                                <p className="text-sm text-slate-400 text-center italic">No Bank logins today.</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {bankBreakdown.banks.map(b => (
+                                        <div key={b.name} className="flex justify-between items-center border-b border-slate-50 pb-2 last:border-0 last:pb-0">
+                                            <span className="text-sm font-medium text-slate-700 uppercase">{b.name}</span>
+                                            <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-0">{b.count}</Badge>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* NBFCs */}
+                    <Card className="shadow-sm border-orange-100">
+                        <CardHeader className="bg-orange-50/50 border-b border-orange-100 pb-3">
+                            <div className="flex items-center gap-2">
+                                <Wallet className="h-5 w-5 text-orange-600" />
+                                <CardTitle className="text-base text-orange-900">Today's NBFCs</CardTitle>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                            {bankBreakdown.nbfcs.length === 0 ? (
+                                <p className="text-sm text-slate-400 text-center italic">No NBFC logins today.</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {bankBreakdown.nbfcs.map(n => (
+                                        <div key={n.name} className="flex justify-between items-center border-b border-slate-50 pb-2 last:border-0 last:pb-0">
+                                            <span className="text-sm font-medium text-slate-700 uppercase">{n.name}</span>
+                                            <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-200 border-0">{n.count}</Badge>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
         </div>
     )
 }
@@ -607,7 +660,7 @@ function EditLoginSheet({ login, open, onClose, onSave, onDelete }: { login: any
                 </div>
 
                 <SheetFooter className="mt-8 flex-col sm:flex-row gap-3 border-t pt-4">
-                    <Button variant="destructive" variant="outline" className="w-full sm:w-auto text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200 mr-auto" onClick={() => onDelete(login.id)}>
+                    <Button variant="destructive" className="w-full sm:w-auto text-red-600 bg-red-50 hover:bg-red-100 border-red-200 mr-auto" onClick={() => onDelete(login.id)}>
                         <Trash2 className="h-4 w-4 mr-2" /> Delete
                     </Button>
                     <div className="flex gap-3 w-full sm:w-auto">
