@@ -26,10 +26,10 @@ import {
   Loader2, FileCheck, Download, Search, Trophy, 
   ArrowRightLeft, Edit, Plus, X, Trash2, 
   TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
-  PieChart, Building2, Wallet
+  Building2, Wallet, BarChart3
 } from "lucide-react"
 import { toast } from "sonner"
-import { format, startOfMonth, endOfMonth, subMonths, isSameDay } from "date-fns" 
+import { format, startOfMonth, endOfMonth, subMonths, isSameDay, isWithinInterval } from "date-fns" 
 import { EmptyState } from "@/components/empty-state" 
 
 // --- TYPES ---
@@ -40,9 +40,9 @@ type BankAttempt = {
   date: string;
 }
 
-// --- CONSTANTS FOR REPORTING ---
+// --- CONFIGURATION ---
 const TARGET_BANKS = ["icici", "hdfc", "axis", "kotak"];
-const TARGET_NBFCS = ["incred", "finnable", "idfc", "paysense", "kreditbee"];
+const TARGET_NBFCS = ["incred", "finnable", "idfc", "paysense", "kreditbee", "bajaj", "tata"];
 
 export default function AdminLoginsPage() {
     const supabase = createClient()
@@ -51,7 +51,7 @@ export default function AdminLoginsPage() {
     const [transfers, setTransfers] = useState<any[]>([])
     
     // Filters & Pagination
-    const [dateFilter, setDateFilter] = useState("today")
+    const [dateFilter, setDateFilter] = useState("today") // 'today' | 'this_month' | 'last_month'
     const [searchQuery, setSearchQuery] = useState("")
     const [selectedBank, setSelectedBank] = useState("all")
     const [statusFilter, setStatusFilter] = useState("all")
@@ -75,19 +75,12 @@ export default function AdminLoginsPage() {
                 `)
                 .order('created_at', { ascending: false })
 
-            const todayDate = new Date()
+            // STRATEGY: 
+            // If "Today" or "This Month" is selected, we fetch ALL data from Start of Month.
+            // This allows the Reports Tab to calculate MTD metrics correctly even if user views "Today" in the table.
+            // We will filter "Today" on the client-side for the Manage Table.
             
-            // For the Manage Tab, we respect the filter.
-            // For the Reports Tab (handled in calculation), we usually need at least this month's data.
-            // To ensure both tabs work, if user selects "today" in filter, we still fetch month for reports logic 
-            // but filter view for table. 
-            // *Optimization Strategy*: Here we fetch based on filter for the Table View. 
-            // The Report View creates its own internal query or we fetch everything for "This Month" by default.
-            
-            if (dateFilter === 'today') {
-                const startOfToday = new Date(todayDate.setHours(0,0,0,0)).toISOString()
-                loginsQuery = loginsQuery.gte('created_at', startOfToday)
-            } else if (dateFilter === 'this_month') {
+            if (dateFilter === 'today' || dateFilter === 'this_month') {
                 const start = startOfMonth(new Date()).toISOString()
                 loginsQuery = loginsQuery.gte('created_at', start)
             } else if (dateFilter === 'last_month') {
@@ -118,23 +111,31 @@ export default function AdminLoginsPage() {
 
     useEffect(() => { fetchData() }, [fetchData])
 
-    // 2. COMPUTED STATS & FILTERING
+    // 2. COMPUTED STATS & FILTERING (For Manage Tab)
     const filteredLogins = useMemo(() => {
         return logins.filter(l => {
+            // 1. Date Filter (Client Side Logic for Today)
+            if (dateFilter === 'today') {
+                if (!isSameDay(new Date(l.created_at), new Date())) return false;
+            }
+
+            // 2. Search
             const matchesSearch = 
                 (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
                 (l.phone && l.phone.includes(searchQuery)) ||
                 (l.users?.full_name && l.users.full_name.toLowerCase().includes(searchQuery.toLowerCase()));
             
+            // 3. Bank Filter
             const matchesBank = selectedBank === 'all' || 
                 (Array.isArray(l.bank_attempts) ? l.bank_attempts.some((a:any) => a.bank === selectedBank) : l.bank_name === selectedBank);
             
+            // 4. Status Filter
             const matchesStatus = statusFilter === 'all' || 
                 (Array.isArray(l.bank_attempts) ? l.bank_attempts.some((a:any) => a.status === statusFilter) : l.status === statusFilter);
 
             return matchesSearch && matchesBank && matchesStatus;
         })
-    }, [logins, searchQuery, selectedBank, statusFilter])
+    }, [logins, searchQuery, selectedBank, statusFilter, dateFilter])
 
     const paginatedLogins = useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage
@@ -195,14 +196,14 @@ export default function AdminLoginsPage() {
                         </div>
                         Login Management
                     </h1>
-                    <p className="text-slate-500 text-sm mt-1">Real-time insights and file tracking.</p>
+                    <p className="text-slate-500 text-sm mt-1">Track files, view reports, and manage daily logins.</p>
                 </div>
             </div>
 
             <Tabs defaultValue="manage" className="w-full">
                 <TabsList className="grid w-full max-w-[400px] grid-cols-2 mb-6">
                     <TabsTrigger value="manage">Manage Logins</TabsTrigger>
-                    <TabsTrigger value="reports">Login Reports</TabsTrigger>
+                    <TabsTrigger value="reports">Daily Reports</TabsTrigger>
                 </TabsList>
 
                 {/* --- TAB 1: MANAGE LIST --- */}
@@ -370,185 +371,146 @@ export default function AdminLoginsPage() {
 // --- REPORT VIEW COMPONENT ---
 function ReportsView({ logins }: { logins: any[] }) {
     const today = new Date();
-    
-    // 1. Calculate Today's Data
-    const todayLogins = logins.filter(l => isSameDay(new Date(l.created_at), today));
-    
-    // 2. Calculate MTD (Month Till Date)
     const startOfCurrentMonth = startOfMonth(today);
-    const mtdLogins = logins.filter(l => new Date(l.created_at) >= startOfCurrentMonth);
 
-    // 3. Telecaller Wise (Today)
-    const telecallerStats = useMemo(() => {
-        const stats: Record<string, number> = {};
-        todayLogins.forEach(l => {
-            const name = l.users?.full_name || 'Unknown';
-            stats[name] = (stats[name] || 0) + 1;
-        });
-        return Object.entries(stats).sort((a,b) => b[1] - a[1]);
-    }, [todayLogins]);
+    // 1. Telecaller Detailed Stats (MTD + Today + Splits)
+    const detailedStats = useMemo(() => {
+        const stats: Record<string, { name: string, mtd: number, today: number, todayBank: number, todayNbfc: number }> = {};
 
-    // 4. Bank vs NBFC Breakdown (Today)
-    const bankBreakdown = useMemo(() => {
-        const stats: Record<string, number> = {};
-        
-        todayLogins.forEach(l => {
-            // Determine Bank Name either from 'bank_name' column or the first attempt in 'bank_attempts'
-            let bankName = l.bank_name || '';
-            if (!bankName && Array.isArray(l.bank_attempts) && l.bank_attempts.length > 0) {
-                bankName = l.bank_attempts[0].bank;
-            }
-            bankName = bankName.toLowerCase().trim();
-
-            if (bankName) {
-                // Normalize names or group them
-                const isTargetBank = TARGET_BANKS.some(tb => bankName.includes(tb));
-                const isTargetNBFC = TARGET_NBFCS.some(tn => bankName.includes(tn));
-
-                let category = 'Other';
-                let displayName = bankName;
-
-                if (isTargetBank) {
-                    category = 'Banks';
-                    displayName = bankName.toUpperCase(); // Or format nicely
-                } else if (isTargetNBFC) {
-                    category = 'NBFC';
-                    displayName = bankName.toUpperCase();
-                } else {
-                    category = 'NBFC'; // Default bucket if unknown, or keep 'Other'
-                    displayName = bankName.toUpperCase();
+        // Iterate through all logins passed (which are at least MTD)
+        logins.forEach(l => {
+            const createdAt = new Date(l.created_at);
+            
+            // Only process if within this month (Double check in case parent passed larger range)
+            if (createdAt >= startOfCurrentMonth) {
+                const name = l.users?.full_name || 'Unknown';
+                
+                if (!stats[name]) {
+                    stats[name] = { name, mtd: 0, today: 0, todayBank: 0, todayNbfc: 0 };
                 }
 
-                const key = `${category}|${displayName}`;
-                stats[key] = (stats[key] || 0) + 1;
+                // Increment MTD
+                stats[name].mtd += 1;
+
+                // Check if Today
+                if (isSameDay(createdAt, today)) {
+                    stats[name].today += 1;
+
+                    // Determine Bank vs NBFC
+                    let bankName = l.bank_name || '';
+                    if (!bankName && Array.isArray(l.bank_attempts) && l.bank_attempts.length > 0) {
+                        bankName = l.bank_attempts[0].bank;
+                    }
+                    bankName = bankName.toLowerCase().trim();
+
+                    const isTargetBank = TARGET_BANKS.some(tb => bankName.includes(tb));
+                    const isTargetNBFC = TARGET_NBFCS.some(tn => bankName.includes(tn));
+
+                    if (isTargetBank) {
+                        stats[name].todayBank += 1;
+                    } else if (isTargetNBFC) {
+                        stats[name].todayNbfc += 1;
+                    } else {
+                        // Fallback: If not explicit bank, count as NBFC for now (or separate 'Other')
+                        stats[name].todayNbfc += 1; 
+                    }
+                }
             }
         });
 
-        const banks: {name: string, count: number}[] = [];
-        const nbfcs: {name: string, count: number}[] = [];
-
-        Object.entries(stats).forEach(([key, count]) => {
-            const [cat, name] = key.split('|');
-            if (cat === 'Banks') banks.push({ name, count });
-            else nbfcs.push({ name, count });
+        // Sort by Today's Login count descending, then MTD
+        return Object.values(stats).sort((a, b) => {
+            if (b.today !== a.today) return b.today - a.today;
+            return b.mtd - a.mtd;
         });
+    }, [logins]);
 
-        return { banks, nbfcs };
-    }, [todayLogins]);
+    const mtdTotal = detailedStats.reduce((acc, curr) => acc + curr.mtd, 0);
+    const todayTotal = detailedStats.reduce((acc, curr) => acc + curr.today, 0);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Top Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card className="bg-indigo-50 border-indigo-100">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card className="bg-indigo-600 text-white shadow-md border-0">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-indigo-600">Today's Total Logins</CardTitle>
+                        <CardTitle className="text-sm font-medium text-indigo-100">Today's Total</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-4xl font-bold text-indigo-900">{todayLogins.length}</div>
+                        <div className="text-4xl font-bold">{todayTotal}</div>
                     </CardContent>
                 </Card>
-                <Card className="bg-emerald-50 border-emerald-100">
+                <Card className="bg-white border-slate-200 shadow-sm">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-emerald-600">MTD Logins (Month-Till-Date)</CardTitle>
+                        <CardTitle className="text-sm font-medium text-slate-500">MTD Total</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-4xl font-bold text-emerald-900">{mtdLogins.length}</div>
-                        <div className="text-xs text-emerald-600 mt-1">Since {format(startOfCurrentMonth, 'MMM 01')}</div>
+                        <div className="text-4xl font-bold text-slate-800">{mtdTotal}</div>
+                        <p className="text-xs text-slate-400 mt-1">Since {format(startOfCurrentMonth, 'MMM 01')}</p>
                     </CardContent>
                 </Card>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
-                {/* 1. Telecaller Wise (Today) */}
-                <Card className="shadow-sm">
-                    <CardHeader className="bg-slate-50 border-b pb-3">
-                        <div className="flex items-center gap-2">
-                            <Trophy className="h-5 w-5 text-amber-500" />
-                            <CardTitle className="text-base">Today's Leaderboard</CardTitle>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Telecaller Name</TableHead>
-                                    <TableHead className="text-right">Logins Today</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {telecallerStats.length === 0 ? (
-                                    <TableRow><TableCell colSpan={2} className="text-center py-8 text-slate-400">No logins today yet.</TableCell></TableRow>
-                                ) : (
-                                    telecallerStats.map(([name, count], index) => (
-                                        <TableRow key={name}>
-                                            <TableCell className="font-medium flex items-center gap-2">
-                                                <span className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-full ${index < 3 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {index + 1}
-                                                </span>
-                                                {name}
-                                            </TableCell>
-                                            <TableCell className="text-right font-bold text-slate-700">{count}</TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-
-                {/* 2. Institution Wise (Today) */}
-                <div className="space-y-6">
-                    {/* Banks */}
-                    <Card className="shadow-sm border-blue-100">
-                        <CardHeader className="bg-blue-50/50 border-b border-blue-100 pb-3">
-                            <div className="flex items-center gap-2">
-                                <Building2 className="h-5 w-5 text-blue-600" />
-                                <CardTitle className="text-base text-blue-900">Today's Banks</CardTitle>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-4">
-                            {bankBreakdown.banks.length === 0 ? (
-                                <p className="text-sm text-slate-400 text-center italic">No Bank logins today.</p>
+            {/* Detailed Leaderboard */}
+            <Card className="shadow-lg border-0 ring-1 ring-slate-200">
+                <CardHeader className="bg-slate-50 border-b pb-4">
+                    <div className="flex items-center gap-2">
+                        <Trophy className="h-5 w-5 text-amber-500" />
+                        <CardTitle className="text-base text-slate-800">Telecaller Performance Leaderboard</CardTitle>
+                    </div>
+                    <CardDescription>Breakdown of today's logins by Banks and NBFCs, plus Month-to-Date totals.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-slate-50/50">
+                                <TableHead className="w-[50px] text-center">Rank</TableHead>
+                                <TableHead>Telecaller Name</TableHead>
+                                <TableHead className="text-center w-[120px] bg-indigo-50 text-indigo-900 border-x border-indigo-100 font-bold">Today's Total</TableHead>
+                                <TableHead className="text-center w-[120px]">
+                                    <div className="flex items-center justify-center gap-1 text-blue-600"><Building2 className="h-3 w-3"/> Banks</div>
+                                </TableHead>
+                                <TableHead className="text-center w-[120px]">
+                                    <div className="flex items-center justify-center gap-1 text-orange-600"><Wallet className="h-3 w-3"/> NBFCs</div>
+                                </TableHead>
+                                <TableHead className="text-center w-[120px] bg-slate-100 font-bold text-slate-700">MTD Total</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {detailedStats.length === 0 ? (
+                                <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">No data found for this month.</TableCell></TableRow>
                             ) : (
-                                <div className="space-y-3">
-                                    {bankBreakdown.banks.map(b => (
-                                        <div key={b.name} className="flex justify-between items-center border-b border-slate-50 pb-2 last:border-0 last:pb-0">
-                                            <span className="text-sm font-medium text-slate-700 uppercase">{b.name}</span>
-                                            <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-0">{b.count}</Badge>
-                                        </div>
-                                    ))}
-                                </div>
+                                detailedStats.map((stat, index) => (
+                                    <TableRow key={stat.name} className="hover:bg-slate-50 transition-colors">
+                                        <TableCell className="text-center font-medium text-slate-500">#{index + 1}</TableCell>
+                                        <TableCell className="font-semibold text-slate-700">{stat.name}</TableCell>
+                                        
+                                        {/* Today's Total */}
+                                        <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-x border-indigo-50">
+                                            {stat.today > 0 ? stat.today : <span className="text-slate-300 text-sm font-normal">-</span>}
+                                        </TableCell>
+                                        
+                                        {/* Banks */}
+                                        <TableCell className="text-center font-medium text-blue-600">
+                                            {stat.todayBank > 0 ? stat.todayBank : <span className="text-slate-300 font-normal">-</span>}
+                                        </TableCell>
+                                        
+                                        {/* NBFCs */}
+                                        <TableCell className="text-center font-medium text-orange-600">
+                                            {stat.todayNbfc > 0 ? stat.todayNbfc : <span className="text-slate-300 font-normal">-</span>}
+                                        </TableCell>
+                                        
+                                        {/* MTD Total */}
+                                        <TableCell className="text-center bg-slate-50 font-bold text-slate-800">
+                                            {stat.mtd}
+                                        </TableCell>
+                                    </TableRow>
+                                ))
                             )}
-                        </CardContent>
-                    </Card>
-
-                    {/* NBFCs */}
-                    <Card className="shadow-sm border-orange-100">
-                        <CardHeader className="bg-orange-50/50 border-b border-orange-100 pb-3">
-                            <div className="flex items-center gap-2">
-                                <Wallet className="h-5 w-5 text-orange-600" />
-                                <CardTitle className="text-base text-orange-900">Today's NBFCs</CardTitle>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-4">
-                            {bankBreakdown.nbfcs.length === 0 ? (
-                                <p className="text-sm text-slate-400 text-center italic">No NBFC logins today.</p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {bankBreakdown.nbfcs.map(n => (
-                                        <div key={n.name} className="flex justify-between items-center border-b border-slate-50 pb-2 last:border-0 last:pb-0">
-                                            <span className="text-sm font-medium text-slate-700 uppercase">{n.name}</span>
-                                            <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-200 border-0">{n.count}</Badge>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
         </div>
     )
 }
