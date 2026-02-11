@@ -81,7 +81,7 @@ export function ReportsFilters({ telecallers, defaultStartDate, defaultEndDate }
 
   const clearFilters = () => {
     const today = new Date().toISOString().split("T")[0]
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+    const thirtyDaysAgo = new Date().toISOString().split("T")[0]
 
     setStartDate(today)
     setEndDate(today)
