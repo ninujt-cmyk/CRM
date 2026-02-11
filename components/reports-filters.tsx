@@ -83,7 +83,7 @@ export function ReportsFilters({ telecallers, defaultStartDate, defaultEndDate }
     const today = new Date().toISOString().split("T")[0]
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
-    setStartDate(thirtyDaysAgo)
+    setStartDate(today)
     setEndDate(today)
     setSelectedTelecallers([]) // Clear selection
     router.push("/admin/reports")
