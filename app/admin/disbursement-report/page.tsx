@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { 
   Loader2, IndianRupee, Search, RefreshCw, Trophy, Medal,
   PieChart as PieIcon, ArrowUpRight, Printer, Lightbulb, Crown, 
-  Download, ChevronLeft, ChevronRight, BarChart3
+  Download, ChevronLeft, ChevronRight, BarChart3, Trash2
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -43,7 +43,7 @@ interface LeadDisbursement {
     disbursed_at: string;
     application_number: string;
     name: string;
-    phone: string; // Added Phone
+    phone: string;
     bank_name: string;
     city: string;
     DSA: string;
@@ -70,7 +70,6 @@ const formatDate = (dateString: string) => {
 };
 
 const PIE_COLORS = ['#16a34a', '#2563eb', '#db2777', '#ea580c', '#ca8a04', '#0891b2', '#4b5563'];
-const BAR_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042'];
 
 // --- MAIN COMPONENT ---
 export default function TelecallerDisbursementReport() {
@@ -91,7 +90,7 @@ export default function TelecallerDisbursementReport() {
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
     const [selectedBank, setSelectedBank] = useState<string>("all");
-    const [selectedDSA, setSelectedDSA] = useState<string>("all"); // NEW: DSA Filter
+    const [selectedDSA, setSelectedDSA] = useState<string>("all");
 
     const [targetAmount, setTargetAmount] = useState<number>(50000000); 
     const [isTargetEditing, setIsTargetEditing] = useState(false);
@@ -173,7 +172,7 @@ export default function TelecallerDisbursementReport() {
     const fetchLeads = useCallback(async () => {
         setLoading(true);
         setSelectedAgentId(null);
-        setCurrentPage(1); // Reset pagination on new fetch
+        setCurrentPage(1); 
         
         let startQuery: string, endQuery: string;
 
@@ -200,7 +199,6 @@ export default function TelecallerDisbursementReport() {
 
         const { data, error } = await supabase
             .from('leads')
-            // UPGRADE: Added 'phone' to fetch
             .select('id, assigned_to, disbursed_amount, disbursed_at, application_number, name, phone, bank_name, city, DSA')
             .eq('status', 'DISBURSED') 
             .gte('disbursed_at', startQuery)
@@ -217,7 +215,7 @@ export default function TelecallerDisbursementReport() {
         const safeData = (data || []).map(d => ({
             ...d,
             disbursed_amount: Number(d.disbursed_amount) || 0,
-            DSA: d.DSA || 'Direct' // Normalize empty DSA
+            DSA: d.DSA || 'Direct'
         }));
 
         setDisbursements(safeData as LeadDisbursement[]);
@@ -226,12 +224,10 @@ export default function TelecallerDisbursementReport() {
 
     useEffect(() => {
         fetchUsers().then(() => fetchLeads());
-        // Real-time subscription
         const channel = supabase.channel('disbursement-updates')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
                 const newData = payload.new as any;
                 if (newData.status === 'DISBURSED' || (payload.old as any)?.status === 'DISBURSED') {
-                    // Debounce fetch
                     setTimeout(() => fetchLeads(), 1000);
                 }
             })
@@ -269,7 +265,7 @@ export default function TelecallerDisbursementReport() {
         const dailyMap: Record<string, number> = {};
         const cityMap: Record<string, number> = {};
         const agentMap: Record<string, number> = {};
-        const dsaMap: Record<string, number> = {}; // UPGRADE: DSA Stats
+        const dsaMap: Record<string, number> = {};
         const uniqueBanks = new Set<string>();
         const uniqueDSAs = new Set<string>();
         
@@ -301,7 +297,7 @@ export default function TelecallerDisbursementReport() {
             bankMap[d.bank_name || 'Others'] = (bankMap[d.bank_name || 'Others'] || 0) + amt;
             cityMap[d.city || 'Unknown'] = (cityMap[d.city || 'Unknown'] || 0) + amt;
             agentMap[d.assigned_to] = (agentMap[d.assigned_to] || 0) + amt;
-            dsaMap[d.DSA] = (dsaMap[d.DSA] || 0) + amt; // Accumulate DSA
+            dsaMap[d.DSA] = (dsaMap[d.DSA] || 0) + amt;
             
             if(d.disbursed_at) {
                 const iso = d.disbursed_at.split('T')[0];
@@ -353,7 +349,7 @@ export default function TelecallerDisbursementReport() {
 
         // Charts
         const bChartData = Object.entries(bankMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 8);
-        const dChartData = Object.entries(dsaMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value); // DSA Chart Data
+        const dChartData = Object.entries(dsaMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value); 
         
         const sortedBanks = Object.entries(bankMap).sort((a,b) => b[1] - a[1]);
         const top5 = sortedBanks.slice(0, 5).map(([name, value]) => ({ name, value }));
@@ -372,7 +368,7 @@ export default function TelecallerDisbursementReport() {
             grandTotal: total,
             displayLabel: label,
             bankChartData: bChartData,
-            dsaChartData: dChartData, // Exporting this
+            dsaChartData: dChartData, 
             pieData: top5,
             trendData: trendFinal,
             avgTicketSize: avg,
@@ -403,7 +399,7 @@ export default function TelecallerDisbursementReport() {
             .sort((a, b) => b.amount - a.amount);
     }, [filteredData, userMap]);
 
-    // --- NEW: CSV EXPORT FUNCTION ---
+    // --- CSV EXPORT FUNCTION ---
     const handleExportCSV = () => {
         if (!filteredData.length) {
             toast({ title: "No Data", description: "Nothing to export based on current filters." });
@@ -414,7 +410,7 @@ export default function TelecallerDisbursementReport() {
         const rows = filteredData.map(item => [
             item.application_number,
             item.disbursed_at ? item.disbursed_at.split('T')[0] : '-',
-            `"${item.name}"`, // Quote to handle commas in names
+            `"${item.name}"`, 
             item.phone,
             item.bank_name,
             item.DSA,
