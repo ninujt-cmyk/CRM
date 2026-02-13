@@ -4,9 +4,9 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { 
-  Loader2, IndianRupee, TrendingUp, Search, RefreshCw, X, Users, Trophy, Medal,
-  Calculator, Building2, Target, PieChart as PieIcon, ArrowUpRight, Wallet, Pencil, Zap, Printer, Gauge,
-  Lightbulb, Crown, Calendar, Trash2
+  Loader2, IndianRupee, Search, RefreshCw, Trophy, Medal,
+  PieChart as PieIcon, ArrowUpRight, Printer, Lightbulb, Crown, 
+  Download, ChevronLeft, ChevronRight, BarChart3
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -19,7 +19,7 @@ import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
-  AreaChart, Area, PieChart, Pie
+  AreaChart, Area, PieChart, Pie, Legend
 } from 'recharts'
 
 import {
@@ -43,8 +43,10 @@ interface LeadDisbursement {
     disbursed_at: string;
     application_number: string;
     name: string;
+    phone: string; // Added Phone
     bank_name: string;
     city: string;
+    DSA: string;
 }
 
 interface UserMap {
@@ -68,6 +70,7 @@ const formatDate = (dateString: string) => {
 };
 
 const PIE_COLORS = ['#16a34a', '#2563eb', '#db2777', '#ea580c', '#ca8a04', '#0891b2', '#4b5563'];
+const BAR_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042'];
 
 // --- MAIN COMPONENT ---
 export default function TelecallerDisbursementReport() {
@@ -77,9 +80,8 @@ export default function TelecallerDisbursementReport() {
     // --- STATE ---
     const [filterMode, setFilterMode] = useState<'monthly' | 'custom'>('monthly');
     const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1; // 1-12
+    const currentMonth = new Date().getMonth() + 1; 
 
-    // Set Default Year & Month (Current Month)
     const [selectedYear, setSelectedYear] = useState(String(currentYear));
     const [selectedMonth, setSelectedMonth] = useState<string>(String(currentMonth).padStart(2, '0'));
     
@@ -89,6 +91,7 @@ export default function TelecallerDisbursementReport() {
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
     const [selectedBank, setSelectedBank] = useState<string>("all");
+    const [selectedDSA, setSelectedDSA] = useState<string>("all"); // NEW: DSA Filter
 
     const [targetAmount, setTargetAmount] = useState<number>(50000000); 
     const [isTargetEditing, setIsTargetEditing] = useState(false);
@@ -101,6 +104,10 @@ export default function TelecallerDisbursementReport() {
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
 
     // --- QUICK FILTER HANDLERS ---
     const setQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'lastMonth') => {
@@ -153,10 +160,8 @@ export default function TelecallerDisbursementReport() {
             .select('id, full_name')
             .in('role', ['telecaller', 'team_leader']); 
 
-        if (error) {
-            console.error('Error fetching users:', error);
-            return;
-        }
+        if (error) console.error('Error fetching users:', error);
+        
         const map: UserMap = {};
         (data || []).forEach(user => {
             map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`;
@@ -168,6 +173,7 @@ export default function TelecallerDisbursementReport() {
     const fetchLeads = useCallback(async () => {
         setLoading(true);
         setSelectedAgentId(null);
+        setCurrentPage(1); // Reset pagination on new fetch
         
         let startQuery: string, endQuery: string;
 
@@ -194,7 +200,8 @@ export default function TelecallerDisbursementReport() {
 
         const { data, error } = await supabase
             .from('leads')
-            .select('id, assigned_to, disbursed_amount, disbursed_at, application_number, name, bank_name, city')
+            // UPGRADE: Added 'phone' to fetch
+            .select('id, assigned_to, disbursed_amount, disbursed_at, application_number, name, phone, bank_name, city, DSA')
             .eq('status', 'DISBURSED') 
             .gte('disbursed_at', startQuery)
             .lte('disbursed_at', endQuery)
@@ -209,7 +216,8 @@ export default function TelecallerDisbursementReport() {
 
         const safeData = (data || []).map(d => ({
             ...d,
-            disbursed_amount: Number(d.disbursed_amount) || 0
+            disbursed_amount: Number(d.disbursed_amount) || 0,
+            DSA: d.DSA || 'Direct' // Normalize empty DSA
         }));
 
         setDisbursements(safeData as LeadDisbursement[]);
@@ -218,11 +226,13 @@ export default function TelecallerDisbursementReport() {
 
     useEffect(() => {
         fetchUsers().then(() => fetchLeads());
+        // Real-time subscription
         const channel = supabase.channel('disbursement-updates')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
                 const newData = payload.new as any;
                 if (newData.status === 'DISBURSED' || (payload.old as any)?.status === 'DISBURSED') {
-                    setTimeout(() => fetchLeads(), 500);
+                    // Debounce fetch
+                    setTimeout(() => fetchLeads(), 1000);
                 }
             })
             .subscribe();
@@ -234,7 +244,7 @@ export default function TelecallerDisbursementReport() {
         setIsDeleting(true);
         try {
             const { error } = await supabase.from('leads')
-                .update({ status: 'Interested', disbursed_amount: null, disbursed_at: null })
+                .update({ status: 'Interested', disbursed_amount: null, disbursed_at: null, DSA: null })
                 .eq('id', deleteId);
             if (error) throw error;
             toast({ title: "Deleted", description: "Transaction removed successfully." });
@@ -250,7 +260,7 @@ export default function TelecallerDisbursementReport() {
     // --- AGGREGATION & ANALYTICS ---
     const { 
         filteredData, grandTotal, displayLabel, bankChartData, trendData, 
-        pieData, avgTicketSize, cityStats, availableBanks,
+        pieData, dsaChartData, avgTicketSize, cityStats, availableBanks, availableDSAs,
         projectedRevenue, dailyVelocity,
         smartInsight, maxDeal
     } = useMemo(() => {
@@ -259,21 +269,27 @@ export default function TelecallerDisbursementReport() {
         const dailyMap: Record<string, number> = {};
         const cityMap: Record<string, number> = {};
         const agentMap: Record<string, number> = {};
+        const dsaMap: Record<string, number> = {}; // UPGRADE: DSA Stats
         const uniqueBanks = new Set<string>();
+        const uniqueDSAs = new Set<string>();
         
         let maxDealItem: LeadDisbursement | null = null;
 
         // 1. Filter
         const searched = disbursements.filter(item => {
             if(item.bank_name) uniqueBanks.add(item.bank_name);
+            if(item.DSA) uniqueDSAs.add(item.DSA);
+
             if (selectedAgentId && item.assigned_to !== selectedAgentId) return false;
             if (selectedBank !== 'all' && item.bank_name !== selectedBank) return false;
+            if (selectedDSA !== 'all' && item.DSA !== selectedDSA) return false;
 
             const term = searchTerm.toLowerCase();
             const telecallerName = userMap[item.assigned_to]?.toLowerCase() || "";
             const customerName = item.name?.toLowerCase() || "";
             const appNo = item.application_number?.toLowerCase() || "";
-            return telecallerName.includes(term) || customerName.includes(term) || appNo.includes(term);
+            const dsaName = item.DSA?.toLowerCase() || "";
+            return telecallerName.includes(term) || customerName.includes(term) || appNo.includes(term) || dsaName.includes(term);
         });
 
         // 2. Aggregate
@@ -285,13 +301,13 @@ export default function TelecallerDisbursementReport() {
             bankMap[d.bank_name || 'Others'] = (bankMap[d.bank_name || 'Others'] || 0) + amt;
             cityMap[d.city || 'Unknown'] = (cityMap[d.city || 'Unknown'] || 0) + amt;
             agentMap[d.assigned_to] = (agentMap[d.assigned_to] || 0) + amt;
+            dsaMap[d.DSA] = (dsaMap[d.DSA] || 0) + amt; // Accumulate DSA
             
             if(d.disbursed_at) {
                 const iso = d.disbursed_at.split('T')[0];
                 dailyMap[iso] = (dailyMap[iso] || 0) + amt;
             }
 
-            // Find Max Deal
             if (!maxDealItem || amt > maxDealItem.disbursed_amount) {
                 maxDealItem = d;
             }
@@ -299,16 +315,14 @@ export default function TelecallerDisbursementReport() {
 
         const avg = searched.length > 0 ? total / searched.length : 0;
         
-        // 3. Projections & Velocity
+        // 3. Projections
         let velocity = 0;
         let projection = total;
-        
         if (filterMode === 'monthly' && selectedMonth !== 'all') {
             const now = new Date();
             const selYear = Number(selectedYear);
             const selMonthIdx = Number(selectedMonth) - 1;
             const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
-            
             if (selYear === now.getFullYear() && selMonthIdx === now.getMonth()) {
                 const daysPassed = now.getDate();
                 velocity = total / daysPassed;
@@ -319,70 +333,63 @@ export default function TelecallerDisbursementReport() {
             }
         }
 
-        // 4. Smart Insights Logic
+        // 4. Smart Insights
         let insight = "Track your daily performance to hit targets.";
         if (total > 0) {
             const entries = Object.entries(bankMap).sort((a,b) => b[1] - a[1]);
             if (entries.length > 0) {
                 const topBankName = entries[0][0];
                 const topBankShare = (entries[0][1] / total) * 100;
-                
                 if (topBankShare > 60) {
                     insight = `⚠️ High dependency on ${topBankName} (${topBankShare.toFixed(0)}% of volume). Consider diversifying.`;
                 } else if (topBankShare > 40) {
                     insight = `ℹ️ ${topBankName} is your leading partner, driving ${topBankShare.toFixed(0)}% of sales.`;
-                } else {
-                    const agentEntries = Object.entries(agentMap).sort((a,b) => b[1] - a[1]);
-                    if (agentEntries.length > 0) {
-                        const topAgentName = userMap[agentEntries[0][0]]?.split(' ')[0] || 'Unknown';
-                        const topAgentShare = (agentEntries[0][1] / total) * 100;
-                        insight = `🚀 ${topAgentName} is leading the pack with ${topAgentShare.toFixed(0)}% contribution.`;
-                    }
                 }
             }
         }
 
         let label = "Total Revenue";
         if (selectedAgentId) label = `${userMap[selectedAgentId]}'s Revenue`;
-        if (selectedBank !== 'all') label += ` (${selectedBank})`;
 
         // Charts
         const bChartData = Object.entries(bankMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 8);
+        const dChartData = Object.entries(dsaMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value); // DSA Chart Data
+        
         const sortedBanks = Object.entries(bankMap).sort((a,b) => b[1] - a[1]);
         const top5 = sortedBanks.slice(0, 5).map(([name, value]) => ({ name, value }));
-        const othersVal = sortedBanks.slice(5).reduce((acc, curr) => acc + curr[1], 0);
-        if(othersVal > 0) top5.push({ name: 'Others', value: othersVal });
+        
         const trendFinal = Object.keys(dailyMap).sort().map(iso => ({
             date: new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
             value: dailyMap[iso]
         }));
+        
         const cityFinal = Object.entries(cityMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 5);
         const banksList = Array.from(uniqueBanks).sort();
+        const dsasList = Array.from(uniqueDSAs).sort();
 
         return {
             filteredData: searched,
             grandTotal: total,
             displayLabel: label,
             bankChartData: bChartData,
+            dsaChartData: dChartData, // Exporting this
             pieData: top5,
             trendData: trendFinal,
             avgTicketSize: avg,
             cityStats: cityFinal,
             availableBanks: banksList,
+            availableDSAs: dsasList,
             projectedRevenue: projection,
             dailyVelocity: velocity,
             smartInsight: insight,
             maxDeal: maxDealItem
         };
-    }, [disbursements, searchTerm, userMap, selectedAgentId, selectedBank, filterMode, selectedYear, selectedMonth]);
+    }, [disbursements, searchTerm, userMap, selectedAgentId, selectedBank, selectedDSA, filterMode, selectedYear, selectedMonth]);
 
+    // Leaderboard
     const telecallerStats = useMemo(() => {
         const stats: Record<string, { amount: number, count: number }> = {};
-        const leaderboardData = disbursements.filter(item => {
-            if (selectedBank !== 'all' && item.bank_name !== selectedBank) return false;
-            return true; 
-        });
-        leaderboardData.forEach(d => {
+        filteredData.forEach(d => {
             const id = d.assigned_to;
             if(!stats[id]) stats[id] = { amount: 0, count: 0 };
             stats[id].amount += (d.disbursed_amount || 0);
@@ -394,7 +401,44 @@ export default function TelecallerDisbursementReport() {
                 avg: data.count > 0 ? data.amount / data.count : 0
             }))
             .sort((a, b) => b.amount - a.amount);
-    }, [disbursements, userMap, selectedBank]);
+    }, [filteredData, userMap]);
+
+    // --- NEW: CSV EXPORT FUNCTION ---
+    const handleExportCSV = () => {
+        if (!filteredData.length) {
+            toast({ title: "No Data", description: "Nothing to export based on current filters." });
+            return;
+        }
+        
+        const headers = ["Application No", "Date", "Customer Name", "Phone", "Bank", "DSA", "City", "Amount", "Agent"];
+        const rows = filteredData.map(item => [
+            item.application_number,
+            item.disbursed_at ? item.disbursed_at.split('T')[0] : '-',
+            `"${item.name}"`, // Quote to handle commas in names
+            item.phone,
+            item.bank_name,
+            item.DSA,
+            item.city,
+            item.disbursed_amount,
+            userMap[item.assigned_to] || item.assigned_to
+        ]);
+
+        const csvContent = "data:text/csv;charset=utf-8," 
+            + headers.join(",") + "\n" 
+            + rows.map(e => e.join(",")).join("\n");
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `disbursement_report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // Pagination Logic
+    const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+    const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     const getRankIcon = (index: number) => {
         if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500 fill-yellow-100" />;
@@ -417,11 +461,14 @@ export default function TelecallerDisbursementReport() {
                         <IndianRupee className="h-8 w-8 text-green-600" />
                         Disbursement Intelligence
                     </h1>
-                    <p className="text-slate-500 text-sm mt-1">Real-time financial tracking and commission analysis</p>
+                    <p className="text-slate-500 text-sm mt-1">Financial tracking, DSA performance, and commission analysis</p>
                 </div>
                 <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleExportCSV} className="gap-2">
+                        <Download className="h-4 w-4" /> Export CSV
+                    </Button>
                     <Button variant="outline" onClick={handlePrint} className="gap-2">
-                        <Printer className="h-4 w-4" /> Print Report
+                        <Printer className="h-4 w-4" /> Print
                     </Button>
                     <DisbursementModal onSuccess={() => setRefreshKey(prev => prev + 1)} />
                 </div>
@@ -441,7 +488,7 @@ export default function TelecallerDisbursementReport() {
                     <div className="flex flex-col lg:flex-row gap-4 justify-between items-end lg:items-center">
                         <div className="w-full lg:w-1/3 relative">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-                            <Input placeholder="Search Name, App No..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            <Input placeholder="Search Name, App No, DSA..." className="pl-9" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
                         </div>
                         
                         <div className="flex flex-wrap gap-2 items-end">
@@ -451,11 +498,21 @@ export default function TelecallerDisbursementReport() {
                                 <Badge variant="outline" className="cursor-pointer hover:bg-slate-100" onClick={() => setQuickFilter('lastMonth')}>Last Month</Badge>
                             </div>
 
-                            <Select value={selectedBank} onValueChange={setSelectedBank}>
-                                <SelectTrigger className="w-[140px] border-slate-300"><SelectValue placeholder="All Banks" /></SelectTrigger>
+                            {/* BANK FILTER */}
+                            <Select value={selectedBank} onValueChange={(v) => { setSelectedBank(v); setCurrentPage(1); }}>
+                                <SelectTrigger className="w-[130px] border-slate-300"><SelectValue placeholder="All Banks" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All Banks</SelectItem>
                                     {availableBanks.map(bank => <SelectItem key={bank} value={bank}>{bank}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+
+                            {/* DSA FILTER (NEW) */}
+                            <Select value={selectedDSA} onValueChange={(v) => { setSelectedDSA(v); setCurrentPage(1); }}>
+                                <SelectTrigger className="w-[130px] border-slate-300"><SelectValue placeholder="All DSAs" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All DSAs</SelectItem>
+                                    {availableDSAs.map(dsa => <SelectItem key={dsa} value={dsa}>{dsa}</SelectItem>)}
                                 </SelectContent>
                             </Select>
 
@@ -500,7 +557,6 @@ export default function TelecallerDisbursementReport() {
                 </TabsList>
 
                 <TabsContent value="dashboard" className="space-y-6 mt-4">
-                    
                     {/* STATS STRIP */}
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                         {/* 1. ACTUAL */}
@@ -549,7 +605,7 @@ export default function TelecallerDisbursementReport() {
                                 <div className="flex justify-between items-center mb-1">
                                     <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">Goal Progress</p>
                                     {!isTargetEditing ? (
-                                        <Pencil className="h-3 w-3 text-slate-300 cursor-pointer" onClick={() => setIsTargetEditing(true)}/>
+                                        <div onClick={() => setIsTargetEditing(true)} className="cursor-pointer text-[10px] bg-slate-100 px-1 rounded">Edit</div>
                                     ) : (
                                         <div className="flex gap-1"><Input type="number" className="h-5 w-16 text-[10px]" value={targetAmount} onChange={e=>setTargetAmount(Number(e.target.value))} /><Button size="sm" className="h-5 text-[10px] px-1" onClick={()=>setIsTargetEditing(false)}>OK</Button></div>
                                     )}
@@ -577,6 +633,7 @@ export default function TelecallerDisbursementReport() {
                     {/* CHARTS */}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                         <div className="md:col-span-8 space-y-6">
+                             {/* TREND CHART */}
                              <Card className="shadow-sm border-slate-200">
                                 <CardHeader className="py-4"><CardTitle className="text-sm font-semibold flex items-center gap-2"><ArrowUpRight className="h-4 w-4 text-indigo-500"/> Daily Trend</CardTitle></CardHeader>
                                 <CardContent className="h-[200px]">
@@ -594,43 +651,41 @@ export default function TelecallerDisbursementReport() {
                             </Card>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* DSA PERFORMANCE CHART (NEW) */}
+                                <Card className="shadow-sm border-slate-200">
+                                    <CardHeader className="py-4"><CardTitle className="text-sm font-semibold flex gap-2"><BarChart3 className="h-4 w-4 text-pink-500"/> DSA Performance</CardTitle></CardHeader>
+                                    <CardContent className="h-[250px]">
+                                         <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={dsaChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                                <XAxis type="number" fontSize={10} hide />
+                                                <YAxis dataKey="name" type="category" width={80} fontSize={10} />
+                                                <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
+                                                <Bar dataKey="value" fill="#ec4899" radius={[0, 4, 4, 0]} barSize={20} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </CardContent>
+                                </Card>
+
+                                {/* BANK SHARE CHART */}
                                 <Card className="shadow-sm border-slate-200">
                                     <CardHeader className="py-4"><CardTitle className="text-sm font-semibold flex gap-2"><PieIcon className="h-4 w-4 text-purple-500"/> Bank Share</CardTitle></CardHeader>
-                                    <CardContent className="h-[200px]">
+                                    <CardContent className="h-[250px]">
                                          <ResponsiveContainer width="100%" height="100%">
                                             <PieChart>
                                                 <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2} dataKey="value">
                                                     {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                                                 </Pie>
+                                                <Legend wrapperStyle={{fontSize: '10px'}} layout="horizontal" verticalAlign="bottom" align="center" />
                                                 <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </CardContent>
                                 </Card>
-                                <Card className="shadow-sm border-slate-200">
-                                    <CardHeader className="py-4"><CardTitle className="text-sm font-semibold flex gap-2"><Zap className="h-4 w-4 text-orange-500"/> Live Feed</CardTitle></CardHeader>
-                                    <CardContent className="h-[200px] overflow-y-auto p-0">
-                                        <div className="divide-y divide-slate-100">
-                                            {filteredData.slice(0, 5).map((item) => (
-                                                <div key={item.id} className="p-3 hover:bg-slate-50">
-                                                    <div className="flex justify-between items-start mb-1">
-                                                        <span className="text-xs font-bold text-slate-800">{formatCurrency(item.disbursed_amount)}</span>
-                                                        <span className="text-[10px] text-slate-400">{formatDate(item.disbursed_at)}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-[10px] text-slate-500 truncate w-24">{item.name}</span>
-                                                        <Badge variant="outline" className="text-[9px] h-4 px-1">{userMap[item.assigned_to]?.split(' ')[0]}</Badge>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
                             </div>
                         </div>
 
+                        {/* LEADERBOARD */}
                         <div className="md:col-span-4 space-y-6">
-                            {/* MATCHED LEADERBOARD CARD */}
                             <Card className="shadow-sm border-slate-200 h-full">
                                 <CardHeader className="py-4 bg-slate-50 border-b">
                                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -643,8 +698,6 @@ export default function TelecallerDisbursementReport() {
                                             <TableRow className="hover:bg-slate-50">
                                                 <TableHead className="w-[40px] text-xs font-bold text-slate-600">#</TableHead>
                                                 <TableHead className="text-xs font-bold text-slate-600">Agent</TableHead>
-                                                <TableHead className="text-center text-xs font-bold text-slate-600">Count</TableHead>
-                                                <TableHead className="text-right text-xs font-bold text-slate-600">Avg Ticket</TableHead>
                                                 <TableHead className="text-right text-xs font-bold text-green-600">Total</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -656,11 +709,10 @@ export default function TelecallerDisbursementReport() {
                                                     onClick={() => setSelectedAgentId(stat.id === selectedAgentId ? null : stat.id)}
                                                 >
                                                     <TableCell className="py-3">{getRankIcon(idx)}</TableCell>
-                                                    <TableCell className="py-3 font-semibold text-slate-700 text-xs">{stat.name}</TableCell>
-                                                    <TableCell className="py-3 text-center">
-                                                        <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-md font-medium">{stat.count}</span>
+                                                    <TableCell className="py-3 font-semibold text-slate-700 text-xs">
+                                                        {stat.name}
+                                                        <div className="text-[10px] font-normal text-slate-400">{stat.count} files</div>
                                                     </TableCell>
-                                                    <TableCell className="py-3 text-right font-mono text-xs text-slate-400">{formatCurrency(stat.avg)}</TableCell>
                                                     <TableCell className="py-3 text-right font-bold text-green-700 text-xs">{formatCurrency(stat.amount)}</TableCell>
                                                 </TableRow>
                                             ))}
@@ -674,25 +726,62 @@ export default function TelecallerDisbursementReport() {
 
                 <TabsContent value="data" className="mt-4">
                     <Card className="shadow-sm">
-                        <CardHeader><CardTitle className="text-base">Transactions</CardTitle></CardHeader>
+                        <CardHeader className="flex flex-row justify-between items-center">
+                            <CardTitle className="text-base">Transactions ({filteredData.length})</CardTitle>
+                            
+                            {/* PAGINATION CONTROLS */}
+                            <div className="flex items-center gap-2">
+                                <Button 
+                                    variant="outline" size="icon" className="h-8 w-8" 
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                                    disabled={currentPage === 1}
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <span className="text-xs text-slate-500">Page {currentPage} of {totalPages || 1}</span>
+                                <Button 
+                                    variant="outline" size="icon" className="h-8 w-8" 
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                                    disabled={currentPage === totalPages || totalPages === 0}
+                                >
+                                    <ChevronRight className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader className="bg-slate-50">
-                                    <TableRow><TableHead>#</TableHead><TableHead>App No</TableHead><TableHead>Agent</TableHead><TableHead>Customer</TableHead><TableHead>Date</TableHead><TableHead>Bank</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="text-center">Action</TableHead></TableRow>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>App No</TableHead>
+                                        <TableHead>Agent</TableHead>
+                                        <TableHead>Customer</TableHead>
+                                        <TableHead>DSA</TableHead>
+                                        <TableHead>Date</TableHead>
+                                        <TableHead>Bank</TableHead>
+                                        <TableHead className="text-right">Amount</TableHead>
+                                        <TableHead className="text-center">Action</TableHead>
+                                    </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredData.map((item, index) => (
+                                    {paginatedData.map((item, index) => (
                                         <TableRow key={item.id} className="hover:bg-slate-50">
-                                            <TableCell className="text-xs text-slate-500">{index+1}</TableCell>
+                                            <TableCell className="text-xs text-slate-500">{(currentPage - 1) * itemsPerPage + index + 1}</TableCell>
                                             <TableCell className="text-xs font-mono">{item.application_number}</TableCell>
                                             <TableCell><Badge variant="outline" className="font-normal text-xs">{userMap[item.assigned_to]}</Badge></TableCell>
                                             <TableCell><div className="flex flex-col"><span className="text-sm font-medium">{item.name}</span><span className="text-[10px] text-slate-400">{item.city}</span></div></TableCell>
+                                            <TableCell className="text-xs font-medium text-slate-700">{item.DSA}</TableCell>
                                             <TableCell className="text-sm text-slate-500">{formatDate(item.disbursed_at)}</TableCell>
                                             <TableCell className="text-sm">{item.bank_name}</TableCell>
                                             <TableCell className="text-right font-bold text-green-700">{formatCurrency(item.disbursed_amount)}</TableCell>
                                             <TableCell className="text-center"><Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-600" onClick={() => setDeleteId(item.id)}><Trash2 className="h-4 w-4" /></Button></TableCell>
                                         </TableRow>
                                     ))}
+                                    {paginatedData.length === 0 && (
+                                        <TableRow>
+                                            <TableCell colSpan={9} className="h-24 text-center text-slate-500">No transactions found.</TableCell>
+                                        </TableRow>
+                                    )}
                                 </TableBody>
                             </Table>
                         </CardContent>
