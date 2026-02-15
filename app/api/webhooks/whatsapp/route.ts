@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
-// Initialize Supabase Admin Client (to bypass RLS for lookups)
+// Initialize Supabase Admin Client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -12,7 +12,6 @@ export async function POST(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const updateType = searchParams.get("type"); // 'mo' or 'dlr'
     
-    // Parse incoming webhook data (Gracefully handle JSON or URL-encoded)
     const bodyText = await request.text();
     let body: any = {};
     try {
@@ -22,31 +21,50 @@ export async function POST(request: NextRequest) {
       body = Object.fromEntries(params);
     }
 
-    console.log(`Received ${updateType} Webhook:`, body);
+    console.log(`\n=== Received ${updateType?.toUpperCase()} Webhook ===`);
+    console.log(JSON.stringify(body, null, 2));
 
     // ---------------------------------------------------------
     // CASE 1: HANDLE "MO" (Mobile Originated / Customer Reply)
     // ---------------------------------------------------------
     if (updateType === 'mo') {
-      // Fonada typically sends the customer's number in 'mobile', 'sender', or 'from'
-      const customerPhone = body?.mobile || body?.sender || body?.from; 
-      const messageText = body?.msg || body?.text || body?.message || "";
+      // 1. Extract Customer Phone
+      // Look for the phone number in various common Fonada payload locations
+      let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
+      
+      // 2. Extract Message Text
+      // Look for text in various common payload locations (Text reply or Button reply)
+      let messageText = 
+        body.text || 
+        body.msg || 
+        body?.message?.text?.body || 
+        body?.message?.button?.text ||
+        body?.button_text ||
+        "";
+
+      if (typeof messageText !== 'string') {
+          messageText = JSON.stringify(messageText);
+      }
+
+      console.log(`Extracted Phone: ${customerPhone}, Text: ${messageText}`);
 
       if (!customerPhone || !messageText) {
+        console.log("Ignored: Missing phone or text");
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
-      // 1. Check for Keywords
+      // 3. Check for Keywords
+      // We look for common positive responses
       const keywords = ["interested", "intrested", "yes", "plan", "details", "call me"];
       const isInterested = keywords.some(k => messageText.toLowerCase().includes(k));
 
       if (isInterested) {
-        // 2. Normalize Phone: Extract the 10-digit number to match your Supabase DB format
-        // Fonada usually sends numbers with '91'. We safely extract the last 10 digits.
+        console.log("Keyword matched! Finding lead...");
+        // Normalize Phone: Extract last 10 digits
         let dbPhone = customerPhone.replace(/^\+?91/, '');
         if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-        // 3. Find Lead & Assigned Telecaller using a fuzzy match
+        // Find Lead
         const { data: lead } = await supabase
           .from("leads")
           .select("assigned_to")
@@ -56,7 +74,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (lead?.assigned_to) {
-          // 4. Get Telecaller Details
+          // Get Telecaller Details
           const { data: agent } = await supabase
             .from("users")
             .select("full_name, phone")
@@ -64,7 +82,7 @@ export async function POST(request: NextRequest) {
             .single();
 
           if (agent && agent.phone) {
-            // 5. Send Personalized Reply
+            console.log(`Found Agent: ${agent.full_name}. Sending reply.`);
             const replyMessage = `Hi! Thank you for your interest.\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
             
             await sendFonadaMessage(customerPhone, replyMessage);
@@ -72,11 +90,12 @@ export async function POST(request: NextRequest) {
           }
         } 
         
-        // Fallback: If lead is unassigned or not found
+        console.log("Lead unassigned or not found. Sending generic reply.");
         await sendFonadaMessage(customerPhone, "Thank you for your interest! Our team will contact you shortly.");
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
+      console.log("No keywords matched. Taking no action.");
       return NextResponse.json({ status: "success", action: "no_keyword_match" });
     }
 
@@ -84,8 +103,9 @@ export async function POST(request: NextRequest) {
     // CASE 2: HANDLE "DLR" (Delivery Reports)
     // ---------------------------------------------------------
     if (updateType === 'dlr') {
-      // Fonada telling you a message was delivered/read.
-      // You can log it in your database later if needed. For now, just accept it.
+      // Fonada tells you a message was Sent, Delivered, Read, or Failed.
+      // E.g., body.status === 'delivered'
+      console.log(`DLR Status: ${body.status || 'unknown'} for mobile: ${body.mobile || 'unknown'}`);
       return NextResponse.json({ status: "success", action: "dlr_logged" });
     }
 
@@ -101,7 +121,6 @@ export async function POST(request: NextRequest) {
 async function sendFonadaMessage(mobile: string, text: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   
-  // Create Form Data as requested by Fonada's API Collection
   const formData = new FormData();
   formData.append("userid", process.env.FONADA_USERID || "bankscart");
   formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
@@ -115,7 +134,7 @@ async function sendFonadaMessage(mobile: string, text: string) {
   try {
     const res = await fetch(apiUrl, {
       method: "POST",
-      body: formData // Notice we send formData, not JSON
+      body: formData
     });
     
     const data = await res.json();
