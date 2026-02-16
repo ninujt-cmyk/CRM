@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
-// FORCE NEXT.JS TO NEVER CACHE THIS ROUTE
 export const dynamic = 'force-dynamic';
 
 const supabase = createClient(
@@ -10,23 +9,18 @@ const supabase = createClient(
 );
 
 export async function POST(request: NextRequest) {
-  // 1. Log immediately so we know it was hit
   console.log("🔔 [WEBHOOK HIT] Received POST request at /api/webhooks/whatsapp");
 
   try {
     const searchParams = request.nextUrl.searchParams;
     const updateType = searchParams.get("type"); // 'mo' or 'dlr'
     
-    // 2. Read the raw text first. This prevents JSON.parse from crashing if Fonada sends weird data.
     const rawBody = await request.text();
-    console.log("📦 [RAW PAYLOAD]:", rawBody);
-
     let body: any = {};
     if (rawBody) {
       try {
         body = JSON.parse(rawBody);
       } catch(e) {
-        // If it's not JSON, try URL encoded form data
         const params = new URLSearchParams(rawBody);
         body = Object.fromEntries(params);
       }
@@ -39,14 +33,17 @@ export async function POST(request: NextRequest) {
     // ---------------------------------------------------------
     if (updateType === 'mo') {
       
+      // Extract Phone Number
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       
+      // Extract Text (This will capture Button Clicks too!)
       let messageText = 
         body.text || 
         body.msg || 
         body?.message?.text?.body || 
         body?.message?.button?.text ||
         body?.button_text ||
+        body?.message?.interactive?.button_reply?.title || // Meta standard for buttons
         "";
 
       if (typeof messageText !== 'string') {
@@ -60,11 +57,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
-      const keywords = ["interested", "intrested", "yes", "plan", "details", "call me"];
-      const isInterested = keywords.some(k => messageText.toLowerCase().includes(k));
+      const textLower = messageText.toLowerCase();
 
-      if (isInterested) {
-        console.log("✅ [KEYWORD MATCHED] Finding lead...");
+      // --- SMART KEYWORD MATCHING (Including your Buttons) ---
+      const isHelp = textLower.includes("help");
+      const isComplete = textLower.includes("complete"); // Matches "Complete Now", "Complete Application"
+      const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
+
+      // If ANY of our conditions match
+      if (isHelp || isComplete || isInterested) {
+        console.log(`✅ [MATCHED] Help: ${isHelp}, Complete: ${isComplete}, Interested: ${isInterested}. Finding lead...`);
         
         let dbPhone = customerPhone.replace(/^\+?91/, '');
         if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
@@ -79,6 +81,11 @@ export async function POST(request: NextRequest) {
 
         if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
+        // Customize the first line of the reply based on what button they clicked!
+        let introMsg = "Thank you for your interest.";
+        if (isHelp) introMsg = "We are here to help!";
+        if (isComplete) introMsg = "Let's get your application completed!";
+
         if (lead?.assigned_to) {
           const { data: agent, error: agentError } = await supabase
             .from("users")
@@ -89,8 +96,9 @@ export async function POST(request: NextRequest) {
           if (agentError) console.error("❌ [DB ERROR] Finding agent:", agentError);
 
           if (agent && agent.phone) {
-            console.log(`🎯 [AGENT FOUND] ${agent.full_name}. Sending reply.`);
-            const replyMessage = `Hi! Thank you for your interest.\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
+            console.log(`🎯 [AGENT FOUND] ${agent.full_name}. Sending dynamic reply.`);
+            
+            const replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
             
             await sendFonadaMessage(customerPhone, replyMessage);
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
@@ -98,11 +106,11 @@ export async function POST(request: NextRequest) {
         } 
         
         console.log("⚠️ [FALLBACK] Lead unassigned or not found. Sending generic reply.");
-        await sendFonadaMessage(customerPhone, "Thank you for your interest! Our team will contact you shortly.");
+        await sendFonadaMessage(customerPhone, `${introMsg} Our team will contact you shortly.`);
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
-      console.log("⏭️ [SKIPPED] No keywords matched.");
+      console.log("⏭️ [SKIPPED] No keywords or buttons matched.");
       return NextResponse.json({ status: "success", action: "no_keyword_match" });
     }
 
@@ -114,7 +122,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "success", action: "dlr_logged" });
     }
 
-    console.log("❌ [ERROR] Unknown update type:", updateType);
     return NextResponse.json({ status: "error", message: "Unknown update type" }, { status: 400 });
 
   } catch (error) {
