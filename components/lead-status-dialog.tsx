@@ -14,6 +14,10 @@ interface LeadStatusDialogProps {
   description?: string
   isCallInitiated?: boolean // New prop to indicate if this is for a call
   onCallLogged?: (callLogId: string) => void // New prop to notify when call is logged
+  
+  // ADDED PROPS FOR WHATSAPP FEATURES
+  leadPhoneNumber?: string | null 
+  telecallerName?: string | null
 }
 
 export function LeadStatusDialog({ 
@@ -25,7 +29,9 @@ export function LeadStatusDialog({
   title = "Update Lead Status",
   description = "Update the status of this lead.",
   isCallInitiated = false,
-  onCallLogged
+  onCallLogged,
+  leadPhoneNumber, // Destructure new prop
+  telecallerName   // Destructure new prop
 }: LeadStatusDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,6 +46,10 @@ export function LeadStatusDialog({
           onStatusUpdate={onStatusUpdate}
           isCallInitiated={isCallInitiated}
           onCallLogged={onCallLogged}
+          
+          // PASS PROPS DOWN TO UPDATER
+          leadPhoneNumber={leadPhoneNumber}
+          telecallerName={telecallerName}
         />
       </DialogContent>
     </Dialog>
