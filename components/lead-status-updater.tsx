@@ -21,6 +21,9 @@ import { ScheduleFollowUpModal } from "./schedule-follow-up-modal"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
+// --- IMPORT THE SERVER ACTION WE CREATED EARLIER ---
+import { sendMissedCallMessage } from "@/app/actions/whatsapp"
+
 interface LeadStatusUpdaterProps {
   leadId: string
   currentStatus: string
@@ -86,6 +89,7 @@ export function LeadStatusUpdater({
   const [dialing, setDialing] = useState(false);
    
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
+  const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) // NEW: State for Missed Call WA Loading
   
   // REF to track duplication
   const lastDialedIdRef = useRef<string | null>(null)
@@ -123,24 +127,17 @@ export function LeadStatusUpdater({
   useEffect(() => { 
     setLoanAmount(initialLoanAmount);
     handleReset();
-    // If we switched leads, reset the dialer lock
     if (leadId !== lastDialedIdRef.current) {
         setDialing(false);
         setCountdown(null);
     }
   }, [leadId, initialLoanAmount]);
 
-  // ------------------------------------------------------------------
   // AUTOMATION: ROBUST VISUAL AUTO-DIALER
-  // ------------------------------------------------------------------
   useEffect(() => {
-    // CONDITIONS: Call Mode ON, Valid Data, Auto-Next ON, Not yet dialed
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
-        
         if (lastDialedIdRef.current !== leadId) {
-            lastDialedIdRef.current = leadId; // Lock it
-
-            // Start Visual Countdown
+            lastDialedIdRef.current = leadId; 
             setCountdown(3); 
             
             const interval = setInterval(() => {
@@ -150,22 +147,18 @@ export function LeadStatusUpdater({
                         clearInterval(interval);
                         setDialing(true);
                         
-                        // --- THE DIAL ACTION ---
                         const cleanNumber = leadPhoneNumber.replace(/\D/g, '');
-                        
-                        // Hidden Iframe Technique (Bypasses popup blockers)
                         const iframe = document.createElement('iframe');
                         iframe.style.display = 'none';
                         document.body.appendChild(iframe);
                         iframe.src = `tel:${cleanNumber}`;
                         
-                        // Cleanup
                         setTimeout(() => {
                             if(document.body.contains(iframe)) document.body.removeChild(iframe);
                             setDialing(false);
                         }, 1000);
                         
-                        return null; // Stop countdown
+                        return null;
                     }
                     return prev - 1;
                 });
@@ -202,6 +195,27 @@ export function LeadStatusUpdater({
   }, [status, isUpdating]);
 
   // --- HANDLERS ---
+
+  // NEW: Handler for Missed Call WhatsApp
+  const handleMissedCallWA = async () => {
+    if (!leadPhoneNumber) return;
+    setIsSendingMissedCall(true);
+    try {
+      const result = await sendMissedCallMessage(leadPhoneNumber);
+      if (result.success) {
+        toast.success("Missed call WhatsApp sent!");
+        // Optionally auto-set status to 'NR' when clicked
+        if(!status) setStatus('nr'); 
+      } else {
+        toast.error("Failed to send: " + result.error);
+      }
+    } catch (error) {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setIsSendingMissedCall(false);
+    }
+  };
+
   const formatTime = (totalSeconds: number) => {
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
     const s = (totalSeconds % 60).toString().padStart(2, '0');
@@ -276,7 +290,7 @@ export function LeadStatusUpdater({
     if (status === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
     if (status === "follow_up") { setIsModalOpen(true); return }
     if (isLoanAmountMissing) { toast.error("Loan Amount Required", { description: "Please enter a valid loan amount for this status." }); return; }
-     
+      
     const finalDuration = callDurationOverride ?? elapsedTime;
     if (isCallInitiated && status !== 'nr' && finalDuration <= 0) {
         toast.error("Invalid Duration", { description: "Call duration must be > 0 seconds." }); return
@@ -434,6 +448,32 @@ export function LeadStatusUpdater({
                 </Tooltip>
             </TooltipProvider>
             
+            {/* NEW: Missed Call WA Button */}
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button 
+                            onClick={handleMissedCallWA}
+                            disabled={isSendingMissedCall || !isWhatsappEnabled}
+                            className={cn(
+                                "p-2 rounded-full transition-all shadow-sm flex items-center justify-center", 
+                                isWhatsappEnabled 
+                                    ? "bg-amber-100 hover:bg-amber-200 text-amber-600" 
+                                    : "bg-slate-200 text-slate-400 cursor-not-allowed",
+                                isSendingMissedCall ? "opacity-60 cursor-not-allowed" : ""
+                            )}
+                        >
+                            {isSendingMissedCall ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <PhoneMissed className="h-4 w-4" />
+                            )}
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Send Missed Call WA</p></TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
