@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { PhoneMissed, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { toast } from "sonner" // or your preferred toast library
+import { toast } from "sonner" // change to your toast library if different
 import { sendMissedCallMessage } from "@/app/actions/whatsapp"
 
 interface MissedCallButtonProps {
@@ -24,7 +24,7 @@ export function MissedCallButton({ customerPhone }: MissedCallButtonProps) {
       const result = await sendMissedCallMessage(customerPhone);
       
       if (result.success) {
-        toast.success("WhatsApp message sent!");
+        toast.success("Missed call template sent!");
       } else {
         toast.error("Failed to send message: " + result.error);
       }
