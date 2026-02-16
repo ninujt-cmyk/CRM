@@ -20,7 +20,6 @@ export async function sendMissedCallMessage(customerPhone: string) {
     if (error || !agent) throw new Error("Could not fetch agent details");
 
     // 3. Construct the EXACT Template Message
-    // IMPORTANT: The spacing and formatting must perfectly match your approved template
     const textMessage = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you. 3`;
 
     // 4. Send via Fonada
@@ -39,12 +38,20 @@ export async function sendMissedCallMessage(customerPhone: string) {
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
     formData.append("mobile", safePhone); 
     
-    // Pass the fully formed message and the template name
+    // Core Message Details
     formData.append("msg", textMessage);
     formData.append("msgType", "text");
-    formData.append("templateName", "agent_callback_request"); // <-- Added Template Name
+    formData.append("templateName", "agent_callback_request"); 
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
+
+    // FIX: Add the required Buttons Payload for this specific template
+    const buttonsPayload = JSON.stringify({
+      button1: "Call in 1 Hour",
+      button2: "Call in 2 Hours",
+      button3: "Call me after 5 PM"
+    });
+    formData.append("buttonsPayload", buttonsPayload);
 
     const res = await fetch(apiUrl, {
       method: "POST",
@@ -54,9 +61,9 @@ export async function sendMissedCallMessage(customerPhone: string) {
     const data = await res.json();
     console.log("Fonada Template Message Response:", data);
     
-    // Fonada usually returns status "error" if the template mismatch happens
-    if (data.status === "error") {
-        throw new Error(data.message || "Fonada API Error");
+    // Throw error if Fonada rejects it
+    if (data.status === "error" || data.error) {
+        throw new Error(data.message || data.error || "Fonada API Error");
     }
 
     return { success: true };
