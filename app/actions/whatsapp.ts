@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-export async function sendMissedCallMessage(customerPhone: string) {
+export async function sendMissedCallTemplate(customerPhone: string) {
   try {
     const supabase = await createClient();
     
@@ -10,7 +10,7 @@ export async function sendMissedCallMessage(customerPhone: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // 2. Fetch Telecaller's details to include in the message
+    // 2. Fetch Telecaller's details for the {{1}} and {{2}} variables
     const { data: agent, error } = await supabase
       .from('users')
       .select('full_name, phone')
@@ -19,13 +19,14 @@ export async function sendMissedCallMessage(customerPhone: string) {
 
     if (error || !agent) throw new Error("Could not fetch agent details");
 
-    // 3. Construct the Message
-    const textMessage = `Hi, our representative *${agent.full_name}* tried calling you regarding your inquiry but couldn't reach you.\n\nPlease let us know a suitable time to call you back, or you can reach them directly at: ${agent.phone}`;
+    // 3. Construct the EXACT approved template message
+    // Note: The text must match the approved template in Meta EXACTLY (including spaces and line breaks)
+    const exactMessageText = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you.`;
 
     // 4. Send via Fonada
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
     
-    // Bypass Node.js strict SSL Verification (same as our webhook fix)
+    // Bypass Node.js strict SSL Verification for Fonada
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
@@ -38,8 +39,10 @@ export async function sendMissedCallMessage(customerPhone: string) {
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
     formData.append("mobile", safePhone); 
     
-    formData.append("msg", textMessage);
+    // Pass the message, type, and importantly, the templateName
+    formData.append("msg", exactMessageText);
     formData.append("msgType", "text");
+    formData.append("templateName", "agent_callback_request"); // <-- Your template name
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
 
@@ -51,7 +54,8 @@ export async function sendMissedCallMessage(customerPhone: string) {
     const data = await res.json();
     console.log("Fonada Missed Call Response:", data);
     
-    if (data.status === "error") {
+    // Fonada usually returns success: true/false or a specific status string
+    if (data.status === "error" || data.error) {
         throw new Error(data.message || "Fonada API Error");
     }
 
