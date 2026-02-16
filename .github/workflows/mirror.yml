@@ -8,9 +8,14 @@ on:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
-      - name: Push to second repo
+
+      - name: Mirror Repository
         run: |
-          git remote add mirror https://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@github.com/gauravhotstar/CRM.git
-          git push mirror main --force
+          git config --global user.name "gauravhotstar"
+          git config --global user.email "hotstaer5@gmail.com"
+
+          git remote add mirror https://${{ secrets.MIRROR_TOKEN }}@github.com/gauravhotstar/CRM.git
+          git push --force mirror main
