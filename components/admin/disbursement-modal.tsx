@@ -15,7 +15,7 @@ interface DisbursementModalProps {
 }
 
 // DSA Options
-const DSA_OPTIONS = ["RKPL", "Star Power", "Profincare"]
+const DSA_OPTIONS = ["RKPL", "Star Power", "Profincare", "DRRT"]
 
 export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
     const [open, setOpen] = useState(false)
