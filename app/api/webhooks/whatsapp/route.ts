@@ -33,17 +33,15 @@ export async function POST(request: NextRequest) {
     // ---------------------------------------------------------
     if (updateType === 'mo') {
       
-      // Extract Phone Number
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       
-      // Extract Text (This will capture Button Clicks too!)
       let messageText = 
         body.text || 
         body.msg || 
         body?.message?.text?.body || 
         body?.message?.button?.text ||
         body?.button_text ||
-        body?.message?.interactive?.button_reply?.title || // Meta standard for buttons
+        body?.message?.interactive?.button_reply?.title ||
         "";
 
       if (typeof messageText !== 'string') {
@@ -59,39 +57,39 @@ export async function POST(request: NextRequest) {
 
       const textLower = messageText.toLowerCase();
 
-      // --- SMART KEYWORD MATCHING (Including your Buttons) ---
+      // --- SMART KEYWORD MATCHING ---
       const isHelp = textLower.includes("help");
-      const isComplete = textLower.includes("complete"); // Matches "Complete Now", "Complete Application"
+      const isComplete = textLower.includes("complete"); 
       const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
-      // If ANY of our conditions match
       if (isHelp || isComplete || isInterested) {
         console.log(`✅ [MATCHED] Help: ${isHelp}, Complete: ${isComplete}, Interested: ${isInterested}. Finding lead...`);
         
         let dbPhone = customerPhone.replace(/^\+?91/, '');
         if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
+        // FIX 1: Use .maybeSingle() to prevent database errors if the number isn't in the CRM
         const { data: lead, error: leadError } = await supabase
           .from("leads")
           .select("assigned_to")
           .ilike("phone", `%${dbPhone}%`)
           .order("created_at", { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-        // Customize the first line of the reply based on what button they clicked!
         let introMsg = "Thank you for your interest.";
         if (isHelp) introMsg = "We are here to help!";
         if (isComplete) introMsg = "Let's get your application completed!";
 
         if (lead?.assigned_to) {
+          // Find the agent using maybeSingle() here as well just to be safe
           const { data: agent, error: agentError } = await supabase
             .from("users")
             .select("full_name, phone")
             .eq("id", lead.assigned_to)
-            .single();
+            .maybeSingle();
 
           if (agentError) console.error("❌ [DB ERROR] Finding agent:", agentError);
 
@@ -134,6 +132,9 @@ export async function POST(request: NextRequest) {
 async function sendFonadaMessage(mobile: string, text: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   
+  // FIX 2: Bypass Node.js strict SSL Verification for Fonada's API
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
   const formData = new FormData();
   formData.append("userid", process.env.FONADA_USERID || "bankscart");
   formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
