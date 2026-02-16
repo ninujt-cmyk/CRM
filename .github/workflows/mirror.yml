@@ -1,0 +1,16 @@
+name: Mirror Repo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Push to second repo
+        run: |
+          git remote add mirror https://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@github.com/gauravhotstar/CRM.git
+          git push mirror main --force
