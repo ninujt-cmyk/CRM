@@ -48,8 +48,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log("📋 [IVR PAYLOAD]:", body);
-
     const customerPhone = body.mobileNumber || body.mobile_number || body.phone;
     const digitsPressed = body.digitsPressed || body.digits_pressed;
     const callDuration = body.callDuration;
@@ -64,7 +62,7 @@ export async function POST(request: NextRequest) {
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-    const { data: lead, error: leadError } = await supabase
+    const { data: lead } = await supabase
       .from("leads")
       .select("id, notes")
       .ilike("phone", `%${dbPhone}%`)
@@ -72,37 +70,67 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
-
     const digitText = digitsPressed ? `Digit Pressed: **${digitsPressed}**` : "No digit pressed";
     const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
 
+    // -------------------------------------------------------------
+    // CASE A: LEAD ALREADY EXISTS
+    // -------------------------------------------------------------
     if (lead) {
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
-        const { error: updateError } = await supabase
-            .from("leads")
-            .update({ notes: existingNotes })
-            .eq("id", lead.id);
-
-        if (updateError) console.error("❌ [DB ERROR] Updating lead notes:", updateError);
-        else console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id} with IVR digit.`);
+        await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
+        console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id}`);
     } 
+    // -------------------------------------------------------------
+    // CASE B: COMPLETELY NEW LEAD (FAIR DISTRIBUTION ALGORITHM)
+    // -------------------------------------------------------------
     else {
-        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Creating and assigning...`);
+        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Running Smart Distribution...`);
 
+        // 1. Get all active telecallers
         let { data: activeTelecallers } = await supabase
             .from("users")
-            .select("id")
+            .select("id, full_name")
             .in("role", ["telecaller", "agent", "user"]); 
 
         let assignedToId = null;
 
         if (activeTelecallers && activeTelecallers.length > 0) {
-            const randomIndex = Math.floor(Math.random() * activeTelecallers.length);
-            assignedToId = activeTelecallers[randomIndex].id;
+            
+            // 2. Fetch all leads created TODAY to see who got what
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+
+            const { data: todaysLeads } = await supabase
+                .from("leads")
+                .select("assigned_to")
+                .gte("created_at", startOfDay.toISOString());
+
+            // 3. Count leads per telecaller
+            const leadCounts: Record<string, number> = {};
+            activeTelecallers.forEach(t => leadCounts[t.id] = 0); // Start everyone at 0
+
+            if (todaysLeads) {
+                todaysLeads.forEach(l => {
+                    if (l.assigned_to && leadCounts[l.assigned_to] !== undefined) {
+                        leadCounts[l.assigned_to]++;
+                    }
+                });
+            }
+
+            // 4. Find the minimum number of leads anyone has
+            const minLeads = Math.min(...Object.values(leadCounts));
+
+            // 5. Find all telecallers who have this minimum amount (Handles Ties)
+            const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
+
+            // 6. Pick one of the eligible telecallers randomly
+            const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
+            assignedToId = winner.id;
+            
+            console.log(`⚖️ [FAIR DISTRIBUTION] Everyone has at least ${minLeads} leads today. Assigned to ${winner.full_name}`);
         }
 
-        // --- USING THE NAME GENERATOR HERE ---
         const fakeName = getRandomIndianName();
 
         const { data: newLead, error: insertError } = await supabase
@@ -120,7 +148,7 @@ export async function POST(request: NextRequest) {
         if (insertError) {
             console.error("❌ [DB ERROR] Failed to insert new IVR lead:", insertError);
         } else {
-            console.log(`✅ [SUCCESS] Created Lead ID: ${newLead.id} (Name: ${fakeName}) & Assigned to User ID: ${assignedToId}`);
+            console.log(`✅ [SUCCESS] Created Lead ID: ${newLead.id} (Name: ${fakeName})`);
         }
     }
 
