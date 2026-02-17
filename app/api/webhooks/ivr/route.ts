@@ -82,53 +82,73 @@ export async function POST(request: NextRequest) {
         console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id}`);
     } 
     // -------------------------------------------------------------
-    // CASE B: COMPLETELY NEW LEAD (FAIR DISTRIBUTION ALGORITHM)
+    // CASE B: NEW LEAD -> FIND "CHECKED IN" TELECALLERS & DISTRIBUTE
     // -------------------------------------------------------------
     else {
-        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Running Smart Distribution...`);
+        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Searching for active telecallers...`);
 
-        // 1. Get all active telecallers
-        let { data: activeTelecallers } = await supabase
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        // B1: FIND WHO IS CHECKED IN TODAY
+        // Note: Change 'check_out_time' to 'check_out' if that is what your table uses
+        const { data: attendanceData } = await supabase
+            .from("attendance")
+            .select("user_id")
+            .gte("created_at", startOfDay.toISOString())
+            .is("check_out_time", null); // Null means they are still online
+
+        const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
+
+        // B2: GET THE TELECALLERS
+        let { data: telecallers } = await supabase
             .from("users")
             .select("id, full_name")
             .in("role", ["telecaller", "agent", "user"]); 
 
         let assignedToId = null;
 
-        if (activeTelecallers && activeTelecallers.length > 0) {
+        // B3: FILTER & DISTRIBUTE EQUALLY
+        if (telecallers && checkedInUserIds.length > 0) {
             
-            // 2. Fetch all leads created TODAY to see who got what
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
+            // Filter the user list down to ONLY those who are checked in
+            const activeTelecallers = telecallers.filter(t => checkedInUserIds.includes(t.id));
 
-            const { data: todaysLeads } = await supabase
-                .from("leads")
-                .select("assigned_to")
-                .gte("created_at", startOfDay.toISOString());
+            if (activeTelecallers.length > 0) {
+                // Fetch all leads created TODAY
+                const { data: todaysLeads } = await supabase
+                    .from("leads")
+                    .select("assigned_to")
+                    .gte("created_at", startOfDay.toISOString());
 
-            // 3. Count leads per telecaller
-            const leadCounts: Record<string, number> = {};
-            activeTelecallers.forEach(t => leadCounts[t.id] = 0); // Start everyone at 0
+                // Count leads per ACTIVE telecaller
+                const leadCounts: Record<string, number> = {};
+                activeTelecallers.forEach(t => leadCounts[t.id] = 0); // Start everyone at 0
 
-            if (todaysLeads) {
-                todaysLeads.forEach(l => {
-                    if (l.assigned_to && leadCounts[l.assigned_to] !== undefined) {
-                        leadCounts[l.assigned_to]++;
-                    }
-                });
+                if (todaysLeads) {
+                    todaysLeads.forEach(l => {
+                        if (l.assigned_to && leadCounts[l.assigned_to] !== undefined) {
+                            leadCounts[l.assigned_to]++;
+                        }
+                    });
+                }
+
+                // Find the minimum number of leads anyone has
+                const minLeads = Math.min(...Object.values(leadCounts));
+
+                // Find all active telecallers who have this minimum amount (Handles Ties)
+                const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
+
+                // Pick one of the eligible telecallers randomly
+                const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
+                assignedToId = winner.id;
+                
+                console.log(`⚖️ [FAIR DISTRIBUTION] Everyone online has at least ${minLeads} leads. Assigned to ${winner.full_name}`);
+            } else {
+                console.log("⚠️ [WARNING] No telecallers are currently checked in. Lead will remain unassigned.");
             }
-
-            // 4. Find the minimum number of leads anyone has
-            const minLeads = Math.min(...Object.values(leadCounts));
-
-            // 5. Find all telecallers who have this minimum amount (Handles Ties)
-            const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
-
-            // 6. Pick one of the eligible telecallers randomly
-            const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
-            assignedToId = winner.id;
-            
-            console.log(`⚖️ [FAIR DISTRIBUTION] Everyone has at least ${minLeads} leads today. Assigned to ${winner.full_name}`);
+        } else {
+            console.log("⚠️ [WARNING] No attendance records found for today. Lead will remain unassigned.");
         }
 
         const fakeName = getRandomIndianName();
