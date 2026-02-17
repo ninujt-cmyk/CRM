@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 // Force Next.js to never cache this route
 export const dynamic = 'force-dynamic';
 
-// Initialize Supabase Admin Client
+// Initialize Supabase Admin Client (Service Role bypasses RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
     console.log("📋 [IVR PAYLOAD]:", body);
 
-    // 2. Extract the important fields based on Fonada's report format
+    // 2. Extract the fields based on Fonada's report format
     const customerPhone = body.mobileNumber || body.mobile_number || body.phone;
     const digitsPressed = body.digitsPressed || body.digits_pressed;
     const callDuration = body.callDuration;
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "ignored", reason: "no_mobile_number" });
     }
 
-    // 3. Normalize Phone: Extract last 10 digits to match your DB
+    // 3. Normalize Phone: Extract last 10 digits
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
@@ -55,12 +55,13 @@ export async function POST(request: NextRequest) {
 
     if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-    // 5. If the lead exists, update their notes with the IVR result
+    const digitText = digitsPressed ? `Digit Pressed: **${digitsPressed}**` : "No digit pressed";
+    const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
+
+    // -------------------------------------------------------------
+    // CASE A: LEAD ALREADY EXISTS -> Update Notes
+    // -------------------------------------------------------------
     if (lead) {
-        const digitText = digitsPressed ? `Digit Pressed: **${digitsPressed}**` : "No digit pressed";
-        const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
-        
-        // Append to existing notes
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
 
         const { error: updateError } = await supabase
@@ -71,15 +72,55 @@ export async function POST(request: NextRequest) {
         if (updateError) {
              console.error("❌ [DB ERROR] Updating lead notes:", updateError);
         } else {
-             console.log(`✅ [SUCCESS] Updated Lead ID: ${lead.id} with IVR digit: ${digitsPressed}`);
+             console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id} with IVR digit.`);
         }
-    } else {
-        console.log(`⚠️ [NOT FOUND] Lead with phone ${dbPhone} not found in CRM. Creating a new lead is skipped.`);
-        // NOTE: If you want the CRM to automatically CREATE a new lead when a random number presses a digit, we can add an insert() query here!
+    } 
+    // -------------------------------------------------------------
+    // CASE B: COMPLETELY NEW LEAD -> Create & Assign Automatically
+    // -------------------------------------------------------------
+    else {
+        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Creating and assigning...`);
+
+        // Step B1: Find active telecallers
+        // NOTE: Adjust '.eq("role", "telecaller")' if your column name is different
+        let { data: activeTelecallers } = await supabase
+            .from("users")
+            .select("id")
+            // ---> Add your specific "Checked In" condition here if you have one! <---
+            // Example: .eq("is_active", true) OR .eq("attendance_status", "checked_in")
+            // For now, it fetches all standard telecallers:
+            .in("role", ["telecaller", "agent", "user"]); 
+
+        let assignedToId = null;
+
+        // Step B2: Pick a random active telecaller (Round Robin effect)
+        if (activeTelecallers && activeTelecallers.length > 0) {
+            const randomIndex = Math.floor(Math.random() * activeTelecallers.length);
+            assignedToId = activeTelecallers[randomIndex].id;
+        }
+
+        // Step B3: Insert the new lead
+        const { data: newLead, error: insertError } = await supabase
+            .from("leads")
+            .insert({
+                name: `IVR Lead - ${dbPhone.slice(-4)}`, // e.g. "IVR Lead - 4829"
+                phone: dbPhone,
+                status: "new",
+                notes: ivrNote,
+                assigned_to: assignedToId,
+                // Add any other required columns for your 'leads' table here (e.g. 'source': 'IVR')
+            })
+            .select("id")
+            .single();
+
+        if (insertError) {
+            console.error("❌ [DB ERROR] Failed to insert new IVR lead:", insertError);
+        } else {
+            console.log(`✅ [SUCCESS] Created Lead ID: ${newLead.id} & Assigned to User ID: ${assignedToId}`);
+        }
     }
 
-    // Always return a success response to Fonada so they know we got it
-    return NextResponse.json({ status: "success", message: "IVR data logged successfully" });
+    return NextResponse.json({ status: "success", message: "IVR data processed successfully" });
 
   } catch (error) {
     console.error("🔥 [CRITICAL ERROR] IVR Webhook failed:", error);
@@ -87,7 +128,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Add a GET method just in case Fonada uses it to verify the URL is alive
 export async function GET() {
   return NextResponse.json({ status: "success", message: "IVR Webhook is ready to receive POST requests!" });
 }
