@@ -124,7 +124,7 @@ export function TelecallerLeadFilters({ initialSearchParams }: { initialSearchPa
               <SelectItem value="new">New Lead</SelectItem>
               <SelectItem value="contacted">Contacted</SelectItem>
               <SelectItem value="Interested">Interested</SelectItem>
-              <SelectItem value="Documents_Sent">Docs Sent</SelectItem>
+              <SelectItem value="Documents_Sent">Docs Pending</SelectItem>
               <SelectItem value="Login">Login</SelectItem>
               <SelectItem value="DISBURSED">Disbursed</SelectItem>
               <SelectItem value="follow_up">Call Back</SelectItem>
