@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react"; // ⬅️ ADD useCallback
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export function useTelecallerStatus(telecallerIds: string[]) {
@@ -8,7 +8,13 @@ export function useTelecallerStatus(telecallerIds: string[]) {
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
-  // 1. 🔑 Stabilize the fetch function to ensure it's not the loop source
+  // We use a ref to track IDs to prevent unnecessary effect re-running if the array reference changes but content doesn't
+  const idsRef = useRef(telecallerIds);
+  // Update ref if the actual IDs stringified changes
+  if (JSON.stringify(idsRef.current) !== JSON.stringify(telecallerIds)) {
+    idsRef.current = telecallerIds;
+  }
+
   const fetchStatus = useCallback(async (ids: string[]) => {
     if (ids.length === 0) {
       setTelecallerStatus({});
@@ -16,77 +22,82 @@ export function useTelecallerStatus(telecallerIds: string[]) {
       return;
     }
 
-    setLoading(true);
+    // Note: We don't set loading(true) here because this runs on real-time updates. 
+    // If we set loading true, the UI might flicker "loading..." every time someone checks out.
+    
     try {
-      // Get today's date in YYYY-MM-DD format
       const today = new Date().toISOString().split('T')[0];
       
-      // Fetch attendance records for all telecallers for today
       const { data: attendanceRecords, error } = await supabase
         .from("attendance")
-        .select("user_id, check_in")
+        .select("user_id, check_in, check_out") // ⬅️ CRITICAL: Fetch check_out
         .eq("date", today)
         .in("user_id", ids);
 
       if (error) {
         console.error("Error fetching attendance records:", error);
-        setTelecallerStatus({});
         return;
       }
 
-      // Create a map of telecaller ID to checked-in status
       const statusMap: Record<string, boolean> = {};
+      
+      // Initialize all as offline
       ids.forEach(id => {
-        statusMap[id] = false; // Default to not checked in
+        statusMap[id] = false; 
       });
 
-      // Update status for telecallers who have checked in
-      attendanceRecords.forEach(record => {
-        if (record.check_in) {
+      // Update status based on Logic: Online = Checked In AND Not Checked Out
+      attendanceRecords?.forEach(record => {
+        if (record.check_in && !record.check_out) {
           statusMap[record.user_id] = true;
+        } else {
+            // If check_out exists, they are Offline
+            statusMap[record.user_id] = false;
         }
       });
 
       setTelecallerStatus(statusMap);
     } catch (error) {
       console.error("Error checking telecaller status:", error);
-      setTelecallerStatus({});
     } finally {
       setLoading(false);
     }
-  }, [supabase]); // Depend on the stable supabase client
+  }, [supabase]);
 
   useEffect(() => {
-    // Initial data load when IDs change
-    fetchStatus(telecallerIds);
+    const currentIds = idsRef.current;
+    
+    // 1. Initial Fetch
+    setLoading(true); // Only show loading on mount/ID change
+    fetchStatus(currentIds);
 
-    // 2. 🔑 CRITICAL FIX: Set up Real-Time Subscription
-    // The subscription listener calls the stable fetchStatus function when data changes.
+    // 2. Real-Time Subscription
     const attendanceChannel = supabase
-      .channel('telecaller-status')
+      .channel('public:attendance')
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to INSERT, UPDATE, DELETE
+          event: '*', // Listen for INSERT (check-in) and UPDATE (check-out)
           schema: 'public',
           table: 'attendance',
-          // Only listen to records for today's date where check_in or check_out is affected (not possible in Supabase RLS policies, so we listen to everything and filter).
+          // Note: We cannot filter by specific user_ids in the subscription filter efficiently 
+          // without creating a channel per user. Listening to the whole table 
+          // and re-fetching our specific list is the most scalable approach here.
         },
         (payload) => {
-          // Re-fetch all data to ensure accuracy after any attendance change
-          console.log("Real-time attendance change detected, refreshing status.");
-          fetchStatus(telecallerIds);
+          // When ANY change happens in attendance, re-fetch our specific list
+          // to see if it affected our telecallers.
+          console.log("Attendance update detected:", payload);
+          fetchStatus(currentIds);
         }
       )
       .subscribe();
       
-    // Cleanup function runs when component unmounts or telecallerIds changes
     return () => {
       supabase.removeChannel(attendanceChannel);
     };
     
-  // The effect only runs when the array reference of telecallerIds changes.
-  }, [telecallerIds, fetchStatus, supabase]);
+  }, [fetchStatus, supabase, idsRef.current]); // Dependency is the Ref content
 
   return { telecallerStatus, loading };
 }
