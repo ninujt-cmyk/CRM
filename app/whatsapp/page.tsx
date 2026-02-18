@@ -169,4 +169,150 @@ export default function AdminWhatsAppPanel() {
             <Input 
               placeholder="Search name, phone, or owner..." 
               className="pl-9 bg-slate-100 border-none"
-              value={
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Lead List */}
+        <div className="flex-1 overflow-y-auto">
+          {loadingLeads ? (
+            <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="text-center p-10 text-slate-500 text-sm">No chats found.</div>
+          ) : (
+            filteredLeads.map(lead => (
+              <div 
+                key={lead.id} 
+                onClick={() => setSelectedLead(lead)}
+                className={`p-3 border-b cursor-pointer hover:bg-slate-100 transition-colors ${selectedLead?.id === lead.id ? 'bg-slate-200' : ''}`}
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className="font-semibold text-slate-800 truncate pr-2">{lead.name}</h3>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">
+                    {new Date(lead.last_message_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center mt-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px] bg-white border-slate-200 text-slate-600">
+                      <User className="h-3 w-3 mr-1" /> {lead.telecaller_name}
+                    </Badge>
+                    <Badge className={`text-[10px] ${lead.status === 'New' ? 'bg-blue-500' : 'bg-slate-500'}`}>
+                      {lead.status}
+                    </Badge>
+                  </div>
+                  {lead.unread_count > 0 && (
+                    <div className="bg-[#25D366] text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full shadow-sm">
+                      {lead.unread_count}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* --- RIGHT SIDEBAR: CHAT WINDOW --- */}
+      <div className="w-2/3 flex flex-col bg-[#efeae2]">
+        {selectedLead ? (
+          <>
+            {/* Chat Header */}
+            <div className="bg-white px-6 py-3 border-b flex items-center justify-between shadow-sm z-10">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600 font-bold">
+                  {selectedLead.name.charAt(0)}
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-800 text-lg">{selectedLead.name}</h2>
+                  <p className="text-sm text-slate-500">+{selectedLead.phone} • Owner: <span className="font-semibold text-slate-700">{selectedLead.telecaller_name}</span></p>
+                </div>
+              </div>
+              <Link href={`/admin/leads/${selectedLead.id}`}>
+                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4" /> View CRM Profile
+                </Button>
+              </Link>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {loadingMessages ? (
+                 <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+              ) : (
+                messages.map((msg) => {
+                  const isOutbound = msg.direction === 'outbound'
+                  const isTemplate = msg.message_type === 'template'
+
+                  return (
+                    <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[70%] rounded-lg p-3 shadow-sm relative group
+                        ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
+                      >
+                        {/* Template Identifier */}
+                        {isTemplate && (
+                           <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-1 border-b pb-1 border-slate-200/50 uppercase tracking-wider">
+                             <Bot className="h-3 w-3" /> Automated Template
+                           </div>
+                        )}
+
+                        <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.content}</p>
+                        
+                        <div className="flex items-center justify-end gap-1 mt-2">
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </span>
+                          {isOutbound && (
+                            <span className="text-[#53bdeb]">
+                              {msg.status === 'read' ? <CheckCheck size={14}/> : <Check size={14} className="text-slate-400"/>}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Admin Chat Input */}
+            <div className="bg-[#f0f2f5] p-4 flex items-center gap-3">
+              <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode Active">
+                 <ShieldAlert className="h-5 w-5" />
+              </div>
+              <Input 
+                className="flex-1 bg-white border-none shadow-sm h-12 focus-visible:ring-1 focus-visible:ring-[#005c4b] text-base"
+                placeholder="Type a message to the customer..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                disabled={sending}
+              />
+              <Button 
+                onClick={handleSend} 
+                disabled={!inputText.trim() || sending}
+                className="bg-[#005c4b] hover:bg-[#064e40] h-12 w-12 rounded-full shrink-0 flex items-center justify-center p-0"
+              >
+                {sending ? <Loader2 className="animate-spin h-5 w-5" /> : <Send className="h-5 w-5 ml-1" />}
+              </Button>
+            </div>
+          </>
+        ) : (
+          /* Empty State */
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-[#f8f9fa]">
+            <div className="h-24 w-24 bg-slate-200 rounded-full flex items-center justify-center mb-6">
+               <MessageSquare className="h-10 w-10 text-slate-400" />
+            </div>
+            <h2 className="text-2xl font-light text-slate-600 mb-2">WhatsApp Inbox</h2>
+            <p>Select a chat from the left menu to view history.</p>
+          </div>
+        )}
+      </div>
+
+    </div>
+  )
+}
