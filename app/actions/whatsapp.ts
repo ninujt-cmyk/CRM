@@ -2,7 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-export async function sendMissedCallMessage(customerPhone: string) {
+// ⚠️ NOTICE: We added 'leadId' as the first parameter!
+export async function sendMissedCallMessage(leadId: string, customerPhone: string) {
   try {
     const supabase = await createClient();
     
@@ -45,7 +46,7 @@ export async function sendMissedCallMessage(customerPhone: string) {
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
 
-    // FIX: Add the required Buttons Payload for this specific template
+    // Buttons Payload for this specific template
     const buttonsPayload = JSON.stringify({
       button1: "Call in 1 Hour",
       button2: "Call in 2 Hours",
@@ -65,6 +66,29 @@ export async function sendMissedCallMessage(customerPhone: string) {
     if (data.status === "error" || data.error) {
         throw new Error(data.message || data.error || "Fonada API Error");
     }
+
+    // --- 5. SAVE TO DATABASE (Merged from File 2) ---
+    
+    const { error: insertError } = await supabase.from("chat_messages").insert({
+        lead_id: leadId,
+        phone_number: safePhone, 
+        direction: 'outbound',
+        message_type: 'template', // Tagged as template for analytics
+        content: textMessage,
+        fonada_message_id: data.msgId || null, 
+        status: 'sent'
+    });
+
+    if (insertError) {
+        console.error("❌ [DB ERROR] Failed to log outbound message:", insertError);
+        // Note: We don't throw an error here because the WA message successfully sent to the customer!
+    }
+
+    // --- 6. UPDATE LEAD TIMESTAMP (Merged from File 2) ---
+    await supabase
+        .from("leads")
+        .update({ last_message_at: new Date().toISOString() })
+        .eq("id", leadId);
 
     return { success: true };
 
