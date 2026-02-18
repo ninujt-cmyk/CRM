@@ -55,36 +55,67 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
-      const textLower = messageText.toLowerCase();
+      // --- 1. FORMAT PHONE FOR DB ---
+      let dbPhone = customerPhone.replace(/^\+?91/, '');
+      if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-      // --- SMART KEYWORD MATCHING ---
+      // --- 2. FIND THE LEAD ---
+      // We do this BEFORE keyword matching so we can save ALL messages to history
+      const { data: lead, error: leadError } = await supabase
+        .from("leads")
+        .select("id, assigned_to")
+        .ilike("phone", `%${dbPhone}%`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
+
+      // --- 3. SAVE THE INCOMING MESSAGE TO DATABASE ---
+      if (lead) {
+          const { error: insertError } = await supabase.from("chat_messages").insert({
+              lead_id: lead.id,
+              phone_number: customerPhone,
+              direction: 'inbound',
+              message_type: 'text',
+              content: messageText,
+              fonada_message_id: body.msgId || null,
+              status: 'received'
+          });
+
+          if (insertError) {
+              console.error("❌ [DB ERROR] Saving message to chat_messages:", insertError);
+          } else {
+              console.log("✅ [DB SUCCESS] Message saved to chat history.");
+          }
+
+          // Update last_message_at to bump the lead to the top of your list
+          await supabase
+            .from("leads")
+            .update({ last_message_at: new Date().toISOString() })
+            .eq("id", lead.id);
+
+          // Attempt to increment unread count (Requires the Supabase SQL RPC function below)
+          const { error: rpcError } = await supabase.rpc('increment_unread_count', { row_id: lead.id });
+          if (rpcError) console.log("⚠️ [DB NOTE] increment_unread_count RPC failed or is not set up yet.");
+      } else {
+          console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found in database.");
+      }
+
+      // --- 4. SMART KEYWORD MATCHING ---
+      const textLower = messageText.toLowerCase();
       const isHelp = textLower.includes("help");
       const isComplete = textLower.includes("complete"); 
       const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
       if (isHelp || isComplete || isInterested) {
-        console.log(`✅ [MATCHED] Help: ${isHelp}, Complete: ${isComplete}, Interested: ${isInterested}. Finding lead...`);
+        console.log(`✅ [MATCHED KEYWORD] Help: ${isHelp}, Complete: ${isComplete}, Interested: ${isInterested}.`);
         
-        let dbPhone = customerPhone.replace(/^\+?91/, '');
-        if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
-
-        // FIX 1: Use .maybeSingle() to prevent database errors if the number isn't in the CRM
-        const { data: lead, error: leadError } = await supabase
-          .from("leads")
-          .select("assigned_to")
-          .ilike("phone", `%${dbPhone}%`)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
-
         let introMsg = "Thank you for your interest.";
         if (isHelp) introMsg = "We are here to help!";
         if (isComplete) introMsg = "Let's get your application completed!";
 
         if (lead?.assigned_to) {
-          // Find the agent using maybeSingle() here as well just to be safe
           const { data: agent, error: agentError } = await supabase
             .from("users")
             .select("full_name, phone")
@@ -108,8 +139,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
-      console.log("⏭️ [SKIPPED] No keywords or buttons matched.");
-      return NextResponse.json({ status: "success", action: "no_keyword_match" });
+      console.log("⏭️ [SKIPPED] No keywords or buttons matched. Message saved, but no auto-reply sent.");
+      return NextResponse.json({ status: "success", action: "message_saved_no_reply" });
     }
 
     // ---------------------------------------------------------
@@ -132,7 +163,6 @@ export async function POST(request: NextRequest) {
 async function sendFonadaMessage(mobile: string, text: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   
-  // FIX 2: Bypass Node.js strict SSL Verification for Fonada's API
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
   const formData = new FormData();
