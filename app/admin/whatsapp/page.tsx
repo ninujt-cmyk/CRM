@@ -23,6 +23,7 @@ interface ChatLead {
   unread_count: number
   assigned_to: string | null
   telecaller_name?: string
+  created_at: string // ✅ Added to support your new sorting logic
 }
 
 interface ChatMessage {
@@ -54,12 +55,14 @@ export default function AdminWhatsAppPanel() {
   // 1. FETCH ALL LEADS WITH CHAT HISTORY
   useEffect(() => {
     const fetchLeadsAndUsers = async () => {
-      // Fetch leads that have a last_message_at timestamp
+      // ✅ Fetch the latest 150 leads, prioritizing those with active chats
       const { data: leadsData } = await supabase
         .from('leads')
-        .select('id, name, phone, status, last_message_at, unread_count, assigned_to')
-        .not('last_message_at', 'is', null)
-        .order('last_message_at', { ascending: false })
+        .select('id, name, phone, status, last_message_at, unread_count, assigned_to, created_at')
+        // We removed the strict filter so you can see all leads and initiate chats!
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(150) // Adjust this number if you want to load more leads in the sidebar
 
       // Fetch all users to map the telecaller names
       const { data: usersData } = await supabase
@@ -191,7 +194,10 @@ export default function AdminWhatsAppPanel() {
                 <div className="flex justify-between items-start mb-1">
                   <h3 className="font-semibold text-slate-800 truncate pr-2">{lead.name}</h3>
                   <span className="text-xs text-slate-500 whitespace-nowrap">
-                    {new Date(lead.last_message_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    {lead.last_message_at 
+                      ? new Date(lead.last_message_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                      : new Date(lead.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                    }
                   </span>
                 </div>
                 
