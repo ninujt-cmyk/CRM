@@ -33,13 +33,23 @@ function getRandomIndianName() {
   const lastName = INDIAN_LAST_NAMES[Math.floor(Math.random() * INDIAN_LAST_NAMES.length)];
   return `${firstName} ${lastName}`;
 }
+
+// --- 2. IST TIMEZONE CALCULATOR ---
+// Safely calculates 12:00 AM IST "Today" in UTC format for Vercel
+function getStartOfTodayIST() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+  const nowIST = new Date(now.getTime() + istOffset);
+  nowIST.setUTCHours(0, 0, 0, 0); // Set to midnight IST
+  const midnightUTC = new Date(nowIST.getTime() - istOffset);
+  return midnightUTC.toISOString();
+}
 // ------------------------------------------
 
 export async function POST(request: NextRequest) {
   console.log("🔔 [IVR WEBHOOK HIT] Received data from Fonada IVR");
 
   try {
-    // 2. Parse incoming data (Handles both JSON and Form Data)
     const rawBody = await request.text();
     let body: any = {};
     if (rawBody) {
@@ -66,7 +76,6 @@ export async function POST(request: NextRequest) {
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-    // 3. Find if the Lead already exists in Supabase
     const { data: lead } = await supabase
       .from("leads")
       .select("id, notes")
@@ -79,32 +88,34 @@ export async function POST(request: NextRequest) {
     const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
 
     // -------------------------------------------------------------
-    // CASE A: LEAD ALREADY EXISTS -> Just Update Notes
+    // CASE A: LEAD ALREADY EXISTS
     // -------------------------------------------------------------
     if (lead) {
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
         const { error: updateError } = await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
-        
         if (updateError) console.error("❌ [DB ERROR] Updating lead notes:", updateError);
         else console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id}`);
     } 
     // -------------------------------------------------------------
-    // CASE B: COMPLETELY NEW LEAD -> FAIR DISTRIBUTION ALGORITHM
+    // CASE B: NEW LEAD -> FAIR DISTRIBUTION
     // -------------------------------------------------------------
     else {
         console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Searching for active telecallers...`);
 
-        // B1: FIND WHO IS CURRENTLY CHECKED IN 
-        // Based on the exact database column name "check_out"
+        // Get exact 12:00 AM IST today
+        const startOfTodayISO = getStartOfTodayIST();
+
+        // B1: FIND WHO IS CHECKED IN *TODAY* ONLY
         const { data: attendanceData, error: attError } = await supabase
             .from("attendance")
             .select("user_id")
-            .is("check_out", null);
+            .is("check_out", null)
+            .gte("check_in", startOfTodayISO); // <-- FIX: Only looks at check-ins from today
 
         if (attError) console.error("❌ [DB ERROR] Attendance query failed:", attError);
 
         const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
-        console.log(`👥 [DEBUG] Found ${checkedInUserIds.length} checked-in users.`);
+        console.log(`👥 [DEBUG] Found ${checkedInUserIds.length} users checked in TODAY.`);
 
         // B2: FETCH ALL TELECALLER PROFILES
         let { data: telecallers } = await supabase
@@ -117,24 +128,20 @@ export async function POST(request: NextRequest) {
         // B3: FILTER ONLINE USERS & DISTRIBUTE EQUALLY
         if (telecallers && checkedInUserIds.length > 0) {
             
-            // Isolate only the users who are currently checked in
+            // Isolate only the users who are currently checked in today
             const activeTelecallers = telecallers.filter(t => checkedInUserIds.includes(t.id));
 
             if (activeTelecallers.length > 0) {
                 
-                // Get midnight today (to ensure we only count TODAY'S lead assignments)
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-
-                // Fetch all leads created TODAY to see who got what
+                // Fetch all leads created TODAY using the safe IST time
                 const { data: todaysLeads } = await supabase
                     .from("leads")
                     .select("assigned_to")
-                    .gte("created_at", startOfDay.toISOString());
+                    .gte("created_at", startOfTodayISO); // <-- ACCURATE IST COUNT
 
                 // Count leads per ACTIVE telecaller
                 const leadCounts: Record<string, number> = {};
-                activeTelecallers.forEach(t => leadCounts[t.id] = 0); // Start everyone at 0
+                activeTelecallers.forEach(t => leadCounts[t.id] = 0); 
 
                 if (todaysLeads) {
                     todaysLeads.forEach(l => {
@@ -147,19 +154,19 @@ export async function POST(request: NextRequest) {
                 // Find the minimum number of leads anyone has
                 const minLeads = Math.min(...Object.values(leadCounts));
 
-                // Find all active telecallers who are tied for the lowest amount of leads
+                // Find all active telecallers who are tied for the lowest amount
                 const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
 
-                // Pick a random winner from the eligible tie-pool
+                // Pick a random winner from the tie-pool
                 const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
                 assignedToId = winner.id;
                 
                 console.log(`⚖️ [FAIR DISTRIBUTION] Everyone online has at least ${minLeads} leads today. Assigned new lead to ${winner.full_name}`);
             } else {
-                console.log("⚠️ [WARNING] No telecallers are currently checked in. Lead will remain unassigned.");
+                console.log("⚠️ [WARNING] No telecallers checked in today. Lead will remain unassigned.");
             }
         } else {
-            console.log("⚠️ [WARNING] No attendance records found. Lead will remain unassigned.");
+            console.log("⚠️ [WARNING] No attendance records found for today. Lead will remain unassigned.");
         }
 
         // B4: GENERATE NAME AND INSERT LEAD
@@ -192,7 +199,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Add a GET method just in case Fonada uses it to verify the URL is alive
 export async function GET() {
   return NextResponse.json({ status: "success", message: "IVR Webhook is ready to receive POST requests!" });
 }
