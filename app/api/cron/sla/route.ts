@@ -8,8 +8,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// --- IST TIMEZONE CALCULATOR ---
+function getStartOfTodayIST() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000; 
+  const nowIST = new Date(now.getTime() + istOffset);
+  nowIST.setUTCHours(0, 0, 0, 0); 
+  const midnightUTC = new Date(nowIST.getTime() - istOffset);
+  return midnightUTC.toISOString();
+}
+// --------------------------------
+
 export async function GET(request: Request) {
-  // 1. CRON SECURITY: Ensure only Vercel can trigger this route
+  // 1. CRON SECURITY
   const authHeader = request.headers.get('authorization');
   if (process.env.NODE_ENV !== 'development' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -18,11 +29,11 @@ export async function GET(request: Request) {
   console.log("⏱️ [CRON] Running SLA Auto-Reassignment check...");
 
   try {
-    // 2. Define SLA Limit (e.g., 30 minutes)
+    // 2. Define SLA Limit (30 minutes)
     const SLA_MINUTES = 30;
     const timeLimit = new Date(Date.now() - SLA_MINUTES * 60 * 1000).toISOString();
 
-    // 3. Find leads that are "new", assigned to someone, and older than 30 mins
+    // 3. Find leads breaching SLA
     const { data: expiredLeads, error: leadsError } = await supabase
       .from("leads")
       .select("id, assigned_to, notes")
@@ -39,17 +50,17 @@ export async function GET(request: Request) {
 
     console.log(`⚠️ [CRON] Found ${expiredLeads.length} leads breaching the ${SLA_MINUTES}m SLA.`);
 
-    // 4. Get active / checked-in telecallers
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    // 4. Get active / checked-in telecallers (USING IST FIX & CORRECT COLUMNS)
+    const startOfTodayISO = getStartOfTodayIST();
 
     const { data: attendanceData } = await supabase
         .from("attendance")
         .select("user_id")
-        .gte("created_at", startOfDay.toISOString())
-        .is("check_out_time", null);
+        .gte("check_in", startOfTodayISO) // Fixed column name
+        .is("check_out", null);           // Fixed column name
 
     const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
+    console.log(`👥 [CRON] Found ${checkedInUserIds.length} agents currently online.`);
 
     const { data: telecallers } = await supabase
         .from("users")
@@ -58,6 +69,7 @@ export async function GET(request: Request) {
 
     const activeTelecallers = telecallers?.filter(t => checkedInUserIds.includes(t.id)) || [];
 
+    // If 1 or 0 agents are online, we can't reassign to "someone else"
     if (activeTelecallers.length <= 1) {
         console.log("⏭️ [CRON] Not enough other online agents to reassign to. Skipping.");
         return NextResponse.json({ status: "skipped", message: "Not enough agents" });
@@ -67,7 +79,7 @@ export async function GET(request: Request) {
     const { data: todaysLeads } = await supabase
         .from("leads")
         .select("assigned_to")
-        .gte("created_at", startOfDay.toISOString());
+        .gte("created_at", startOfTodayISO);
 
     // Count current leads per active telecaller
     const leadCounts: Record<string, number> = {};
@@ -87,7 +99,7 @@ export async function GET(request: Request) {
         // Remove the agent who breached the SLA from the candidate pool for THIS lead
         const eligibleAgents = activeTelecallers.filter(t => t.id !== lead.assigned_to);
         
-        if (eligibleAgents.length === 0) continue; // Skip if no one else is online
+        if (eligibleAgents.length === 0) continue; 
 
         // Find the minimum leads among ELIGIBLE agents
         const minLeads = Math.min(...eligibleAgents.map(a => leadCounts[a.id]));
@@ -106,7 +118,7 @@ export async function GET(request: Request) {
             .update({ 
                 assigned_to: winner.id,
                 notes: updatedNotes,
-                // Optional: Update 'created_at' to right now, so the NEW agent gets 30 minutes on their clock!
+                // Reset 'created_at' so the new agent gets a fresh 30 minutes!
                 created_at: new Date().toISOString() 
             })
             .eq("id", lead.id);
