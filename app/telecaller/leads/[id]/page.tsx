@@ -16,11 +16,13 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
 
-// --- CUSTOM COMPONENTS (Keep your existing imports) ---
+// --- CUSTOM COMPONENTS ---
 import { TimelineView } from "@/components/timeline-view"
 import { LeadNotes } from "@/components/lead-notes"
 import { LeadCallHistory } from "@/components/lead-call-history"
 import { FollowUpsList } from "@/components/follow-ups-list"
+// ✅ IMPORT THE NEW WHATSAPP COMPONENT HERE
+import { WhatsAppChat } from "@/components/WhatsAppChat" 
 
 // --- CONSTANTS ---
 const STATUSES = {
@@ -48,7 +50,7 @@ interface Lead {
   email: string | null
   phone: string
   company: string | null
-  designation: string | null // Restored
+  designation: string | null 
   source: string | null
   status: string
   priority: 'low' | 'medium' | 'high' | 'urgent'
@@ -57,7 +59,7 @@ interface Lead {
   assigned_to: string | null
   kyc_member_id: string | null
   loan_amount: number | null;
-  loan_type: string | null; // Restored
+  loan_type: string | null; 
 }
 
 // --- HELPER: Status Badge ---
@@ -100,7 +102,6 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
     const [transferError, setTransferError] = useState<string | null>(null);
     const fetchedRef = useRef(false); 
 
-    // Prevent infinite loop by using a ref to track if we already fetched
     useEffect(() => {
         if (fetchedRef.current) return;
         fetchedRef.current = true;
@@ -110,7 +111,7 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
             const { data, error } = await supabase
                 .from('users') 
                 .select('id, email, full_name')
-                .eq('role', 'kyc_team') // Ensure this role matches your DB exactly
+                .eq('role', 'kyc_team') 
                 .limit(100);
 
             if (error) {
@@ -200,14 +201,12 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
 };
 
 // --- MAIN PAGE COMPONENT ---
-
 export default function LeadDetailPage({ params }: { params: { id: string } }) {
     const router = useRouter()
     const leadId = params.id
     const supabase = createClient()
     const { toast } = useToast();
     
-    // State
     const [lead, setLead] = useState<Lead | null>(null)
     const [editableLeadData, setEditableLeadData] = useState<Partial<Lead>>({})
     const [loading, setLoading] = useState(true)
@@ -215,7 +214,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     const [isSavingDetails, setIsSavingDetails] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     
-    // 1. STABLE DATA FETCHING (No Loops)
     const fetchLeadData = useCallback(async () => {
         const { data, error } = await supabase
             .from('leads')
@@ -233,12 +231,10 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         setLoading(false)
     }, [leadId, supabase])
 
-    // 2. INITIAL LOAD
     useEffect(() => {
         fetchLeadData();
     }, [fetchLeadData]);
 
-    // 3. REAL-TIME UPDATES (Safe Subscription)
     useEffect(() => {
         const channel = supabase.channel(`lead-watch-${leadId}`)
             .on(
@@ -247,7 +243,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 (payload) => {
                     const newLead = payload.new as Lead
                     setLead(newLead);
-                    // Only update editable fields if user isn't currently saving
                     if (!isSavingDetails) {
                         setEditableLeadData(newLead);
                     }
@@ -260,7 +255,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         };
     }, [leadId, supabase, isSavingDetails]);
 
-    // Handlers
     const handleInputChange = (field: keyof Lead, value: any) => {
         setEditableLeadData(prev => ({ ...prev, [field]: value }))
     };
@@ -323,9 +317,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                         <p className="text-sm text-gray-500">Last Active: {new Date(lead.updated_at).toLocaleString()}</p>
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    {/* Extra actions can go here */}
-                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -351,7 +342,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                         </CardHeader>
                         <CardContent className="p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                {/* Personal Info */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-slate-500">Full Name</Label>
                                     <Input value={editableLeadData.name || ''} onChange={(e) => handleInputChange('name', e.target.value)} disabled={isTransferred} />
@@ -365,7 +355,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                                     <Input value={editableLeadData.email || ''} onChange={(e) => handleInputChange('email', e.target.value)} disabled={isTransferred} />
                                 </div>
                                 
-                                {/* Work Info */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-slate-500">Company Name</Label>
                                     <Input value={editableLeadData.company || ''} onChange={(e) => handleInputChange('company', e.target.value)} disabled={isTransferred} />
@@ -375,7 +364,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                                     <Input value={editableLeadData.designation || ''} onChange={(e) => handleInputChange('designation', e.target.value)} disabled={isTransferred} />
                                 </div>
 
-                                {/* Loan Info */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-slate-500">Loan Amount</Label>
                                     <Input type="number" value={editableLeadData.loan_amount || ''} onChange={(e) => handleInputChange('loan_amount', e.target.value)} disabled={isTransferred} />
@@ -385,7 +373,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                                     <Input value={editableLeadData.loan_type || ''} onChange={(e) => handleInputChange('loan_type', e.target.value)} disabled={isTransferred} placeholder="e.g. Personal, Home" />
                                 </div>
 
-                                {/* Priority */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-slate-500">Priority</Label>
                                     <Select value={editableLeadData.priority} onValueChange={(val) => handleInputChange('priority', val)} disabled={isTransferred}>
@@ -397,7 +384,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                                 </div>
                             </div>
 
-                            {/* Read Only Section */}
                             <div className="mt-6 pt-4 border-t grid grid-cols-2 md:grid-cols-3 gap-4">
                                 <DetailItem label="Lead Source" value={lead.source} icon={<MapPin className="h-3 w-3" />} />
                                 <DetailItem label="Assigned Telecaller" value={lead.assigned_to ? "You" : "Unassigned"} icon={<User className="h-3 w-3" />} />
@@ -426,6 +412,12 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 {/* --- RIGHT COLUMN (1/3) --- */}
                 <div className="lg:col-span-1 space-y-6">
                     
+                    {/* ✅ INJECTED WHATSAPP PANEL HERE ✅ */}
+                    <div className="mb-6">
+                       <WhatsAppChat leadId={lead.id} phone={lead.phone} />
+                    </div>
+                    {/* ==================================== */}
+
                     {/* STATUS CARD */}
                     <Card className="shadow-lg border-2 border-purple-200">
                         <CardHeader className="py-4 border-b bg-purple-50/50">
