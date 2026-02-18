@@ -95,14 +95,11 @@ export async function POST(request: NextRequest) {
         console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Searching for active telecallers...`);
 
         // B1: FIND WHO IS CURRENTLY CHECKED IN 
-        // We removed the date filter here to prevent Vercel timezone issues. 
-        // If checkout is null, they are actively online right now.
-        const checkoutColumnName = "check_out_time"; // <-- UPDATE THIS IF YOUR COLUMN IS JUST "check_out"
-        
+        // Based on the exact database column name "check_out"
         const { data: attendanceData, error: attError } = await supabase
             .from("attendance")
             .select("user_id")
-            .is(checkoutColumnName, null);
+            .is("check_out", null);
 
         if (attError) console.error("❌ [DB ERROR] Attendance query failed:", attError);
 
