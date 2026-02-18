@@ -1,14 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
+// Force Next.js to never cache this route
 export const dynamic = 'force-dynamic';
 
+// Initialize Supabase Admin Client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// --- REALISTIC NAME GENERATOR ---
+// --- 1. REALISTIC INDIAN NAME GENERATOR ---
 const INDIAN_FIRST_NAMES = [
   "Rahul", "Amit", "Priya", "Sneha", "Rajesh", "Pooja", "Vikram", "Anjali", "Rohit", "Neha",
   "Suresh", "Kavita", "Manish", "Kiran", "Sanjay", "Jyoti", "Deepak", "Ritu", "Sunil", "Sunita",
@@ -31,12 +33,13 @@ function getRandomIndianName() {
   const lastName = INDIAN_LAST_NAMES[Math.floor(Math.random() * INDIAN_LAST_NAMES.length)];
   return `${firstName} ${lastName}`;
 }
-// --------------------------------
+// ------------------------------------------
 
 export async function POST(request: NextRequest) {
   console.log("🔔 [IVR WEBHOOK HIT] Received data from Fonada IVR");
 
   try {
+    // 2. Parse incoming data (Handles both JSON and Form Data)
     const rawBody = await request.text();
     let body: any = {};
     if (rawBody) {
@@ -59,9 +62,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "ignored", reason: "no_mobile_number" });
     }
 
+    // Normalize Phone: Extract last 10 digits
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
+    // 3. Find if the Lead already exists in Supabase
     const { data: lead } = await supabase
       .from("leads")
       .select("id, notes")
@@ -74,33 +79,37 @@ export async function POST(request: NextRequest) {
     const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
 
     // -------------------------------------------------------------
-    // CASE A: LEAD ALREADY EXISTS
+    // CASE A: LEAD ALREADY EXISTS -> Just Update Notes
     // -------------------------------------------------------------
     if (lead) {
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
-        await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
-        console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id}`);
+        const { error: updateError } = await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
+        
+        if (updateError) console.error("❌ [DB ERROR] Updating lead notes:", updateError);
+        else console.log(`✅ [SUCCESS] Updated existing Lead ID: ${lead.id}`);
     } 
     // -------------------------------------------------------------
-    // CASE B: NEW LEAD -> FIND "CHECKED IN" TELECALLERS & DISTRIBUTE
+    // CASE B: COMPLETELY NEW LEAD -> FAIR DISTRIBUTION ALGORITHM
     // -------------------------------------------------------------
     else {
         console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Searching for active telecallers...`);
 
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-
-        // B1: FIND WHO IS CHECKED IN TODAY
-        // Note: Change 'check_out_time' to 'check_out' if that is what your table uses
-        const { data: attendanceData } = await supabase
+        // B1: FIND WHO IS CURRENTLY CHECKED IN 
+        // We removed the date filter here to prevent Vercel timezone issues. 
+        // If checkout is null, they are actively online right now.
+        const checkoutColumnName = "check_out_time"; // <-- UPDATE THIS IF YOUR COLUMN IS JUST "check_out"
+        
+        const { data: attendanceData, error: attError } = await supabase
             .from("attendance")
             .select("user_id")
-            .gte("created_at", startOfDay.toISOString())
-            .is("check_out_time", null); // Null means they are still online
+            .is(checkoutColumnName, null);
+
+        if (attError) console.error("❌ [DB ERROR] Attendance query failed:", attError);
 
         const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
+        console.log(`👥 [DEBUG] Found ${checkedInUserIds.length} checked-in users.`);
 
-        // B2: GET THE TELECALLERS
+        // B2: FETCH ALL TELECALLER PROFILES
         let { data: telecallers } = await supabase
             .from("users")
             .select("id, full_name")
@@ -108,14 +117,19 @@ export async function POST(request: NextRequest) {
 
         let assignedToId = null;
 
-        // B3: FILTER & DISTRIBUTE EQUALLY
+        // B3: FILTER ONLINE USERS & DISTRIBUTE EQUALLY
         if (telecallers && checkedInUserIds.length > 0) {
             
-            // Filter the user list down to ONLY those who are checked in
+            // Isolate only the users who are currently checked in
             const activeTelecallers = telecallers.filter(t => checkedInUserIds.includes(t.id));
 
             if (activeTelecallers.length > 0) {
-                // Fetch all leads created TODAY
+                
+                // Get midnight today (to ensure we only count TODAY'S lead assignments)
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+
+                // Fetch all leads created TODAY to see who got what
                 const { data: todaysLeads } = await supabase
                     .from("leads")
                     .select("assigned_to")
@@ -136,21 +150,22 @@ export async function POST(request: NextRequest) {
                 // Find the minimum number of leads anyone has
                 const minLeads = Math.min(...Object.values(leadCounts));
 
-                // Find all active telecallers who have this minimum amount (Handles Ties)
+                // Find all active telecallers who are tied for the lowest amount of leads
                 const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
 
-                // Pick one of the eligible telecallers randomly
+                // Pick a random winner from the eligible tie-pool
                 const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
                 assignedToId = winner.id;
                 
-                console.log(`⚖️ [FAIR DISTRIBUTION] Everyone online has at least ${minLeads} leads. Assigned to ${winner.full_name}`);
+                console.log(`⚖️ [FAIR DISTRIBUTION] Everyone online has at least ${minLeads} leads today. Assigned new lead to ${winner.full_name}`);
             } else {
                 console.log("⚠️ [WARNING] No telecallers are currently checked in. Lead will remain unassigned.");
             }
         } else {
-            console.log("⚠️ [WARNING] No attendance records found for today. Lead will remain unassigned.");
+            console.log("⚠️ [WARNING] No attendance records found. Lead will remain unassigned.");
         }
 
+        // B4: GENERATE NAME AND INSERT LEAD
         const fakeName = getRandomIndianName();
 
         const { data: newLead, error: insertError } = await supabase
@@ -180,6 +195,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Add a GET method just in case Fonada uses it to verify the URL is alive
 export async function GET() {
   return NextResponse.json({ status: "success", message: "IVR Webhook is ready to receive POST requests!" });
 }
