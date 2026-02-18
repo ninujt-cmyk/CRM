@@ -262,15 +262,12 @@ export function TelecallerLeadsTable({
                 <TableHead className="cursor-pointer hover:bg-slate-100 hidden md:table-cell" onClick={() => handleSort('priority')}>
                     <div className="flex items-center">Priority <SortIcon field="priority"/></div>
                 </TableHead>
-                <TableHead className="cursor-pointer hover:bg-slate-100" onClick={() => handleSort('last_contacted')}>
-                    <div className="flex items-center">Last Contact <SortIcon field="last_contacted"/></div>
-                </TableHead>
+                {/* Last Contact Column Header Removed Here */}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {leads.map((lead) => {
-                const stale = isStale(lead.last_contacted, lead.status);
                 const isSelected = selectedIds.includes(lead.id);
                 const isHighPriority = lead.priority === 'high';
                 
@@ -344,17 +341,7 @@ export function TelecallerLeadsTable({
                         {lead.priority === 'medium' && <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-100 border-0 px-1.5">MED</Badge>}
                         {lead.priority === 'low' && <Badge variant="outline" className="text-[10px] text-slate-500 border-slate-300 px-1.5">LOW</Badge>}
                     </TableCell>
-                    <TableCell>
-                        <div className="flex items-center gap-2 text-xs">
-                            <Clock className={cn("h-3.5 w-3.5", stale ? "text-red-500" : "text-slate-400")} />
-                            <span className={cn(stale ? "text-red-600 font-medium" : "text-slate-500")}>
-                                {lead.last_contacted 
-                                  ? formatDistanceToNow(new Date(lead.last_contacted), { addSuffix: true }).replace("about ", "") 
-                                  : 'Never'}
-                            </span>
-                            {stale && <AlertCircle className="h-3 w-3 text-red-500 animate-pulse" />}
-                        </div>
-                    </TableCell>
+                    {/* Last Contact Column Cell Removed Here */}
                     <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                             <TooltipProvider>
