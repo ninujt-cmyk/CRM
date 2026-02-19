@@ -49,7 +49,11 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
         status: 'sent'
     });
 
-    if (insertError) console.error("❌ [DB ERROR] Saving text:", insertError);
+    // 🔴 UPDATED: Throw error if DB insert fails so UI knows about it
+    if (insertError) {
+        console.error("❌ [DB ERROR] Saving text:", insertError);
+        throw new Error(`Database Insert Failed: ${insertError.message}`);
+    }
 
     // Bump lead to top of list
     await supabase.from("leads").update({ last_message_at: new Date().toISOString() }).eq("id", leadId);
@@ -129,7 +133,11 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
         status: 'sent'
     });
 
-    if (insertError) console.error("❌ [DB ERROR] Saving template:", insertError);
+    // 🔴 UPDATED: Throw error if DB insert fails so UI knows about it
+    if (insertError) {
+        console.error("❌ [DB ERROR] Saving template:", insertError);
+        throw new Error(`Database Insert Failed: ${insertError.message}`);
+    }
 
     // Bump lead to top of list
     await supabase.from("leads").update({ last_message_at: new Date().toISOString() }).eq("id", leadId);
