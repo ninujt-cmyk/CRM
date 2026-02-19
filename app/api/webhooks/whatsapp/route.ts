@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
+// Initialize Supabase with Service Role Key (Bypasses RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -60,7 +61,6 @@ export async function POST(request: NextRequest) {
       if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
       // --- 2. FIND THE LEAD ---
-      // We do this BEFORE keyword matching so we can save ALL messages to history
       const { data: lead, error: leadError } = await supabase
         .from("leads")
         .select("id, assigned_to")
@@ -89,27 +89,26 @@ export async function POST(request: NextRequest) {
               console.log("✅ [DB SUCCESS] Message saved to chat history.");
           }
 
-          // Update last_message_at to bump the lead to the top of your list
+          // Bump lead to top & update unread count
           await supabase
             .from("leads")
             .update({ last_message_at: new Date().toISOString() })
             .eq("id", lead.id);
 
-          // Attempt to increment unread count (Requires the Supabase SQL RPC function below)
           const { error: rpcError } = await supabase.rpc('increment_unread_count', { row_id: lead.id });
           if (rpcError) console.log("⚠️ [DB NOTE] increment_unread_count RPC failed or is not set up yet.");
       } else {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found in database.");
       }
 
-      // --- 4. SMART KEYWORD MATCHING ---
+      // --- 4. SMART KEYWORD MATCHING (AUTO-REPLY) ---
       const textLower = messageText.toLowerCase();
       const isHelp = textLower.includes("help");
       const isComplete = textLower.includes("complete"); 
       const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
       if (isHelp || isComplete || isInterested) {
-        console.log(`✅ [MATCHED KEYWORD] Help: ${isHelp}, Complete: ${isComplete}, Interested: ${isInterested}.`);
+        console.log(`✅ [MATCHED KEYWORD] Auto-reply triggered.`);
         
         let introMsg = "Thank you for your interest.";
         if (isHelp) introMsg = "We are here to help!";
@@ -122,24 +121,25 @@ export async function POST(request: NextRequest) {
             .eq("id", lead.assigned_to)
             .maybeSingle();
 
-          if (agentError) console.error("❌ [DB ERROR] Finding agent:", agentError);
-
           if (agent && agent.phone) {
             console.log(`🎯 [AGENT FOUND] ${agent.full_name}. Sending dynamic reply.`);
             
             const replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
             
-            await sendFonadaMessage(customerPhone, replyMessage, lead?.id);
+            // 🔴 FIX 1: Passed 'lead.id' so the reply saves to the DB!
+            await sendFonadaMessage(customerPhone, replyMessage, lead.id);
+            
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
           }
         } 
         
         console.log("⚠️ [FALLBACK] Lead unassigned or not found. Sending generic reply.");
+        // 🔴 FIX 2: Passed 'lead.id' here too!
         await sendFonadaMessage(customerPhone, `${introMsg} Our team will contact you shortly.`, lead?.id);
+        
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
-      console.log("⏭️ [SKIPPED] No keywords or buttons matched. Message saved, but no auto-reply sent.");
       return NextResponse.json({ status: "success", action: "message_saved_no_reply" });
     }
 
@@ -147,7 +147,8 @@ export async function POST(request: NextRequest) {
     // CASE 2: HANDLE "DLR" (Delivery Reports)
     // ---------------------------------------------------------
     if (updateType === 'dlr') {
-      console.log(`📬 [DLR STATUS]: ${body.status || 'unknown'} for mobile: ${body.mobile || 'unknown'}`);
+      console.log(`📬 [DLR STATUS]: ${body.status} for msgId: ${body.msgId}`);
+      // Optional: Update status to 'delivered' or 'read' in DB based on msgId
       return NextResponse.json({ status: "success", action: "dlr_logged" });
     }
 
@@ -159,8 +160,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// --- HELPER: Send Message via Fonada ---
-async function sendFonadaMessage(mobile: string, text: string) {
+// --- HELPER: Send Message via Fonada & Save to DB ---
+async function sendFonadaMessage(mobile: string, text: string, leadId?: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -183,6 +184,20 @@ async function sendFonadaMessage(mobile: string, text: string) {
     
     const data = await res.json();
     console.log("📤 [FONADA RESPONSE]:", data);
+
+    // ✅ SAVE AUTO-REPLY TO DATABASE
+    if (leadId && data.status !== "error") {
+        await supabase.from("chat_messages").insert({
+            lead_id: leadId,
+            phone_number: mobile,
+            direction: 'outbound',
+            message_type: 'text',
+            content: text,
+            fonada_message_id: data.msgId || null,
+            status: 'sent'
+        });
+        console.log("✅ [DB SUCCESS] Auto-reply saved to history.");
+    }
   } catch (e) {
     console.error("❌ [FONADA ERROR] Failed to send reply:", e);
   }
