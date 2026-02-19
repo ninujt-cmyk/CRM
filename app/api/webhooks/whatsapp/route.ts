@@ -14,14 +14,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const searchParams = request.nextUrl.searchParams;
-    const updateType = searchParams.get("type"); // 'mo' or 'dlr'
+    const updateType = searchParams.get("type"); // 'mo' (Message) or 'dlr' (Delivery Report)
     
+    // --- ROBUST BODY PARSING (From your original code) ---
     const rawBody = await request.text();
     let body: any = {};
     if (rawBody) {
       try {
         body = JSON.parse(rawBody);
       } catch(e) {
+        // Fallback for URL-encoded payloads
         const params = new URLSearchParams(rawBody);
         body = Object.fromEntries(params);
       }
@@ -29,11 +31,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`📋 [PARSED PAYLOAD] Type: ${updateType}`, body);
 
-    // ---------------------------------------------------------
+    // =================================================================================
     // CASE 1: HANDLE "MO" (Mobile Originated / Customer Reply)
-    // ---------------------------------------------------------
+    // =================================================================================
     if (updateType === 'mo') {
       
+      // 1. EXTRACT DATA (Robust checks from your original code)
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       
       let messageText = 
@@ -56,11 +59,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
-      // --- 1. FORMAT PHONE FOR DB ---
+      // 2. FORMAT PHONE FOR DB
       let dbPhone = customerPhone.replace(/^\+?91/, '');
       if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-      // --- 2. FIND THE LEAD ---
+      // 3. FIND THE LEAD
       const { data: lead, error: leadError } = await supabase
         .from("leads")
         .select("id, assigned_to")
@@ -71,7 +74,7 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 3. SAVE THE INCOMING MESSAGE TO DATABASE ---
+      // 4. SAVE THE INCOMING MESSAGE TO DATABASE
       if (lead) {
           const { error: insertError } = await supabase.from("chat_messages").insert({
               lead_id: lead.id,
@@ -101,7 +104,7 @@ export async function POST(request: NextRequest) {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found in database.");
       }
 
-      // --- 4. SMART KEYWORD MATCHING (AUTO-REPLY) ---
+      // 5. SMART AUTO-REPLY LOGIC (With Office Hours)
       const textLower = messageText.toLowerCase();
       const isHelp = textLower.includes("help");
       const isComplete = textLower.includes("complete"); 
@@ -110,10 +113,20 @@ export async function POST(request: NextRequest) {
       if (isHelp || isComplete || isInterested) {
         console.log(`✅ [MATCHED KEYWORD] Auto-reply triggered.`);
         
+        // --- 🕒 TIME CHECK (IST) ---
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const istDate = new Date(utc + (3600000 * 5.5)); // UTC + 5.5 for IST
+        const currentHour = istDate.getHours();
+
+        // Define Office Hours: 9 AM to 8 PM (20:00)
+        const isOfficeHours = currentHour >= 9 && currentHour < 20;
+
         let introMsg = "Thank you for your interest.";
         if (isHelp) introMsg = "We are here to help!";
         if (isComplete) introMsg = "Let's get your application completed!";
 
+        // CHECK AGENT ASSIGNMENT
         if (lead?.assigned_to) {
           const { data: agent, error: agentError } = await supabase
             .from("users")
@@ -124,18 +137,29 @@ export async function POST(request: NextRequest) {
           if (agent && agent.phone) {
             console.log(`🎯 [AGENT FOUND] ${agent.full_name}. Sending dynamic reply.`);
             
-            const replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
+            let replyMessage = "";
+            if (isOfficeHours) {
+                // ☀️ DAYTIME REPLY
+                replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned and will contact you shortly.\n\nDirect: ${agent.phone}`;
+            } else {
+                // 🌙 NIGHTTIME REPLY
+                replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
+            }
             
-            // 🔴 FIX 1: Passed 'lead.id' so the reply saves to the DB!
+            // ✅ Fix: Pass lead.id to save reply
             await sendFonadaMessage(customerPhone, replyMessage, lead.id);
-            
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
           }
         } 
         
+        // FALLBACK (No Agent)
         console.log("⚠️ [FALLBACK] Lead unassigned or not found. Sending generic reply.");
-        // 🔴 FIX 2: Passed 'lead.id' here too!
-        await sendFonadaMessage(customerPhone, `${introMsg} Our team will contact you shortly.`, lead?.id);
+        const genericReply = isOfficeHours
+            ? `${introMsg} Our team will contact you shortly.`
+            : `${introMsg} Our team is currently offline but will contact you tomorrow morning.`;
+
+        // ✅ Fix: Pass lead.id to save reply
+        await sendFonadaMessage(customerPhone, genericReply, lead?.id);
         
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
@@ -143,13 +167,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "success", action: "message_saved_no_reply" });
     }
 
-    // ---------------------------------------------------------
-    // CASE 2: HANDLE "DLR" (Delivery Reports)
-    // ---------------------------------------------------------
+    // =================================================================================
+    // CASE 2: HANDLE "DLR" (Delivery Reports - Blue Ticks)
+    // =================================================================================
     if (updateType === 'dlr') {
-      console.log(`📬 [DLR STATUS]: ${body.status} for msgId: ${body.msgId}`);
-      // Optional: Update status to 'delivered' or 'read' in DB based on msgId
-      return NextResponse.json({ status: "success", action: "dlr_logged" });
+      const msgId = body.msgId || body.id;
+      // Normalize status (Fonada sends 'DELIVRD', 'READ', etc.)
+      let status = body.status ? body.status.toLowerCase() : 'unknown';
+      if (status.includes('deliv')) status = 'delivered';
+      
+      console.log(`📬 [DLR UPDATE] MsgID: ${msgId}, Status: ${status}`);
+
+      if (msgId && (status === 'delivered' || status === 'read')) {
+          // Update the specific message in your database
+          const { error } = await supabase
+              .from('chat_messages')
+              .update({ status: status }) 
+              .eq('fonada_message_id', msgId);
+
+          if (error) console.error("❌ Failed to update DLR:", error);
+      }
+      
+      return NextResponse.json({ status: "success", action: "dlr_updated" });
     }
 
     return NextResponse.json({ status: "error", message: "Unknown update type" }, { status: 400 });
@@ -160,7 +199,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// --- HELPER: Send Message via Fonada & Save to DB ---
+// =================================================================================
+// HELPER: Send Message via Fonada & Save to DB
+// =================================================================================
 async function sendFonadaMessage(mobile: string, text: string, leadId?: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   
