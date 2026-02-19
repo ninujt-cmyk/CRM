@@ -35,7 +35,7 @@ interface ChatMessage {
   status: string 
   created_at: string
   fonada_message_id?: string
-  lead_id: string // 👈 Need this for the global listener check
+  lead_id: string 
 }
 
 export default function AdminWhatsAppPanel() {
@@ -59,15 +59,15 @@ export default function AdminWhatsAppPanel() {
 
   // --- NOTIFICATION SETUP ---
   useEffect(() => {
+    // Ask browser for notification permissions on load
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, []);
 
   const playNotificationSound = () => {
-    // Uses the .wav file you specified
     const audio = new Audio('/notification.wav');
-    audio.play().catch(e => console.log("Audio play blocked by browser (User must interact with page first):", e));
+    audio.play().catch(e => console.log("Audio play blocked by browser (user must interact with page first):", e));
   };
 
   // 1. FETCH ALL LEADS
@@ -91,17 +91,17 @@ export default function AdminWhatsAppPanel() {
     setLoadingLeads(false)
   }
 
-  // 1B. GLOBAL REALTIME LISTENER
+  // 1B. GLOBAL REALTIME LISTENER (Runs Once)
   useEffect(() => {
     fetchLeadsAndUsers()
     
-    // Listen for Lead Updates (Sidebar sorting)
+    // A. Listen for Lead Updates (Sidebar sorting)
     const leadChannel = supabase.channel('admin_leads_update')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, () => {
         fetchLeadsAndUsers() 
       }).subscribe()
 
-    // 🔴 GLOBAL NOTIFICATION LISTENER
+    // B. GLOBAL NOTIFICATION LISTENER
     const globalNotificationChannel = supabase.channel('global_notifications')
       .on('postgres_changes', 
       { 
@@ -112,18 +112,17 @@ export default function AdminWhatsAppPanel() {
       }, 
       (payload) => {
         const newMsg = payload.new as ChatMessage;
-
-        // Check if we should notify
         const isLookingAtDifferentTab = document.hidden;
-        // Compare with current selectedLead from state via functional check to avoid stale closures
+
+        // Use functional state update to accurately read selectedLead without breaking dependencies
         setSelectedLead((currentSelectedLead) => {
              const isLookingAtDifferentChat = currentSelectedLead?.id !== newMsg.lead_id;
              
              if (isLookingAtDifferentTab || isLookingAtDifferentChat) {
-                // 1. Play Sound
+                // Play sound
                 playNotificationSound();
     
-                // 2. Show Browser Popup
+                // Push Notification
                 if ("Notification" in window && Notification.permission === "granted") {
                    new Notification("New WhatsApp Message", {
                       body: newMsg.content ? newMsg.content.substring(0, 50) + "..." : "You received a new message.",
@@ -131,7 +130,7 @@ export default function AdminWhatsAppPanel() {
                    });
                 }
              }
-             return currentSelectedLead; // Return the exact same state so we don't accidentally update it
+             return currentSelectedLead; 
         });
 
       }).subscribe()
@@ -140,7 +139,7 @@ export default function AdminWhatsAppPanel() {
         supabase.removeChannel(leadChannel);
         supabase.removeChannel(globalNotificationChannel); 
     }
-  }, []) // Empty dependency array ensures this global listener only attaches once
+  }, []) 
 
   // 2. FILTER LOGIC
   useEffect(() => {
@@ -159,7 +158,7 @@ export default function AdminWhatsAppPanel() {
     setFilteredLeads(result);
   }, [leads, searchQuery, showUnreadOnly]);
 
-  // 3. FETCH MESSAGES & HANDLE INDIVIDUAL CHAT DLRs
+  // 3. FETCH MESSAGES & HANDLE REALTIME DLRs
   useEffect(() => {
     if (!selectedLead) return
 
@@ -175,7 +174,7 @@ export default function AdminWhatsAppPanel() {
       setLoadingMessages(false)
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
 
-      // Clear Unread Count when viewing the chat
+      // Clear Unread Count
       if (selectedLead.unread_count > 0) {
           await supabase.from('leads').update({ unread_count: 0 }).eq('id', selectedLead.id)
           setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, unread_count: 0 } : l))
@@ -246,7 +245,7 @@ export default function AdminWhatsAppPanel() {
            </button>
         </div>
 
-        {/* Lead List */}
+        {/* Lead List (With SLA & Previews) */}
         <div className="flex-1 overflow-y-auto">
           {loadingLeads ? (
             <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
