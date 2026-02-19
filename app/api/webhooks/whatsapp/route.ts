@@ -93,9 +93,9 @@ export async function POST(request: NextRequest) {
       // 5. SMART AUTO-REPLY LOGIC
       const textLower = messageText.toLowerCase();
       
-      // --- NEW: Specific Document & Loan Checks ---
+      // --- Keyword Checks ---
       const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
-      
+      const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent"); // 👈 NEW AGENT CHECK
       const isHelp = textLower.includes("help");
       const isComplete = textLower.includes("complete"); 
       const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
@@ -107,8 +107,27 @@ export async function POST(request: NextRequest) {
         const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
         
         await sendFonadaMessage(customerPhone, plMessage, lead?.id);
-        
         return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
+      }
+
+      // --- NEW: HANDLE "SPEAK WITH AN AGENT" ---
+      if (isSpeakToAgent) {
+        console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
+        
+        if (lead?.assigned_to) {
+          const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
+
+          if (agent && agent.phone) {
+            const agentMsg = `Hello! I understand you would like to speak with an agent.\n\nOur expert *${agent.full_name}* is assigned to your application. You can reach them directly at: *${agent.phone}*\n\nThey have been notified and will also contact you shortly.`;
+            await sendFonadaMessage(customerPhone, agentMsg, lead.id);
+            return NextResponse.json({ status: "success", action: "speak_agent_reply_sent" });
+          }
+        }
+        
+        // Fallback if no agent is assigned
+        const fallbackAgentMsg = `Hello! I understand you would like to speak with an agent. Our team has been notified and a representative will call you shortly.`;
+        await sendFonadaMessage(customerPhone, fallbackAgentMsg, lead?.id);
+        return NextResponse.json({ status: "success", action: "speak_agent_fallback_sent" });
       }
 
       // --- HANDLE GENERAL INTEREST / HELP (With Office Hours) ---
@@ -136,7 +155,6 @@ export async function POST(request: NextRequest) {
             } else {
                 replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
             }
-            // Pass lead.id to save reply
             await sendFonadaMessage(customerPhone, replyMessage, lead.id);
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
           }
@@ -205,7 +223,6 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
     const data = await res.json();
 
     if (leadId && data.status !== "error") {
-        // Need a fresh client instance here since this might be called outside main scope
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
         
         // 1. Save Message
@@ -219,7 +236,7 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
             status: 'sent'
         });
 
-        // 2. Update Lead Sidebar Preview (Outbound)
+        // 2. Update Lead Sidebar Preview
         await supabase.from("leads").update({ 
             last_message_at: new Date().toISOString(),
             last_message_content: text.substring(0, 100),
