@@ -1,7 +1,7 @@
 // config/sidebar-nav.ts
 import { 
   LayoutDashboard, Users, UserPlus, FileSpreadsheet, BarChart3, 
-  Settings, MessageCircle, Calendar, FileText, IndianRupee, 
+  Settings, MessageCircle, MessageSquareMore, Calendar, FileText, IndianRupee, 
   Logs, KeyRound 
 } from "lucide-react"
 
@@ -26,7 +26,7 @@ export const sidebarGroups = [
       { name: "Telecallers", href: "/admin/users", icon: Users },
       { name: "Attendance", href: "/admin/attendance", icon: Calendar },
       { name: "Leave Management", href: "/admin/leave-management", icon: FileText },
-      { name: "Team Chat", href: "/admin/chat", icon: MessageCircle },
+      { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageSquareMore },
     ]
   },
   {
