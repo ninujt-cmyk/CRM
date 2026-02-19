@@ -16,14 +16,13 @@ export async function POST(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const updateType = searchParams.get("type"); // 'mo' (Message) or 'dlr' (Delivery Report)
     
-    // --- ROBUST BODY PARSING (From your original code) ---
+    // --- ROBUST BODY PARSING ---
     const rawBody = await request.text();
     let body: any = {};
     if (rawBody) {
       try {
         body = JSON.parse(rawBody);
       } catch(e) {
-        // Fallback for URL-encoded payloads
         const params = new URLSearchParams(rawBody);
         body = Object.fromEntries(params);
       }
@@ -36,30 +35,17 @@ export async function POST(request: NextRequest) {
     // =================================================================================
     if (updateType === 'mo') {
       
-      // 1. EXTRACT DATA (Robust checks from your original code)
+      // 1. EXTRACT DATA
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
-      
-      let messageText = 
-        body.text || 
-        body.msg || 
-        body?.message?.text?.body || 
-        body?.message?.button?.text ||
-        body?.button_text ||
-        body?.message?.interactive?.button_reply?.title ||
-        "";
+      let messageText = body.text || body.msg || body?.message?.text?.body || "";
 
-      if (typeof messageText !== 'string') {
-          messageText = JSON.stringify(messageText);
-      }
-
-      console.log(`📱 [DATA EXTRACTED] Phone: ${customerPhone}, Text: ${messageText}`);
+      if (typeof messageText !== 'string') messageText = JSON.stringify(messageText);
 
       if (!customerPhone || !messageText) {
-        console.log("⚠️ [IGNORED] Missing phone or text");
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
-      // 2. FORMAT PHONE FOR DB
+      // 2. FORMAT PHONE
       let dbPhone = customerPhone.replace(/^\+?91/, '');
       if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
@@ -74,9 +60,10 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // 4. SAVE THE INCOMING MESSAGE TO DATABASE
+      // 4. SAVE INCOMING MESSAGE & UPDATE SIDEBAR PREVIEW
       if (lead) {
-          const { error: insertError } = await supabase.from("chat_messages").insert({
+          // A. Save Message
+          await supabase.from("chat_messages").insert({
               lead_id: lead.id,
               phone_number: customerPhone,
               direction: 'inbound',
@@ -86,22 +73,21 @@ export async function POST(request: NextRequest) {
               status: 'received'
           });
 
-          if (insertError) {
-              console.error("❌ [DB ERROR] Saving message to chat_messages:", insertError);
-          } else {
-              console.log("✅ [DB SUCCESS] Message saved to chat history.");
-          }
-
-          // Bump lead to top & update unread count
+          // B. Update Lead (Timestamp + Sidebar Preview)
           await supabase
             .from("leads")
-            .update({ last_message_at: new Date().toISOString() })
+            .update({ 
+                last_message_at: new Date().toISOString(),
+                last_message_content: messageText.substring(0, 100), // Save snippet
+                last_message_type: 'inbound' // Tag as Customer Message
+            })
             .eq("id", lead.id);
 
+          // C. Increment Badge
           const { error: rpcError } = await supabase.rpc('increment_unread_count', { row_id: lead.id });
-          if (rpcError) console.log("⚠️ [DB NOTE] increment_unread_count RPC failed or is not set up yet.");
+          if (rpcError) console.log("⚠️ [DB NOTE] increment_unread_count RPC failed.");
       } else {
-          console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found in database.");
+          console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found.");
       }
 
       // 5. SMART AUTO-REPLY LOGIC (With Office Hours)
@@ -118,49 +104,34 @@ export async function POST(request: NextRequest) {
         const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
         const istDate = new Date(utc + (3600000 * 5.5)); // UTC + 5.5 for IST
         const currentHour = istDate.getHours();
-
-        // Define Office Hours: 9 AM to 8 PM (20:00)
-        const isOfficeHours = currentHour >= 9 && currentHour < 20;
+        const isOfficeHours = currentHour >= 9 && currentHour < 20; // 9 AM - 8 PM
 
         let introMsg = "Thank you for your interest.";
         if (isHelp) introMsg = "We are here to help!";
         if (isComplete) introMsg = "Let's get your application completed!";
 
-        // CHECK AGENT ASSIGNMENT
         if (lead?.assigned_to) {
-          const { data: agent, error: agentError } = await supabase
-            .from("users")
-            .select("full_name, phone")
-            .eq("id", lead.assigned_to)
-            .maybeSingle();
+          const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
 
           if (agent && agent.phone) {
-            console.log(`🎯 [AGENT FOUND] ${agent.full_name}. Sending dynamic reply.`);
-            
             let replyMessage = "";
             if (isOfficeHours) {
-                // ☀️ DAYTIME REPLY
                 replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned and will contact you shortly.\n\nDirect: ${agent.phone}`;
             } else {
-                // 🌙 NIGHTTIME REPLY
                 replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
             }
-            
-            // ✅ Fix: Pass lead.id to save reply
+            // Pass lead.id to save reply
             await sendFonadaMessage(customerPhone, replyMessage, lead.id);
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
           }
         } 
         
-        // FALLBACK (No Agent)
-        console.log("⚠️ [FALLBACK] Lead unassigned or not found. Sending generic reply.");
+        // Fallback
         const genericReply = isOfficeHours
             ? `${introMsg} Our team will contact you shortly.`
             : `${introMsg} Our team is currently offline but will contact you tomorrow morning.`;
 
-        // ✅ Fix: Pass lead.id to save reply
         await sendFonadaMessage(customerPhone, genericReply, lead?.id);
-        
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
@@ -172,14 +143,12 @@ export async function POST(request: NextRequest) {
     // =================================================================================
     if (updateType === 'dlr') {
       const msgId = body.msgId || body.id;
-      // Normalize status (Fonada sends 'DELIVRD', 'READ', etc.)
       let status = body.status ? body.status.toLowerCase() : 'unknown';
       if (status.includes('deliv')) status = 'delivered';
       
       console.log(`📬 [DLR UPDATE] MsgID: ${msgId}, Status: ${status}`);
 
       if (msgId && (status === 'delivered' || status === 'read')) {
-          // Update the specific message in your database
           const { error } = await supabase
               .from('chat_messages')
               .update({ status: status }) 
@@ -187,11 +156,10 @@ export async function POST(request: NextRequest) {
 
           if (error) console.error("❌ Failed to update DLR:", error);
       }
-      
       return NextResponse.json({ status: "success", action: "dlr_updated" });
     }
 
-    return NextResponse.json({ status: "error", message: "Unknown update type" }, { status: 400 });
+    return NextResponse.json({ status: "error", message: "Unknown type" }, { status: 400 });
 
   } catch (error) {
     console.error("🔥 [CRITICAL ERROR] Webhook failed:", error);
@@ -200,11 +168,10 @@ export async function POST(request: NextRequest) {
 }
 
 // =================================================================================
-// HELPER: Send Message via Fonada & Save to DB
+// HELPER: Send Message via Fonada & Save to DB + Update Sidebar Snippet
 // =================================================================================
 async function sendFonadaMessage(mobile: string, text: string, leadId?: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
-  
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
   const formData = new FormData();
@@ -218,16 +185,14 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
   formData.append("output", "json");
 
   try {
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      body: formData
-    });
-    
+    const res = await fetch(apiUrl, { method: "POST", body: formData });
     const data = await res.json();
-    console.log("📤 [FONADA RESPONSE]:", data);
 
-    // ✅ SAVE AUTO-REPLY TO DATABASE
     if (leadId && data.status !== "error") {
+        // Need a fresh client instance here since this might be called outside main scope
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        
+        // 1. Save Message
         await supabase.from("chat_messages").insert({
             lead_id: leadId,
             phone_number: mobile,
@@ -237,7 +202,13 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
             fonada_message_id: data.msgId || null,
             status: 'sent'
         });
-        console.log("✅ [DB SUCCESS] Auto-reply saved to history.");
+
+        // 2. Update Lead Sidebar Preview (Outbound)
+        await supabase.from("leads").update({ 
+            last_message_at: new Date().toISOString(),
+            last_message_content: text.substring(0, 100),
+            last_message_type: 'outbound'
+        }).eq("id", leadId);
     }
   } catch (e) {
     console.error("❌ [FONADA ERROR] Failed to send reply:", e);
