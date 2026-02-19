@@ -90,14 +90,30 @@ export async function POST(request: NextRequest) {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found.");
       }
 
-      // 5. SMART AUTO-REPLY LOGIC (With Office Hours)
+      // 5. SMART AUTO-REPLY LOGIC
       const textLower = messageText.toLowerCase();
+      
+      // --- NEW: Specific Document & Loan Checks ---
+      const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
+      
       const isHelp = textLower.includes("help");
       const isComplete = textLower.includes("complete"); 
       const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
+      // --- HANDLE PERSONAL LOAN / DOCUMENTS REQUEST ---
+      if (isPersonalLoan) {
+        console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
+        
+        const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
+        
+        await sendFonadaMessage(customerPhone, plMessage, lead?.id);
+        
+        return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
+      }
+
+      // --- HANDLE GENERAL INTEREST / HELP (With Office Hours) ---
       if (isHelp || isComplete || isInterested) {
-        console.log(`✅ [MATCHED KEYWORD] Auto-reply triggered.`);
+        console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
         
         // --- 🕒 TIME CHECK (IST) ---
         const now = new Date();
