@@ -23,7 +23,6 @@ interface ChatLead {
   assigned_to: string | null
   telecaller_name?: string
   created_at: string
-  // New Fields for Sidebar Preview
   last_message_content?: string
   last_message_type?: string
 }
@@ -33,9 +32,10 @@ interface ChatMessage {
   direction: 'inbound' | 'outbound'
   message_type: string
   content: string
-  status: string // 'sent', 'delivered', 'read'
+  status: string 
   created_at: string
   fonada_message_id?: string
+  lead_id: string // 👈 Need this for the global listener check
 }
 
 export default function AdminWhatsAppPanel() {
@@ -57,7 +57,20 @@ export default function AdminWhatsAppPanel() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // 1. FETCH ALL LEADS (Now with Sidebar Preview Data)
+  // --- NOTIFICATION SETUP ---
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const playNotificationSound = () => {
+    // Uses the .wav file you specified
+    const audio = new Audio('/notification.wav');
+    audio.play().catch(e => console.log("Audio play blocked by browser (User must interact with page first):", e));
+  };
+
+  // 1. FETCH ALL LEADS
   const fetchLeadsAndUsers = async () => {
     const { data: leadsData } = await supabase
       .from('leads')
@@ -78,17 +91,56 @@ export default function AdminWhatsAppPanel() {
     setLoadingLeads(false)
   }
 
+  // 1B. GLOBAL REALTIME LISTENER
   useEffect(() => {
     fetchLeadsAndUsers()
     
-    // Realtime Listener for New Leads/Updates
+    // Listen for Lead Updates (Sidebar sorting)
     const leadChannel = supabase.channel('admin_leads_update')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, () => {
         fetchLeadsAndUsers() 
       }).subscribe()
 
-    return () => { supabase.removeChannel(leadChannel) }
-  }, [])
+    // 🔴 GLOBAL NOTIFICATION LISTENER
+    const globalNotificationChannel = supabase.channel('global_notifications')
+      .on('postgres_changes', 
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'chat_messages', 
+        filter: "direction=eq.inbound" // Only trigger for incoming messages
+      }, 
+      (payload) => {
+        const newMsg = payload.new as ChatMessage;
+
+        // Check if we should notify
+        const isLookingAtDifferentTab = document.hidden;
+        // Compare with current selectedLead from state via functional check to avoid stale closures
+        setSelectedLead((currentSelectedLead) => {
+             const isLookingAtDifferentChat = currentSelectedLead?.id !== newMsg.lead_id;
+             
+             if (isLookingAtDifferentTab || isLookingAtDifferentChat) {
+                // 1. Play Sound
+                playNotificationSound();
+    
+                // 2. Show Browser Popup
+                if ("Notification" in window && Notification.permission === "granted") {
+                   new Notification("New WhatsApp Message", {
+                      body: newMsg.content ? newMsg.content.substring(0, 50) + "..." : "You received a new message.",
+                      icon: "/favicon.ico"
+                   });
+                }
+             }
+             return currentSelectedLead; // Return the exact same state so we don't accidentally update it
+        });
+
+      }).subscribe()
+
+    return () => { 
+        supabase.removeChannel(leadChannel);
+        supabase.removeChannel(globalNotificationChannel); 
+    }
+  }, []) // Empty dependency array ensures this global listener only attaches once
 
   // 2. FILTER LOGIC
   useEffect(() => {
@@ -107,7 +159,7 @@ export default function AdminWhatsAppPanel() {
     setFilteredLeads(result);
   }, [leads, searchQuery, showUnreadOnly]);
 
-  // 3. FETCH MESSAGES & HANDLE REALTIME DLRs
+  // 3. FETCH MESSAGES & HANDLE INDIVIDUAL CHAT DLRs
   useEffect(() => {
     if (!selectedLead) return
 
@@ -123,7 +175,7 @@ export default function AdminWhatsAppPanel() {
       setLoadingMessages(false)
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
 
-      // Clear Unread Count
+      // Clear Unread Count when viewing the chat
       if (selectedLead.unread_count > 0) {
           await supabase.from('leads').update({ unread_count: 0 }).eq('id', selectedLead.id)
           setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, unread_count: 0 } : l))
@@ -194,7 +246,7 @@ export default function AdminWhatsAppPanel() {
            </button>
         </div>
 
-        {/* Lead List (With SLA & Previews) */}
+        {/* Lead List */}
         <div className="flex-1 overflow-y-auto">
           {loadingLeads ? (
             <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
@@ -337,7 +389,6 @@ export default function AdminWhatsAppPanel() {
 
             {/* Input & Quick Reply Chips */}
             <div className="flex flex-col bg-[#f0f2f5]">
-                 {/* Quick Chips */}
                  <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
                   {[
                     "👋 Hi, I tried calling you.",
@@ -355,7 +406,6 @@ export default function AdminWhatsAppPanel() {
                   ))}
                 </div>
 
-                {/* Input Bar */}
                 <div className="p-4 flex items-center gap-3">
                   <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode">
                     <ShieldAlert className="h-5 w-5" />
