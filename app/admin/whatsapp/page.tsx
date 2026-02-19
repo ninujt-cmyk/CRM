@@ -23,6 +23,9 @@ interface ChatLead {
   assigned_to: string | null
   telecaller_name?: string
   created_at: string
+  // New Fields for Sidebar Preview
+  last_message_content?: string
+  last_message_type?: string
 }
 
 interface ChatMessage {
@@ -40,9 +43,9 @@ export default function AdminWhatsAppPanel() {
   
   // State
   const [leads, setLeads] = useState<ChatLead[]>([])
-  const [filteredLeads, setFilteredLeads] = useState<ChatLead[]>([]) // Derived state
+  const [filteredLeads, setFilteredLeads] = useState<ChatLead[]>([]) 
   const [searchQuery, setSearchQuery] = useState("")
-  const [showUnreadOnly, setShowUnreadOnly] = useState(false) // 👈 NEW FILTER STATE
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false)
   const [selectedLead, setSelectedLead] = useState<ChatLead | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState("")
@@ -54,11 +57,11 @@ export default function AdminWhatsAppPanel() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // 1. FETCH ALL LEADS
+  // 1. FETCH ALL LEADS (Now with Sidebar Preview Data)
   const fetchLeadsAndUsers = async () => {
     const { data: leadsData } = await supabase
       .from('leads')
-      .select('id, name, phone, status, last_message_at, unread_count, assigned_to, created_at')
+      .select('id, name, phone, status, last_message_at, unread_count, assigned_to, created_at, last_message_content, last_message_type')
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(150)
@@ -87,11 +90,9 @@ export default function AdminWhatsAppPanel() {
     return () => { supabase.removeChannel(leadChannel) }
   }, [])
 
-  // 2. FILTER LOGIC (Search + Unread Toggle)
+  // 2. FILTER LOGIC
   useEffect(() => {
     let result = leads;
-
-    // Apply Search
     if (searchQuery) {
         const lowerQ = searchQuery.toLowerCase();
         result = result.filter(l => 
@@ -100,12 +101,9 @@ export default function AdminWhatsAppPanel() {
             (l.telecaller_name && l.telecaller_name.toLowerCase().includes(lowerQ))
         );
     }
-
-    // Apply Unread Filter 👈 NEW LOGIC
     if (showUnreadOnly) {
         result = result.filter(l => l.unread_count > 0);
     }
-
     setFilteredLeads(result);
   }, [leads, searchQuery, showUnreadOnly]);
 
@@ -134,7 +132,6 @@ export default function AdminWhatsAppPanel() {
 
     fetchMessages()
 
-    // Realtime: New Messages AND DLR Status Updates 👈 NEW
     const msgChannel = supabase.channel(`admin_chat_${selectedLead.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `lead_id=eq.${selectedLead.id}` }, 
       (payload) => {
@@ -143,7 +140,6 @@ export default function AdminWhatsAppPanel() {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `lead_id=eq.${selectedLead.id}` },
       (payload) => {
-          // Update status of existing message (e.g. sent -> read)
           setMessages(prev => prev.map(msg => msg.id === payload.new.id ? payload.new as ChatMessage : msg))
       })
       .subscribe()
@@ -169,7 +165,7 @@ export default function AdminWhatsAppPanel() {
   return (
     <div className="flex h-[calc(100vh-6rem)] bg-white border rounded-xl shadow-lg overflow-hidden">
       
-      {/* --- LEFT SIDEBAR --- */}
+      {/* --- LEFT SIDEBAR: GOD MODE --- */}
       <div className="w-1/3 border-r bg-slate-50 flex flex-col">
         {/* Header */}
         <div className="p-4 bg-[#005c4b] text-white flex items-center justify-between">
@@ -188,7 +184,6 @@ export default function AdminWhatsAppPanel() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          {/* 👈 NEW TOGGLE FILTER */}
           <button 
              onClick={() => setShowUnreadOnly(!showUnreadOnly)}
              className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-2 ${
@@ -199,7 +194,7 @@ export default function AdminWhatsAppPanel() {
            </button>
         </div>
 
-        {/* Lead List */}
+        {/* Lead List (With SLA & Previews) */}
         <div className="flex-1 overflow-y-auto">
           {loadingLeads ? (
             <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
@@ -210,24 +205,52 @@ export default function AdminWhatsAppPanel() {
               <div 
                 key={lead.id} 
                 onClick={() => setSelectedLead(lead)}
-                className={`p-3 border-b cursor-pointer hover:bg-slate-100 transition-colors ${selectedLead?.id === lead.id ? 'bg-slate-200' : ''}`}
+                className={`p-3 border-b cursor-pointer transition-all hover:bg-slate-50 ${
+                  selectedLead?.id === lead.id ? 'bg-blue-50 border-l-4 border-l-[#005c4b]' : 'border-l-4 border-l-transparent'
+                }`}
               >
+                {/* Name & Time */}
                 <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-semibold text-slate-800 truncate pr-2">{lead.name}</h3>
-                  <span className="text-xs text-slate-500">
+                  <h3 className={`font-semibold truncate pr-2 ${lead.unread_count > 0 ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                    {lead.name}
+                  </h3>
+                  <span className={`text-[10px] whitespace-nowrap ${lead.unread_count > 0 ? 'text-green-600 font-bold' : 'text-slate-400'}`}>
                     {lead.last_message_at 
-                      ? new Date(lead.last_message_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
-                      : new Date(lead.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                      ? new Date(lead.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })
+                      : "New"
                     }
                   </span>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[10px] bg-white text-slate-600"><User className="h-3 w-3 mr-1" /> {lead.telecaller_name}</Badge>
-                    <Badge className={`text-[10px] ${lead.status === 'New' ? 'bg-blue-500' : 'bg-slate-500'}`}>{lead.status}</Badge>
+
+                {/* Message Snippet */}
+                <div className="flex items-center gap-1 mb-2">
+                    {lead.last_message_type === 'outbound' ? (
+                       <CheckCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                    ) : (
+                       <div className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse"></div>
+                    )}
+                    <p className={`text-xs truncate max-w-[180px] ${lead.unread_count > 0 ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
+                      {lead.last_message_content || "Start a conversation..."}
+                    </p>
+                </div>
+
+                {/* Tags & SLA */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-white text-slate-500 border-slate-200">
+                        {lead.telecaller_name?.split(' ')[0]} 
+                    </Badge>
+                    {lead.unread_count > 0 && lead.last_message_at && (
+                        (() => {
+                           const diffMins = Math.floor((new Date().getTime() - new Date(lead.last_message_at).getTime()) / 60000);
+                           if (diffMins > 60) return <Badge className="text-[9px] h-4 px-1 bg-red-100 text-red-700 hover:bg-red-200 border-none">⚠️ {Math.floor(diffMins/60)}h Delay</Badge>;
+                           if (diffMins > 15) return <Badge className="text-[9px] h-4 px-1 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border-none">⏱️ {diffMins}m</Badge>;
+                           return <Badge className="text-[9px] h-4 px-1 bg-green-100 text-green-700 hover:bg-green-200 border-none">Just now</Badge>;
+                        })()
+                    )}
                   </div>
                   {lead.unread_count > 0 && (
-                    <div className="bg-[#25D366] text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full shadow-sm">{lead.unread_count}</div>
+                    <div className="bg-[#25D366] text-white text-[10px] font-bold h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full shadow-sm">{lead.unread_count}</div>
                   )}
                 </div>
               </div>
@@ -240,7 +263,7 @@ export default function AdminWhatsAppPanel() {
       <div className="w-2/3 flex flex-col bg-[#efeae2]">
         {selectedLead ? (
           <>
-            {/* 👈 NEW RICH CONTEXT HEADER */}
+            {/* Rich Header */}
             <div className="bg-white px-6 py-3 border-b flex items-center justify-between shadow-sm z-10">
               <div className="flex items-center gap-4">
                 <div className="h-10 w-10 bg-[#005c4b] text-white rounded-full flex items-center justify-center font-bold text-lg">
@@ -267,7 +290,7 @@ export default function AdminWhatsAppPanel() {
               </Link>
             </div>
 
-            {/* Chat Messages */}
+            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {loadingMessages ? (
                  <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-[#005c4b]" /></div>
@@ -275,7 +298,6 @@ export default function AdminWhatsAppPanel() {
                 messages.map((msg) => {
                   const isOutbound = msg.direction === 'outbound'
                   const isTemplate = msg.message_type === 'template'
-
                   return (
                     <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] rounded-lg p-3 shadow-sm relative group
@@ -286,8 +308,6 @@ export default function AdminWhatsAppPanel() {
                              <Bot className="h-3 w-3" /> Automated Template
                            </div>
                         )}
-
-                        {/* 👈 NEW BOLD TEXT RENDERING */}
                         <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
                           {msg.content.split(/(\*[^*]+\*)/g).map((part, index) =>
                             part.startsWith('*') && part.endsWith('*') ? (
@@ -295,22 +315,15 @@ export default function AdminWhatsAppPanel() {
                             ) : ( part )
                           )}
                         </p>
-                        
                         <div className="flex items-center justify-end gap-1 mt-2">
                           <span className="text-[10px] text-slate-500 font-medium">
                             {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </span>
-                          
-                          {/* 👈 NEW BLUE TICKS LOGIC */}
                           {isOutbound && (
                             <span className="flex items-center">
-                              {msg.status === 'read' ? (
-                                <CheckCheck size={16} className="text-blue-500" /> // Blue Ticks
-                              ) : msg.status === 'delivered' ? (
-                                <CheckCheck size={16} className="text-gray-400" /> // Gray Double Ticks
-                              ) : (
-                                <Check size={16} className="text-gray-400" /> // Gray Single Tick
-                              )}
+                              {msg.status === 'read' ? <CheckCheck size={16} className="text-blue-500" /> : 
+                               msg.status === 'delivered' ? <CheckCheck size={16} className="text-gray-400" /> : 
+                               <Check size={16} className="text-gray-400" />}
                             </span>
                           )}
                         </div>
@@ -322,22 +335,43 @@ export default function AdminWhatsAppPanel() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
-            <div className="bg-[#f0f2f5] p-4 flex items-center gap-3">
-              <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode">
-                 <ShieldAlert className="h-5 w-5" />
-              </div>
-              <Input 
-                className="flex-1 bg-white border-none shadow-sm h-12 text-base"
-                placeholder="Type a message..."
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                disabled={sending}
-              />
-              <Button onClick={handleSend} disabled={!inputText.trim() || sending} className="bg-[#005c4b] hover:bg-[#064e40] h-12 w-12 rounded-full p-0">
-                {sending ? <Loader2 className="animate-spin h-5 w-5" /> : <Send className="h-5 w-5 ml-1" />}
-              </Button>
+            {/* Input & Quick Reply Chips */}
+            <div className="flex flex-col bg-[#f0f2f5]">
+                 {/* Quick Chips */}
+                 <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
+                  {[
+                    "👋 Hi, I tried calling you.",
+                    "📄 Please share your Aadhar & PAN.",
+                    "📍 Can you send your current location?",
+                    "✅ Application Approved!"
+                  ].map((text) => (
+                    <button
+                      key={text}
+                      onClick={() => setInputText(text)}
+                      className="text-xs bg-white border border-gray-300 rounded-full px-3 py-1 hover:bg-green-50 hover:border-green-500 hover:text-green-700 whitespace-nowrap transition-colors"
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Input Bar */}
+                <div className="p-4 flex items-center gap-3">
+                  <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode">
+                    <ShieldAlert className="h-5 w-5" />
+                  </div>
+                  <Input 
+                    className="flex-1 bg-white border-none shadow-sm h-12 text-base"
+                    placeholder="Type a message..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                    disabled={sending}
+                  />
+                  <Button onClick={handleSend} disabled={!inputText.trim() || sending} className="bg-[#005c4b] hover:bg-[#064e40] h-12 w-12 rounded-full p-0">
+                    {sending ? <Loader2 className="animate-spin h-5 w-5" /> : <Send className="h-5 w-5 ml-1" />}
+                  </Button>
+                </div>
             </div>
           </>
         ) : (
