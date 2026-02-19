@@ -129,13 +129,13 @@ export async function POST(request: NextRequest) {
             
             const replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned to you and will contact you shortly.\n\nYou can also reach them directly at: ${agent.phone}`;
             
-            await sendFonadaMessage(customerPhone, replyMessage);
+            await sendFonadaMessage(customerPhone, replyMessage, lead?.id);
             return NextResponse.json({ status: "success", action: "agent_reply_sent" });
           }
         } 
         
         console.log("⚠️ [FALLBACK] Lead unassigned or not found. Sending generic reply.");
-        await sendFonadaMessage(customerPhone, `${introMsg} Our team will contact you shortly.`);
+        await sendFonadaMessage(customerPhone, `${introMsg} Our team will contact you shortly.`, lead?.id);
         return NextResponse.json({ status: "success", action: "generic_reply_sent" });
       }
       
