@@ -72,13 +72,27 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS ---
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (WITH URL HACK) ---
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
-          console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
+          console.log(`📥 [MEDIA DETECTED] Original Fonada Link: ${mediaUrl}`);
+          
+          // 🛠️ HACK: Force Fonada to give the raw file instead of the HTML viewer
+          let fetchUrl = mediaUrl;
+          if (fetchUrl.includes('view-mediaMeta')) {
+              // Replace the HTML portal endpoint with the raw media endpoint
+              fetchUrl = fetchUrl.replace('view-mediaMeta', 'view-media');
+              
+              // Append Auth Credentials just in case it's locked
+              const joinChar = fetchUrl.includes('?') ? '&' : '?';
+              fetchUrl = `${fetchUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
+              
+              console.log(`🔧 https://www.merriam-webster.com/dictionary/override Attempting authenticated direct download: ${fetchUrl}`);
+          }
+
           try {
-              const mediaRes = await fetch(mediaUrl, {
+              const mediaRes = await fetch(fetchUrl, {
                   headers: {
                       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                       'Accept': '*/*'
@@ -87,12 +101,12 @@ export async function POST(request: NextRequest) {
 
               const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
 
-              // 🔴 FIX: GRACEFULLY HANDLE HTML/PORTAL LINKS FROM FONADA
+              // If it STILL returns HTML, Fonada's server is completely blocking us
               if (contentType.includes('text/html')) {
-                  console.log("⚠️ [INFO] Fonada returned an HTML portal page. Saving direct link.");
-                  finalContentToSave = `📁 *Document Received:*\n${mediaUrl}\n\n_(Click link to view/download)_`;
+                  console.log("⚠️ [INFO] Fonada returned an HTML portal page again. Saving direct link.");
+                  finalContentToSave = `📁 *Document Received:*\n${mediaUrl}`;
               } else {
-                  // It's a real file! Proceed with download and Supabase upload
+                  // It's a real file! Proceed with Supabase upload
                   const arrayBuffer = await mediaRes.arrayBuffer();
                   let ext = 'bin';
                   
@@ -140,7 +154,6 @@ export async function POST(request: NextRequest) {
 
           } catch (err: any) {
               console.error("❌ [STORAGE ERROR] Failed to process media:", err);
-              // Fallback if the fetch fails entirely
               finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}`;
           }
       }
@@ -182,14 +195,12 @@ export async function POST(request: NextRequest) {
           const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
           if (isPersonalLoan) {
-            console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
             const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
             await sendFonadaMessage(customerPhone, plMessage, lead?.id);
             return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
           }
 
           if (isSpeakToAgent) {
-            console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
             if (lead?.assigned_to) {
               const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
               if (agent && agent.phone) {
@@ -204,7 +215,6 @@ export async function POST(request: NextRequest) {
           }
 
           if (isHelp || isComplete || isInterested) {
-            console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
             const now = new Date();
             const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
             const istDate = new Date(utc + (3600000 * 5.5)); 
@@ -242,11 +252,8 @@ export async function POST(request: NextRequest) {
       let status = body.status ? body.status.toLowerCase() : 'unknown';
       if (status.includes('deliv')) status = 'delivered';
       
-      console.log(`📬 [DLR UPDATE] MsgID: ${msgId}, Status: ${status}`);
-
       if (msgId && (status === 'delivered' || status === 'read')) {
-          const { error } = await supabase.from('chat_messages').update({ status: status }).eq('fonada_message_id', msgId);
-          if (error) console.error("❌ Failed to update DLR:", error);
+          await supabase.from('chat_messages').update({ status: status }).eq('fonada_message_id', msgId);
       }
       return NextResponse.json({ status: "success", action: "dlr_updated" });
     }
