@@ -37,9 +37,11 @@ export async function POST(request: NextRequest) {
       
       // 1. EXTRACT DATA
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
-      let messageText = body.text || body.msg || body?.message?.text?.body || "";
+      
+      // Look for caption if they sent an image/document with text
+      let messageText = body.text || body.msg || body.caption || body?.message?.text?.body || body?.message?.document?.caption || body?.message?.image?.caption || "";
 
-      // 🔴 FIX: Added imageUrl, documentUrl, and videoUrl to perfectly match Fonada's payload
+      // 🔴 EXTRACT MEDIA URL
       let mediaUrl = body.imageUrl || body.documentUrl || body.videoUrl || body.mediaUrl || body.media_url || body.MediaUrl0 || body.url || body.fileUrl || body?.message?.document?.link || body?.message?.image?.link || "";
       let isMedia = !!mediaUrl;
 
@@ -70,20 +72,45 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS ---
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (UPGRADED) ---
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
           console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
           try {
-              // Download the file from Fonada
-              const mediaRes = await fetch(mediaUrl);
+              // 🔴 FIX: Add User-Agent to bypass Cloudflare/Bot protection
+              const mediaRes = await fetch(mediaUrl, {
+                  headers: {
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                      'Accept': '*/*'
+                  }
+              });
+
+              const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
+              
+              // 🔴 FIX: Anti-HTML Protection
+              if (contentType.includes('text/html')) {
+                  throw new Error("Fonada blocked the download (Returned HTML). Original link preserved.");
+              }
+
               const arrayBuffer = await mediaRes.arrayBuffer();
               
-              // Guess the file extension (jpg, pdf, png)
-              const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
-              const ext = contentType.split('/')[1] || 'bin';
+              // 🔴 FIX: Smart Extension Detection
+              let ext = 'bin';
+              if (contentType.includes('pdf')) ext = 'pdf';
+              else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
+              else if (contentType.includes('png')) ext = 'png';
+              else if (contentType.includes('mp4')) ext = 'mp4';
+              else if (contentType.includes('document')) ext = 'docx';
+              else {
+                  // Fallback to reading URL
+                  const urlMatch = mediaUrl.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
+                  if (urlMatch) ext = urlMatch[1];
+                  else ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
+              }
               
+              ext = ext.replace(/[^a-zA-Z0-9]/g, ''); // Clean extension
+
               // Create a clean filename: lead_id/timestamp.ext
               const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
 
@@ -106,9 +133,10 @@ export async function POST(request: NextRequest) {
               // Change the chat text so the admin can click it in the CRM
               finalContentToSave = `📁 *Document Uploaded:*\n${filePublicUrl}`;
 
-          } catch (err) {
+          } catch (err: any) {
               console.error("❌ [STORAGE ERROR] Failed to process media:", err);
-              finalContentToSave = "⚠️ *[Failed to download customer document]*";
+              // 🔴 FIX: Give Admin the direct link if auto-download fails
+              finalContentToSave = `⚠️ *[Auto-Download Failed]*\n\n🔗 *Click to view document manually:*\n${mediaUrl}`;
           }
       }
 
