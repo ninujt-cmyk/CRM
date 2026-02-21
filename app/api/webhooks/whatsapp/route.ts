@@ -39,9 +39,19 @@ export async function POST(request: NextRequest) {
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       let messageText = body.text || body.msg || body?.message?.text?.body || "";
 
+      // 🔴 FIX: Check for Media URLs BEFORE we abort for empty text
+      let mediaUrl = body.mediaUrl || body.media_url || body.MediaUrl0 || body.url || body.fileUrl || body?.message?.document?.link || body?.message?.image?.link || "";
+      let isMedia = !!mediaUrl;
+
       if (typeof messageText !== 'string') messageText = JSON.stringify(messageText);
 
+      // 🔴 FIX: If customer sent an image without a caption, give it a placeholder so we don't ignore it
+      if (isMedia && !messageText) {
+          messageText = "📎 [Media Attachment]";
+      }
+
       if (!customerPhone || !messageText) {
+        console.log("⚠️ [IGNORED] Missing phone or text/media payload");
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
@@ -60,28 +70,24 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-
-      // --- NEW: DETECT AND HANDLE MEDIA ATTACHMENTS ---
-      // Fonada usually sends media URLs in these fields depending on the exact API version
-      let mediaUrl = body.mediaUrl || body.media_url || body?.message?.document?.link || body?.message?.image?.link;
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS ---
       let finalContentToSave = messageText; 
-      let isMedia = !!mediaUrl;
 
       if (isMedia && lead) {
           console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
           try {
-              // 1. Download the file from Fonada
+              // Download the file from Fonada
               const mediaRes = await fetch(mediaUrl);
               const arrayBuffer = await mediaRes.arrayBuffer();
               
-              // 2. Guess the file extension (jpg, pdf, png)
+              // Guess the file extension (jpg, pdf, png)
               const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
               const ext = contentType.split('/')[1] || 'bin';
               
-              // 3. Create a clean filename: lead_id/timestamp.ext
+              // Create a clean filename: lead_id/timestamp.ext
               const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
 
-              // 4. Upload directly to Supabase Storage
+              // Upload directly to Supabase Storage
               const { error: uploadError } = await supabase.storage
                   .from('kyc_documents')
                   .upload(fileName, arrayBuffer, {
@@ -91,7 +97,7 @@ export async function POST(request: NextRequest) {
 
               if (uploadError) throw uploadError;
 
-              // 5. Get the permanent Public URL
+              // Get the permanent Public URL
               const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
               const filePublicUrl = publicUrlData.data.publicUrl;
 
@@ -106,7 +112,7 @@ export async function POST(request: NextRequest) {
           }
       }
 
-      // 4. SAVE INCOMING MESSAGE & UPDATE SIDEBAR PREVIEW
+      // 5. SAVE INCOMING MESSAGE & UPDATE SIDEBAR PREVIEW
       if (lead) {
           // A. Save Message (Now handles both Text and File Links)
           await supabase.from("chat_messages").insert({
@@ -134,85 +140,70 @@ export async function POST(request: NextRequest) {
       } else {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found.");
       }
-      
 
-      // 5. SMART AUTO-REPLY LOGIC
-      const textLower = messageText.toLowerCase();
-      
-      // --- Keyword Checks ---
-      const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
-      const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent"); // 👈 NEW AGENT CHECK
-      const isHelp = textLower.includes("help");
-      const isComplete = textLower.includes("complete"); 
-      const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
+      // 6. SMART AUTO-REPLY LOGIC
+      // If it's a media attachment, we usually don't want to trigger the auto-reply bot
+      if (!isMedia) {
+          const textLower = messageText.toLowerCase();
+          
+          // --- Keyword Checks ---
+          const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
+          const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent");
+          const isHelp = textLower.includes("help");
+          const isComplete = textLower.includes("complete"); 
+          const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
-      // --- HANDLE PERSONAL LOAN / DOCUMENTS REQUEST ---
-      if (isPersonalLoan) {
-        console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
-        
-        const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
-        
-        await sendFonadaMessage(customerPhone, plMessage, lead?.id);
-        return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
-      }
-
-      // --- NEW: HANDLE "SPEAK WITH AN AGENT" ---
-      if (isSpeakToAgent) {
-        console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
-        
-        if (lead?.assigned_to) {
-          const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
-
-          if (agent && agent.phone) {
-            const agentMsg = `Hello! I understand you would like to speak with an agent.\n\nOur expert *${agent.full_name}* is assigned to your application. You can reach them directly at: *${agent.phone}*\n\nThey have been notified and will also contact you shortly.`;
-            await sendFonadaMessage(customerPhone, agentMsg, lead.id);
-            return NextResponse.json({ status: "success", action: "speak_agent_reply_sent" });
+          // --- HANDLE PERSONAL LOAN / DOCUMENTS REQUEST ---
+          if (isPersonalLoan) {
+            console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
+            const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
+            await sendFonadaMessage(customerPhone, plMessage, lead?.id);
+            return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
           }
-        }
-        
-        // Fallback if no agent is assigned
-        const fallbackAgentMsg = `Hello! I understand you would like to speak with an agent. Our team has been notified and a representative will call you shortly.`;
-        await sendFonadaMessage(customerPhone, fallbackAgentMsg, lead?.id);
-        return NextResponse.json({ status: "success", action: "speak_agent_fallback_sent" });
-      }
 
-      // --- HANDLE GENERAL INTEREST / HELP (With Office Hours) ---
-      if (isHelp || isComplete || isInterested) {
-        console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
-        
-        // --- 🕒 TIME CHECK (IST) ---
-        const now = new Date();
-        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const istDate = new Date(utc + (3600000 * 5.5)); // UTC + 5.5 for IST
-        const currentHour = istDate.getHours();
-        const isOfficeHours = currentHour >= 9 && currentHour < 20; // 9 AM - 8 PM
-
-        let introMsg = "Thank you for your interest.";
-        if (isHelp) introMsg = "We are here to help!";
-        if (isComplete) introMsg = "Let's get your application completed!";
-
-        if (lead?.assigned_to) {
-          const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
-
-          if (agent && agent.phone) {
-            let replyMessage = "";
-            if (isOfficeHours) {
-                replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned and will contact you shortly.\n\nDirect: ${agent.phone}`;
-            } else {
-                replyMessage = `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
+          // --- HANDLE "SPEAK WITH AN AGENT" ---
+          if (isSpeakToAgent) {
+            console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
+            if (lead?.assigned_to) {
+              const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
+              if (agent && agent.phone) {
+                const agentMsg = `Hello! I understand you would like to speak with an agent.\n\nOur expert *${agent.full_name}* is assigned to your application. You can reach them directly at: *${agent.phone}*\n\nThey have been notified and will also contact you shortly.`;
+                await sendFonadaMessage(customerPhone, agentMsg, lead.id);
+                return NextResponse.json({ status: "success", action: "speak_agent_reply_sent" });
+              }
             }
-            await sendFonadaMessage(customerPhone, replyMessage, lead.id);
-            return NextResponse.json({ status: "success", action: "agent_reply_sent" });
+            const fallbackAgentMsg = `Hello! I understand you would like to speak with an agent. Our team has been notified and a representative will call you shortly.`;
+            await sendFonadaMessage(customerPhone, fallbackAgentMsg, lead?.id);
+            return NextResponse.json({ status: "success", action: "speak_agent_fallback_sent" });
           }
-        } 
-        
-        // Fallback
-        const genericReply = isOfficeHours
-            ? `${introMsg} Our team will contact you shortly.`
-            : `${introMsg} Our team is currently offline but will contact you tomorrow morning.`;
 
-        await sendFonadaMessage(customerPhone, genericReply, lead?.id);
-        return NextResponse.json({ status: "success", action: "generic_reply_sent" });
+          // --- HANDLE GENERAL INTEREST / HELP (With Office Hours) ---
+          if (isHelp || isComplete || isInterested) {
+            console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
+            const now = new Date();
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const istDate = new Date(utc + (3600000 * 5.5)); 
+            const currentHour = istDate.getHours();
+            const isOfficeHours = currentHour >= 9 && currentHour < 20; 
+
+            let introMsg = "Thank you for your interest.";
+            if (isHelp) introMsg = "We are here to help!";
+            if (isComplete) introMsg = "Let's get your application completed!";
+
+            if (lead?.assigned_to) {
+              const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
+              if (agent && agent.phone) {
+                let replyMessage = isOfficeHours 
+                    ? `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned and will contact you shortly.\n\nDirect: ${agent.phone}`
+                    : `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
+                await sendFonadaMessage(customerPhone, replyMessage, lead.id);
+                return NextResponse.json({ status: "success", action: "agent_reply_sent" });
+              }
+            } 
+            const genericReply = isOfficeHours ? `${introMsg} Our team will contact you shortly.` : `${introMsg} Our team is currently offline but will contact you tomorrow morning.`;
+            await sendFonadaMessage(customerPhone, genericReply, lead?.id);
+            return NextResponse.json({ status: "success", action: "generic_reply_sent" });
+          }
       }
       
       return NextResponse.json({ status: "success", action: "message_saved_no_reply" });
@@ -229,11 +220,7 @@ export async function POST(request: NextRequest) {
       console.log(`📬 [DLR UPDATE] MsgID: ${msgId}, Status: ${status}`);
 
       if (msgId && (status === 'delivered' || status === 'read')) {
-          const { error } = await supabase
-              .from('chat_messages')
-              .update({ status: status }) 
-              .eq('fonada_message_id', msgId);
-
+          const { error } = await supabase.from('chat_messages').update({ status: status }).eq('fonada_message_id', msgId);
           if (error) console.error("❌ Failed to update DLR:", error);
       }
       return NextResponse.json({ status: "success", action: "dlr_updated" });
@@ -270,8 +257,6 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
 
     if (leadId && data.status !== "error") {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        
-        // 1. Save Message
         await supabase.from("chat_messages").insert({
             lead_id: leadId,
             phone_number: mobile,
@@ -281,8 +266,6 @@ async function sendFonadaMessage(mobile: string, text: string, leadId?: string) 
             fonada_message_id: data.msgId || null,
             status: 'sent'
         });
-
-        // 2. Update Lead Sidebar Preview
         await supabase.from("leads").update({ 
             last_message_at: new Date().toISOString(),
             last_message_content: text.substring(0, 100),
