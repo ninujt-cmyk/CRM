@@ -53,7 +53,6 @@ export async function POST(request: NextRequest) {
       }
 
       if (!customerPhone || !messageText) {
-        console.log("⚠️ [IGNORED] Missing phone or text/media payload");
         return NextResponse.json({ status: "ignored", reason: "no_data" });
       }
 
@@ -72,64 +71,75 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS ---
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (BULLETPROOF VERSION) ---
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
           console.log(`📥 [MEDIA DETECTED] Original Fonada Link: ${mediaUrl}`);
           
           try {
-              // 🟢 STEP 1: Fetch the original URL (This works perfectly for Images)
-              let mediaRes = await fetch(mediaUrl, {
-                  headers: {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                      'Accept': '*/*'
-                  }
-              });
+              // Create Auth Headers (Some APIs bypass HTML portals if Basic Auth is provided)
+              const authString = Buffer.from(`${process.env.FONADA_USERID || "bankscart"}:${process.env.FONADA_PASSWORD || "zfsWTyKw"}`).toString('base64');
+              const fetchHeaders = {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                  'Accept': '*/*',
+                  'Authorization': `Basic ${authString}`
+              };
 
+              // 🟢 STEP 1: Attempt to fetch the original link
+              let mediaRes = await fetch(mediaUrl, { headers: fetchHeaders });
               let contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
 
-              // 🟠 STEP 2: If Fonada returns HTML (happens for PDFs), try the Hack
-              if (contentType.includes('text/html') && mediaUrl.includes('view-mediaMeta')) {
-                  console.log("⚠️ Fonada returned HTML. Attempting URL override hack for PDF...");
-                  let hackUrl = mediaUrl.replace('view-mediaMeta', 'view-media');
-                  const joinChar = hackUrl.includes('?') ? '&' : '?';
-                  hackUrl = `${hackUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
+              // 🟠 STEP 2: If Fonada wraps it in HTML (like it does for PDFs), SCRAPE THE HTML!
+              if (contentType.includes('text/html')) {
+                  console.log("⚠️ Fonada returned HTML. Scraping the portal page for the raw PDF link...");
+                  const htmlContent = await mediaRes.text();
                   
-                  const hackRes = await fetch(hackUrl, {
-                      headers: {
-                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                          'Accept': '*/*'
+                  // Find all URLs inside the HTML code
+                  const urlsInHtml = htmlContent.match(/https?:\/\/[^"'\s<>]+/g) || [];
+                  
+                  // Look for a link that has .pdf, or says 'download', or looks like the raw media link
+                  let rawUrl = urlsInHtml.find(u => u !== mediaUrl && (u.toLowerCase().includes('.pdf') || u.includes('download') || u.includes('view-media') || u.includes('media_id')));
+
+                  // Fallback string replacement hack if regex doesn't find it
+                  if (!rawUrl && mediaUrl.includes('view-mediaMeta')) {
+                      rawUrl = mediaUrl.replace('view-mediaMeta', 'view-media');
+                  }
+
+                  if (rawUrl) {
+                      // Inject Credentials into URL to force access
+                      if (rawUrl.includes(new URL(mediaUrl).hostname) && !rawUrl.includes('userid=')) {
+                          const joinChar = rawUrl.includes('?') ? '&' : '?';
+                          rawUrl = `${rawUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
                       }
-                  });
-                  
-                  const hackContentType = hackRes.headers.get('content-type') || '';
-                  if (!hackContentType.includes('text/html')) {
-                      console.log("✅ Hack successful! Retrieved raw file.");
-                      mediaRes = hackRes; // Use the hacked response
-                      contentType = hackContentType;
-                  } else {
-                      console.log("⚠️ Hack failed. Fonada still returning HTML.");
+
+                      console.log(`🔗 Found raw URL, retrying fetch: ${rawUrl}`);
+                      mediaRes = await fetch(rawUrl, { headers: fetchHeaders });
+                      contentType = mediaRes.headers.get('content-type') || '';
                   }
               }
 
-              // 🔴 STEP 3: Check if it is STILL HTML after the hack
+              // 🔴 STEP 3: Final check and Upload to Supabase
               if (contentType.includes('text/html')) {
-                  console.log("⚠️ [INFO] Saving direct link because Fonada won't release the raw file.");
-                  finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}\n\n_(Note: If this link shows 'Failed to load media', Fonada is blocking access. Contact Fonada support.)_`;
+                  console.log("⚠️ [INFO] Still returning HTML. Saving the direct link instead.");
+                  finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}`;
               } else {
-                  // ✅ STEP 4: It's a real file! Proceed with Supabase upload
+                  // ✅ SUCCESS! We have the raw file bytes!
                   const arrayBuffer = await mediaRes.arrayBuffer();
                   let ext = 'bin';
                   
+                  // Priority 1: Get extension from Fonada's filename payload
                   const originalName = body.documentName || body.fileName || body?.message?.document?.filename || "";
                   if (originalName && originalName.includes('.')) {
                       ext = originalName.split('.').pop() || 'bin';
-                  } else if (mediaUrl.includes('.')) {
+                  } 
+                  // Priority 2: Extract from the URL
+                  else if (mediaUrl.includes('.')) {
                       const urlMatch = mediaUrl.match(/\.([a-zA-Z0-9]+)(?:&|$)/);
                       if (urlMatch) ext = urlMatch[1];
                   }
                   
+                  // Priority 3: Guess from content type
                   if (ext === 'bin' || ext.length > 4) {
                       const mime = contentType.toLowerCase();
                       if (mime.includes('pdf')) ext = 'pdf';
@@ -141,13 +151,16 @@ export async function POST(request: NextRequest) {
                   
                   ext = ext.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+                  // Ensure correct mime type for Supabase storage
                   let finalUploadType = contentType;
                   if (ext === 'pdf') finalUploadType = 'application/pdf';
                   if (ext === 'jpg' || ext === 'jpeg') finalUploadType = 'image/jpeg';
                   if (ext === 'png') finalUploadType = 'image/png';
 
+                  // Create clean filename
                   const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
 
+                  // Upload to Supabase
                   const { error: uploadError } = await supabase.storage
                       .from('kyc_documents')
                       .upload(fileName, arrayBuffer, {
@@ -157,6 +170,7 @@ export async function POST(request: NextRequest) {
 
                   if (uploadError) throw uploadError;
 
+                  // Grab Public URL
                   const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
                   const filePublicUrl = publicUrlData.data.publicUrl;
 
@@ -207,14 +221,12 @@ export async function POST(request: NextRequest) {
           const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
           if (isPersonalLoan) {
-            console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
             const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
             await sendFonadaMessage(customerPhone, plMessage, lead?.id);
             return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
           }
 
           if (isSpeakToAgent) {
-            console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
             if (lead?.assigned_to) {
               const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
               if (agent && agent.phone) {
@@ -229,7 +241,6 @@ export async function POST(request: NextRequest) {
           }
 
           if (isHelp || isComplete || isInterested) {
-            console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
             const now = new Date();
             const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
             const istDate = new Date(utc + (3600000 * 5.5)); 
@@ -267,11 +278,8 @@ export async function POST(request: NextRequest) {
       let status = body.status ? body.status.toLowerCase() : 'unknown';
       if (status.includes('deliv')) status = 'delivered';
       
-      console.log(`📬 [DLR UPDATE] MsgID: ${msgId}, Status: ${status}`);
-
       if (msgId && (status === 'delivered' || status === 'read')) {
-          const { error } = await supabase.from('chat_messages').update({ status: status }).eq('fonada_message_id', msgId);
-          if (error) console.error("❌ Failed to update DLR:", error);
+          await supabase.from('chat_messages').update({ status: status }).eq('fonada_message_id', msgId);
       }
       return NextResponse.json({ status: "success", action: "dlr_updated" });
     }
