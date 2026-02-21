@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 // ============================================================================
 // 1. SEND NORMAL TEXT MESSAGE (Used in your new Chat UI)
@@ -49,7 +50,7 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
         status: 'sent'
     });
 
-    // 🔴 UPDATED: Throw error if DB insert fails so UI knows about it
+    // Throw error if DB insert fails so UI knows about it
     if (insertError) {
         console.error("❌ [DB ERROR] Saving text:", insertError);
         throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -133,7 +134,7 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
         status: 'sent'
     });
 
-    // 🔴 UPDATED: Throw error if DB insert fails so UI knows about it
+    // Throw error if DB insert fails so UI knows about it
     if (insertError) {
         console.error("❌ [DB ERROR] Saving template:", insertError);
         throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -152,13 +153,17 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
 
 
 // ============================================================================
-// 3. SEND AUTOMATED KYC DOCUMENT REQUEST (Utility Template)
+// 3. SEND AUTOMATED KYC DOCUMENT REQUEST (Handles Initial & 24h Reminder)
 // ============================================================================
-export async function sendKYCRequestTemplate(leadId: string, customerPhone: string) {
+export async function sendKYCRequestTemplate(leadId: string, customerPhone: string, isReminder: boolean = false) {
   try {
-    const supabase = await createClient();
+    // 🔴 Use Service Role so Cron Job doesn't fail due to missing user session
+    const supabase = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     
-    // Construct the exact Utility Template you get approved by Meta
+    // Using the exact approved template for both requests
     const textMessage = `Hello,\n\nThis is an update regarding your loan application. Your application is currently pending.\n\nPlease share clear photos or PDFs of your Aadhar Card, PAN Card, and latest Bank Statement by replying directly to this chat.\n\nThank you.`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
@@ -199,12 +204,21 @@ export async function sendKYCRequestTemplate(leadId: string, customerPhone: stri
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
 
-    // Update Sidebar Snippet
-    await supabase.from("leads").update({ 
+    // Update DB with Timers and Sidebar snippet
+    const updatePayload: any = {
         last_message_at: new Date().toISOString(),
-        last_message_content: "Sent KYC Request",
+        last_message_content: isReminder ? "Sent 24h KYC Reminder" : "Sent Initial KYC Request",
         last_message_type: 'outbound'
-    }).eq("id", leadId);
+    };
+
+    if (isReminder) {
+        updatePayload.kyc_reminder_sent = true; // Mark as done so it never sends again
+    } else {
+        updatePayload.kyc_requested_at = new Date().toISOString(); // Start the 24h clock
+        updatePayload.kyc_reminder_sent = false;
+    }
+
+    await supabase.from("leads").update(updatePayload).eq("id", leadId);
 
     return { success: true };
 
