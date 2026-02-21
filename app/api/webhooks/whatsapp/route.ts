@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (UPGRADED EXTENSION LOGIC) ---
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS ---
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
@@ -86,70 +86,67 @@ export async function POST(request: NextRequest) {
               });
 
               const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
-              const arrayBuffer = await mediaRes.arrayBuffer();
-              
-              // 🔴 FIX: SMART EXTENSION DETECTION
-              let ext = 'bin';
-              
-              // Priority 1: Get exact extension from the document name payload
-              const originalName = body.documentName || body.fileName || body?.message?.document?.filename || "";
-              if (originalName && originalName.includes('.')) {
-                  ext = originalName.split('.').pop() || 'bin';
-              } 
-              // Priority 2: Extract from URL if name is missing
-              else if (mediaUrl.includes('.')) {
-                  const urlMatch = mediaUrl.match(/\.([a-zA-Z0-9]+)(?:&|$)/);
-                  if (urlMatch) ext = urlMatch[1];
+
+              // 🔴 FIX: GRACEFULLY HANDLE HTML/PORTAL LINKS FROM FONADA
+              if (contentType.includes('text/html')) {
+                  console.log("⚠️ [INFO] Fonada returned an HTML portal page. Saving direct link.");
+                  finalContentToSave = `📁 *Document Received:*\n${mediaUrl}\n\n_(Click link to view/download)_`;
+              } else {
+                  // It's a real file! Proceed with download and Supabase upload
+                  const arrayBuffer = await mediaRes.arrayBuffer();
+                  let ext = 'bin';
+                  
+                  const originalName = body.documentName || body.fileName || body?.message?.document?.filename || "";
+                  if (originalName && originalName.includes('.')) {
+                      ext = originalName.split('.').pop() || 'bin';
+                  } else if (mediaUrl.includes('.')) {
+                      const urlMatch = mediaUrl.match(/\.([a-zA-Z0-9]+)(?:&|$)/);
+                      if (urlMatch) ext = urlMatch[1];
+                  }
+                  
+                  if (ext === 'bin' || ext.length > 4) {
+                      const mime = contentType.toLowerCase();
+                      if (mime.includes('pdf')) ext = 'pdf';
+                      else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+                      else if (mime.includes('png')) ext = 'png';
+                      else if (mime.includes('mp4')) ext = 'mp4';
+                      else ext = mime.split('/')[1]?.split(';')[0] || 'bin';
+                  }
+                  
+                  ext = ext.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                  let finalUploadType = contentType;
+                  if (ext === 'pdf') finalUploadType = 'application/pdf';
+                  if (ext === 'jpg' || ext === 'jpeg') finalUploadType = 'image/jpeg';
+                  if (ext === 'png') finalUploadType = 'image/png';
+
+                  const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
+
+                  const { error: uploadError } = await supabase.storage
+                      .from('kyc_documents')
+                      .upload(fileName, arrayBuffer, {
+                          contentType: finalUploadType,
+                          upsert: true
+                      });
+
+                  if (uploadError) throw uploadError;
+
+                  const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
+                  const filePublicUrl = publicUrlData.data.publicUrl;
+
+                  console.log(`✅ [STORAGE SUCCESS] File securely saved: ${filePublicUrl}`);
+                  finalContentToSave = `📁 *Document Uploaded:*\n${filePublicUrl}`;
               }
-              // Priority 3: Fallback to Content-Type matching
-              if (ext === 'bin' || ext.length > 4) {
-                  const mime = contentType.toLowerCase();
-                  if (mime.includes('pdf')) ext = 'pdf';
-                  else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
-                  else if (mime.includes('png')) ext = 'png';
-                  else if (mime.includes('mp4')) ext = 'mp4';
-                  else ext = mime.split('/')[1]?.split(';')[0] || 'bin';
-              }
-              
-              ext = ext.toLowerCase().replace(/[^a-z0-9]/g, ''); // Clean extension
-
-              // 🔴 FIX: FORCE CORRECT CONTENT TYPE FOR UPLOAD
-              let finalUploadType = contentType;
-              if (ext === 'pdf') finalUploadType = 'application/pdf';
-              if (ext === 'jpg' || ext === 'jpeg') finalUploadType = 'image/jpeg';
-              if (ext === 'png') finalUploadType = 'image/png';
-
-              // Create a clean filename: lead_id/timestamp.ext
-              const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
-
-              // Upload directly to Supabase Storage
-              const { error: uploadError } = await supabase.storage
-                  .from('kyc_documents')
-                  .upload(fileName, arrayBuffer, {
-                      contentType: finalUploadType,
-                      upsert: true
-                  });
-
-              if (uploadError) throw uploadError;
-
-              // Get the permanent Public URL
-              const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
-              const filePublicUrl = publicUrlData.data.publicUrl;
-
-              console.log(`✅ [STORAGE SUCCESS] File securely saved: ${filePublicUrl}`);
-              
-              // Change the chat text so the admin can click it in the CRM
-              finalContentToSave = `📁 *Document Uploaded:*\n${filePublicUrl}`;
 
           } catch (err: any) {
               console.error("❌ [STORAGE ERROR] Failed to process media:", err);
-              finalContentToSave = `⚠️ *[Auto-Download Failed]*\n\n🔗 *Click to view document manually:*\n${mediaUrl}`;
+              // Fallback if the fetch fails entirely
+              finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}`;
           }
       }
 
       // 5. SAVE INCOMING MESSAGE & UPDATE SIDEBAR PREVIEW
       if (lead) {
-          // A. Save Message (Now handles both Text and File Links)
           await supabase.from("chat_messages").insert({
               lead_id: lead.id,
               phone_number: customerPhone,
@@ -160,35 +157,30 @@ export async function POST(request: NextRequest) {
               status: 'received'
           });
 
-          // B. Update Lead (Timestamp + Sidebar Preview)
           await supabase
             .from("leads")
             .update({ 
                 last_message_at: new Date().toISOString(),
-                last_message_content: isMedia ? `📁 ${ext.toUpperCase()} Received` : messageText.substring(0, 100),
+                last_message_content: isMedia ? `📁 Document Received` : messageText.substring(0, 100),
                 last_message_type: 'inbound' 
             })
             .eq("id", lead.id);
 
-          // C. Increment Badge
           await supabase.rpc('increment_unread_count', { row_id: lead.id });
       } else {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found.");
       }
 
       // 6. SMART AUTO-REPLY LOGIC
-      // If it's a media attachment, we usually don't want to trigger the auto-reply bot
       if (!isMedia) {
           const textLower = messageText.toLowerCase();
           
-          // --- Keyword Checks ---
           const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
           const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent");
           const isHelp = textLower.includes("help");
           const isComplete = textLower.includes("complete"); 
           const isInterested = ["interested", "intrested", "yes", "plan", "details", "call me"].some(k => textLower.includes(k));
 
-          // --- HANDLE PERSONAL LOAN / DOCUMENTS REQUEST ---
           if (isPersonalLoan) {
             console.log(`✅ [MATCHED KEYWORD] Personal Loan Request triggered.`);
             const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
@@ -196,7 +188,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
           }
 
-          // --- HANDLE "SPEAK WITH AN AGENT" ---
           if (isSpeakToAgent) {
             console.log(`✅ [MATCHED KEYWORD] Speak to Agent Request triggered.`);
             if (lead?.assigned_to) {
@@ -212,7 +203,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: "success", action: "speak_agent_fallback_sent" });
           }
 
-          // --- HANDLE GENERAL INTEREST / HELP (With Office Hours) ---
           if (isHelp || isComplete || isInterested) {
             console.log(`✅ [MATCHED KEYWORD] General Auto-reply triggered.`);
             const now = new Date();
