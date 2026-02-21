@@ -78,31 +78,47 @@ export async function POST(request: NextRequest) {
       if (isMedia && lead) {
           console.log(`📥 [MEDIA DETECTED] Original Fonada Link: ${mediaUrl}`);
           
-          // 🛠️ THE MISSING HACK: Force Fonada to give the raw PDF instead of the HTML viewer
-          let fetchUrl = mediaUrl;
-          if (fetchUrl.includes('view-mediaMeta')) {
-              fetchUrl = fetchUrl.replace('view-mediaMeta', 'view-media');
-              const joinChar = fetchUrl.includes('?') ? '&' : '?';
-              fetchUrl = `${fetchUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
-              console.log(`🔧 https://www.merriam-webster.com/dictionary/override Attempting authenticated direct download for PDF: ${fetchUrl}`);
-          }
-
           try {
-              const mediaRes = await fetch(fetchUrl, {
+              // 🟢 STEP 1: Fetch the original URL (This works perfectly for Images)
+              let mediaRes = await fetch(mediaUrl, {
                   headers: {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                       'Accept': '*/*'
                   }
               });
 
-              const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
+              let contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
 
-              // 🔴 FIX: GRACEFULLY HANDLE HTML/PORTAL LINKS FROM FONADA
+              // 🟠 STEP 2: If Fonada returns HTML (happens for PDFs), try the Hack
+              if (contentType.includes('text/html') && mediaUrl.includes('view-mediaMeta')) {
+                  console.log("⚠️ Fonada returned HTML. Attempting URL override hack for PDF...");
+                  let hackUrl = mediaUrl.replace('view-mediaMeta', 'view-media');
+                  const joinChar = hackUrl.includes('?') ? '&' : '?';
+                  hackUrl = `${hackUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
+                  
+                  const hackRes = await fetch(hackUrl, {
+                      headers: {
+                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                          'Accept': '*/*'
+                      }
+                  });
+                  
+                  const hackContentType = hackRes.headers.get('content-type') || '';
+                  if (!hackContentType.includes('text/html')) {
+                      console.log("✅ Hack successful! Retrieved raw file.");
+                      mediaRes = hackRes; // Use the hacked response
+                      contentType = hackContentType;
+                  } else {
+                      console.log("⚠️ Hack failed. Fonada still returning HTML.");
+                  }
+              }
+
+              // 🔴 STEP 3: Check if it is STILL HTML after the hack
               if (contentType.includes('text/html')) {
-                  console.log("⚠️ [INFO] Fonada returned an HTML portal page. Saving direct link.");
-                  finalContentToSave = `📁 *Document Received:*\n${mediaUrl}\n\n_(Click link to view/download)_`;
+                  console.log("⚠️ [INFO] Saving direct link because Fonada won't release the raw file.");
+                  finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}\n\n_(Note: If this link shows 'Failed to load media', Fonada is blocking access. Contact Fonada support.)_`;
               } else {
-                  // It's a real file! Proceed with download and Supabase upload
+                  // ✅ STEP 4: It's a real file! Proceed with Supabase upload
                   const arrayBuffer = await mediaRes.arrayBuffer();
                   let ext = 'bin';
                   
@@ -150,7 +166,6 @@ export async function POST(request: NextRequest) {
 
           } catch (err: any) {
               console.error("❌ [STORAGE ERROR] Failed to process media:", err);
-              // Fallback if the fetch fails entirely
               finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}`;
           }
       }
