@@ -39,13 +39,13 @@ export async function POST(request: NextRequest) {
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       let messageText = body.text || body.msg || body?.message?.text?.body || "";
 
-      // 🔴 FIX: Check for Media URLs BEFORE we abort for empty text
-      let mediaUrl = body.mediaUrl || body.media_url || body.MediaUrl0 || body.url || body.fileUrl || body?.message?.document?.link || body?.message?.image?.link || "";
+      // 🔴 FIX: Added imageUrl, documentUrl, and videoUrl to perfectly match Fonada's payload
+      let mediaUrl = body.imageUrl || body.documentUrl || body.videoUrl || body.mediaUrl || body.media_url || body.MediaUrl0 || body.url || body.fileUrl || body?.message?.document?.link || body?.message?.image?.link || "";
       let isMedia = !!mediaUrl;
 
       if (typeof messageText !== 'string') messageText = JSON.stringify(messageText);
 
-      // 🔴 FIX: If customer sent an image without a caption, give it a placeholder so we don't ignore it
+      // If customer sent an image without a caption, give it a placeholder
       if (isMedia && !messageText) {
           messageText = "📎 [Media Attachment]";
       }
