@@ -60,15 +60,61 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
+
+      // --- NEW: DETECT AND HANDLE MEDIA ATTACHMENTS ---
+      // Fonada usually sends media URLs in these fields depending on the exact API version
+      let mediaUrl = body.mediaUrl || body.media_url || body?.message?.document?.link || body?.message?.image?.link;
+      let finalContentToSave = messageText; 
+      let isMedia = !!mediaUrl;
+
+      if (isMedia && lead) {
+          console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
+          try {
+              // 1. Download the file from Fonada
+              const mediaRes = await fetch(mediaUrl);
+              const arrayBuffer = await mediaRes.arrayBuffer();
+              
+              // 2. Guess the file extension (jpg, pdf, png)
+              const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
+              const ext = contentType.split('/')[1] || 'bin';
+              
+              // 3. Create a clean filename: lead_id/timestamp.ext
+              const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
+
+              // 4. Upload directly to Supabase Storage
+              const { error: uploadError } = await supabase.storage
+                  .from('kyc_documents')
+                  .upload(fileName, arrayBuffer, {
+                      contentType: contentType,
+                      upsert: true
+                  });
+
+              if (uploadError) throw uploadError;
+
+              // 5. Get the permanent Public URL
+              const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
+              const filePublicUrl = publicUrlData.data.publicUrl;
+
+              console.log(`✅ [STORAGE SUCCESS] File securely saved: ${filePublicUrl}`);
+              
+              // Change the chat text so the admin can click it in the CRM
+              finalContentToSave = `📁 *Document Uploaded:*\n${filePublicUrl}`;
+
+          } catch (err) {
+              console.error("❌ [STORAGE ERROR] Failed to process media:", err);
+              finalContentToSave = "⚠️ *[Failed to download customer document]*";
+          }
+      }
+
       // 4. SAVE INCOMING MESSAGE & UPDATE SIDEBAR PREVIEW
       if (lead) {
-          // A. Save Message
+          // A. Save Message (Now handles both Text and File Links)
           await supabase.from("chat_messages").insert({
               lead_id: lead.id,
               phone_number: customerPhone,
               direction: 'inbound',
-              message_type: 'text',
-              content: messageText,
+              message_type: isMedia ? 'document' : 'text',
+              content: finalContentToSave,
               fonada_message_id: body.msgId || null,
               status: 'received'
           });
@@ -78,17 +124,17 @@ export async function POST(request: NextRequest) {
             .from("leads")
             .update({ 
                 last_message_at: new Date().toISOString(),
-                last_message_content: messageText.substring(0, 100), // Save snippet
-                last_message_type: 'inbound' // Tag as Customer Message
+                last_message_content: isMedia ? "📁 Document Received" : messageText.substring(0, 100),
+                last_message_type: 'inbound' 
             })
             .eq("id", lead.id);
 
           // C. Increment Badge
-          const { error: rpcError } = await supabase.rpc('increment_unread_count', { row_id: lead.id });
-          if (rpcError) console.log("⚠️ [DB NOTE] increment_unread_count RPC failed.");
+          await supabase.rpc('increment_unread_count', { row_id: lead.id });
       } else {
           console.log("⚠️ [NO LEAD MATCH] Message received, but no matching lead found.");
       }
+      
 
       // 5. SMART AUTO-REPLY LOGIC
       const textLower = messageText.toLowerCase();
