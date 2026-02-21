@@ -76,9 +76,19 @@ export async function POST(request: NextRequest) {
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
-          console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
+          console.log(`📥 [MEDIA DETECTED] Original Fonada Link: ${mediaUrl}`);
+          
+          // 🛠️ THE MISSING HACK: Force Fonada to give the raw PDF instead of the HTML viewer
+          let fetchUrl = mediaUrl;
+          if (fetchUrl.includes('view-mediaMeta')) {
+              fetchUrl = fetchUrl.replace('view-mediaMeta', 'view-media');
+              const joinChar = fetchUrl.includes('?') ? '&' : '?';
+              fetchUrl = `${fetchUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
+              console.log(`🔧 https://www.merriam-webster.com/dictionary/override Attempting authenticated direct download for PDF: ${fetchUrl}`);
+          }
+
           try {
-              const mediaRes = await fetch(mediaUrl, {
+              const mediaRes = await fetch(fetchUrl, {
                   headers: {
                       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                       'Accept': '*/*'
