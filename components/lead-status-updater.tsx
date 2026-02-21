@@ -21,8 +21,8 @@ import { ScheduleFollowUpModal } from "./schedule-follow-up-modal"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-// --- IMPORT THE SERVER ACTION WE CREATED EARLIER ---
-import { sendMissedCallMessage } from "@/app/actions/whatsapp"
+// --- IMPORT THE SERVER ACTIONS ---
+import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" // 👈 Added sendKYCRequestTemplate
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -89,7 +89,7 @@ export function LeadStatusUpdater({
   const [dialing, setDialing] = useState(false);
    
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
-  const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) // NEW: State for Missed Call WA Loading
+  const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) 
   
   // REF to track duplication
   const lastDialedIdRef = useRef<string | null>(null)
@@ -196,15 +196,13 @@ export function LeadStatusUpdater({
 
   // --- HANDLERS ---
 
-  // NEW: Handler for Missed Call WhatsApp
   const handleMissedCallWA = async () => {
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
     try {
-      const result = await sendMissedCallMessage(leadPhoneNumber);
+      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); // Pass leadId for tracking
       if (result.success) {
         toast.success("Missed call WhatsApp sent!");
-        // Optionally auto-set status to 'NR' when clicked
         if(!status) setStatus('nr'); 
       } else {
         toast.error("Failed to send: " + result.error);
@@ -322,21 +320,13 @@ export function LeadStatusUpdater({
       
       updateData.status = finalStatus;
 
-      // Auto-WhatsApp
-      if (["Interested", "Documents_Sent"].includes(finalStatus) && leadPhoneNumber) {
-         let msg = "";
-         if(finalStatus === 'Interested') msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
-         if(finalStatus === 'Documents_Sent') msg = "I have shared the documents list via email. Please check.";
-         
-         const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
-         window.open(wUrl, '_blank');
-      }
-
+      // 1. UPDATE SUPABASE DATABASE
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
       onStatusUpdate?.(finalStatus, note) 
       
+      // 2. LOG ACTIONS
       if (finalStatus !== status) {
           const logContent = finalStatus === "recycle_pool" 
             ? "System: Strike 1 (Not Interested). Lead Recycled." 
@@ -346,7 +336,26 @@ export function LeadStatusUpdater({
       }
 
       if (isCallInitiated) await logCall(finalDuration)
+
+      // 3. WHATSAPP AUTOMATION (KYC Request vs Interested)
+      if (finalStatus === "Documents_Sent" && leadPhoneNumber) {
+          // 🔴 AUTOMATED KYC PIPELINE TRIGGER
+          toast.info("Sending KYC Document Request via WhatsApp...");
+          const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
+          
+          if (kycResult.success) {
+              toast.success("KYC WhatsApp Template sent securely!");
+          } else {
+              toast.error("Failed to send automated KYC template.");
+          }
+      } else if (finalStatus === "Interested" && leadPhoneNumber) {
+          // Standard manual redirect for Interest
+          const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
+          const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+          window.open(wUrl, '_blank');
+      }
       
+      // Reset UI state
       setNote(""); setRemarks(""); setCallDurationOverride(null); setElapsedTime(0); setNotEligibleReason(""); setStatus("");
       toast.success("Updated successfully!")
 
@@ -448,7 +457,7 @@ export function LeadStatusUpdater({
                 </Tooltip>
             </TooltipProvider>
             
-            {/* NEW: Missed Call WA Button */}
+            {/* Missed Call WA Button */}
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
