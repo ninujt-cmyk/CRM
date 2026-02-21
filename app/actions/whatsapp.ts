@@ -149,3 +149,67 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
     return { success: false, error: error.message };
   }
 }
+
+
+// ============================================================================
+// 3. SEND AUTOMATED KYC DOCUMENT REQUEST (Utility Template)
+// ============================================================================
+export async function sendKYCRequestTemplate(leadId: string, customerPhone: string) {
+  try {
+    const supabase = await createClient();
+    
+    // Construct the exact Utility Template you get approved by Meta
+    const textMessage = `Hello,\n\nThis is an update regarding your loan application. Your application is currently pending.\n\nPlease share clear photos or PDFs of your Aadhar Card, PAN Card, and latest Bank Statement by replying directly to this chat.\n\nThank you.`;
+
+    const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+    const formData = new FormData();
+    formData.append("userid", process.env.FONADA_USERID || "bankscart");
+    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
+    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    
+    let safePhone = customerPhone.replace(/^\+/, '');
+    if (safePhone.length === 10) safePhone = `91${safePhone}`;
+    formData.append("mobile", safePhone); 
+    
+    formData.append("msg", textMessage);
+    formData.append("msgType", "text");
+    formData.append("templateName", "kyc_document_request"); // MUST MATCH META EXACTLY
+    formData.append("sendMethod", "quick");
+    formData.append("output", "json");
+
+    const res = await fetch(apiUrl, { method: "POST", body: formData });
+    const data = await res.json();
+    
+    if (data.status === "error" || data.error) {
+        throw new Error(data.message || data.error || "Fonada API Error");
+    }
+
+    // Save outbound template to DB History
+    const { error: insertError } = await supabase.from("chat_messages").insert({
+        lead_id: leadId,
+        phone_number: safePhone, 
+        direction: 'outbound',
+        message_type: 'template',
+        content: textMessage,
+        fonada_message_id: data.msgId || null, 
+        status: 'sent'
+    });
+
+    if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
+
+    // Update Sidebar Snippet
+    await supabase.from("leads").update({ 
+        last_message_at: new Date().toISOString(),
+        last_message_content: "Sent KYC Request",
+        last_message_type: 'outbound'
+    }).eq("id", leadId);
+
+    return { success: true };
+
+  } catch (error: any) {
+    console.error("KYC Request WA Error:", error);
+    return { success: false, error: error.message };
+  }
+}
