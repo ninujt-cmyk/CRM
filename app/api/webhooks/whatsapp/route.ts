@@ -72,13 +72,12 @@ export async function POST(request: NextRequest) {
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
 
-      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (UPGRADED) ---
+      // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (UPGRADED EXTENSION LOGIC) ---
       let finalContentToSave = messageText; 
 
       if (isMedia && lead) {
           console.log(`📥 [MEDIA DETECTED] Fetching from Fonada: ${mediaUrl}`);
           try {
-              // 🔴 FIX: Add User-Agent to bypass Cloudflare/Bot protection
               const mediaRes = await fetch(mediaUrl, {
                   headers: {
                       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -87,29 +86,38 @@ export async function POST(request: NextRequest) {
               });
 
               const contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
-              
-              // 🔴 FIX: Anti-HTML Protection
-              if (contentType.includes('text/html')) {
-                  throw new Error("Fonada blocked the download (Returned HTML). Original link preserved.");
-              }
-
               const arrayBuffer = await mediaRes.arrayBuffer();
               
-              // 🔴 FIX: Smart Extension Detection
+              // 🔴 FIX: SMART EXTENSION DETECTION
               let ext = 'bin';
-              if (contentType.includes('pdf')) ext = 'pdf';
-              else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
-              else if (contentType.includes('png')) ext = 'png';
-              else if (contentType.includes('mp4')) ext = 'mp4';
-              else if (contentType.includes('document')) ext = 'docx';
-              else {
-                  // Fallback to reading URL
-                  const urlMatch = mediaUrl.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
+              
+              // Priority 1: Get exact extension from the document name payload
+              const originalName = body.documentName || body.fileName || body?.message?.document?.filename || "";
+              if (originalName && originalName.includes('.')) {
+                  ext = originalName.split('.').pop() || 'bin';
+              } 
+              // Priority 2: Extract from URL if name is missing
+              else if (mediaUrl.includes('.')) {
+                  const urlMatch = mediaUrl.match(/\.([a-zA-Z0-9]+)(?:&|$)/);
                   if (urlMatch) ext = urlMatch[1];
-                  else ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
+              }
+              // Priority 3: Fallback to Content-Type matching
+              if (ext === 'bin' || ext.length > 4) {
+                  const mime = contentType.toLowerCase();
+                  if (mime.includes('pdf')) ext = 'pdf';
+                  else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+                  else if (mime.includes('png')) ext = 'png';
+                  else if (mime.includes('mp4')) ext = 'mp4';
+                  else ext = mime.split('/')[1]?.split(';')[0] || 'bin';
               }
               
-              ext = ext.replace(/[^a-zA-Z0-9]/g, ''); // Clean extension
+              ext = ext.toLowerCase().replace(/[^a-z0-9]/g, ''); // Clean extension
+
+              // 🔴 FIX: FORCE CORRECT CONTENT TYPE FOR UPLOAD
+              let finalUploadType = contentType;
+              if (ext === 'pdf') finalUploadType = 'application/pdf';
+              if (ext === 'jpg' || ext === 'jpeg') finalUploadType = 'image/jpeg';
+              if (ext === 'png') finalUploadType = 'image/png';
 
               // Create a clean filename: lead_id/timestamp.ext
               const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
@@ -118,7 +126,7 @@ export async function POST(request: NextRequest) {
               const { error: uploadError } = await supabase.storage
                   .from('kyc_documents')
                   .upload(fileName, arrayBuffer, {
-                      contentType: contentType,
+                      contentType: finalUploadType,
                       upsert: true
                   });
 
@@ -135,7 +143,6 @@ export async function POST(request: NextRequest) {
 
           } catch (err: any) {
               console.error("❌ [STORAGE ERROR] Failed to process media:", err);
-              // 🔴 FIX: Give Admin the direct link if auto-download fails
               finalContentToSave = `⚠️ *[Auto-Download Failed]*\n\n🔗 *Click to view document manually:*\n${mediaUrl}`;
           }
       }
@@ -158,7 +165,7 @@ export async function POST(request: NextRequest) {
             .from("leads")
             .update({ 
                 last_message_at: new Date().toISOString(),
-                last_message_content: isMedia ? "📁 Document Received" : messageText.substring(0, 100),
+                last_message_content: isMedia ? `📁 ${ext.toUpperCase()} Received` : messageText.substring(0, 100),
                 last_message_type: 'inbound' 
             })
             .eq("id", lead.id);
