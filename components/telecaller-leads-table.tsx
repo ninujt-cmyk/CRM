@@ -3,8 +3,8 @@
 import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { 
-  Building, Clock, ChevronDown, ChevronUp, AlertCircle, ArrowUpRight, 
-  CheckSquare, X, Loader2, Copy, PhoneMissed, MessageSquare 
+  Building, ChevronDown, ChevronUp, ArrowUpRight, 
+  Copy, PhoneMissed, MessageSquare 
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { toast } from "sonner"
-import { formatDistanceToNow } from "date-fns"
 
 interface Lead {
   id: string
@@ -61,10 +60,6 @@ export function TelecallerLeadsTable({
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
-    
-  // Bulk Actions State
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
 
   // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
@@ -120,9 +115,6 @@ export function TelecallerLeadsTable({
 
     if (nextIndex !== -1 && leads[nextIndex]) {
         const nextLead = leads[nextIndex];
-        
-        // 1. Close briefly to force reset (optional, but Key prop handles this better)
-        // setIsStatusDialogOpen(false);
         
         // 2. Load Next
         setTimeout(() => {
@@ -196,27 +188,6 @@ export function TelecallerLeadsTable({
     router.refresh()
   }
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === leads.length) setSelectedIds([])
-    else setSelectedIds(leads.map(l => l.id))
-  }
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-  }
-
-  const handleBulkStatus = async (status: string) => {
-    if (selectedIds.length === 0) return
-    setIsProcessing(true)
-    try {
-      await supabase.from('leads').update({ status, last_contacted: new Date().toISOString() }).in('id', selectedIds)
-      toast.success(`Updated ${selectedIds.length} leads`)
-      setSelectedIds([])
-      router.refresh()
-    } catch (e) { console.error(e) }
-    finally { setIsProcessing(false) }
-  }
-
   const totalPages = Math.ceil(totalCount / pageSize)
 
   if (leads.length === 0) {
@@ -225,32 +196,11 @@ export function TelecallerLeadsTable({
 
   return (
     <div className="space-y-4">
-      {selectedIds.length > 0 && (
-        <div className="flex items-center justify-between bg-blue-50 p-2 px-4 rounded-md border border-blue-200 animate-in slide-in-from-top-2">
-          <div className="flex items-center gap-2">
-            <CheckSquare className="h-4 w-4 text-blue-600"/>
-            <span className="text-sm font-medium text-blue-800">{selectedIds.length} Selected</span>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" className="h-8 bg-white" onClick={() => handleBulkStatus('nr')} disabled={isProcessing}>
-              {isProcessing ? <Loader2 className="h-3 w-3 animate-spin"/> : "Mark NR"}
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 bg-white" onClick={() => handleBulkStatus('Not_Interested')} disabled={isProcessing}>
-              {isProcessing ? <Loader2 className="h-3 w-3 animate-spin"/> : "Mark NI"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSelectedIds([])}><X className="h-4 w-4"/></Button>
-          </div>
-        </div>
-      )}
-
       <div className={cn("rounded-md border bg-white shadow-sm overflow-hidden relative transition-opacity duration-200", isPending ? "opacity-50 pointer-events-none" : "opacity-100")}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <TableRow>
-                <TableHead className="w-10">
-                  <input type="checkbox" checked={selectedIds.length === leads.length && leads.length > 0} onChange={toggleSelectAll} className="rounded border-gray-300"/>
-                </TableHead>
                 <TableHead className="w-[120px]">Contact</TableHead>
                 <TableHead className="w-[200px] md:w-[250px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('name')}>
                     <div className="flex items-center">Name <SortIcon field="name"/></div>
@@ -262,20 +212,15 @@ export function TelecallerLeadsTable({
                 <TableHead className="cursor-pointer hover:bg-slate-100 hidden md:table-cell" onClick={() => handleSort('priority')}>
                     <div className="flex items-center">Priority <SortIcon field="priority"/></div>
                 </TableHead>
-                {/* Last Contact Column Header Removed Here */}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {leads.map((lead) => {
-                const isSelected = selectedIds.includes(lead.id);
                 const isHighPriority = lead.priority === 'high';
                 
                 return (
-                  <TableRow key={lead.id} className={cn("group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
-                    <TableCell>
-                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(lead.id)} className="rounded border-gray-300"/>
-                    </TableCell>
+                  <TableRow key={lead.id} className={cn("group transition-colors hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
                     <TableCell>
                         <div className="flex items-center gap-1">
                             <QuickActions 
@@ -341,7 +286,6 @@ export function TelecallerLeadsTable({
                         {lead.priority === 'medium' && <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-100 border-0 px-1.5">MED</Badge>}
                         {lead.priority === 'low' && <Badge variant="outline" className="text-[10px] text-slate-500 border-slate-300 px-1.5">LOW</Badge>}
                     </TableCell>
-                    {/* Last Contact Column Cell Removed Here */}
                     <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                             <TooltipProvider>
