@@ -128,8 +128,8 @@ export async function GET(request: Request) {
 
         await supabase.from("leads").update({ 
             assigned_to: winner.id,
-            notes: updatedNotes,
-            created_at: new Date().toISOString() // Restart SLA timer
+            notes: updatedNotes
+            // REMOVED: created_at update
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
@@ -179,8 +179,8 @@ export async function GET(request: Request) {
             assigned_to: winner.id,
             status: "new",           // Move it back to 'new' for the next caller
             tags: tags,              // Save the new strike count
-            notes: updatedNotes,
-            created_at: new Date().toISOString() // Restart SLA timer for the new agent!
+            notes: updatedNotes
+            // REMOVED: created_at update
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
