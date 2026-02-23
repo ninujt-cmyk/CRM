@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// --- IST TIMEZONE CALCULATOR ---
+// --- IST TIMEZONE CALCULATOR (Used for Lead Distribution count) ---
 function getStartOfTodayIST() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000; 
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         .eq("status", "nr")
         .not("assigned_to", "is", null)
         .gte("created_at", NR_START_DATE_LIMIT)
-        .lt("last_contacted", nrTimeLimit) // Using last_contacted safely tracks exactly when they pressed "NR"
+        .lt("last_contacted", nrTimeLimit) 
     ]);
 
     if (slaResponse.error) throw slaResponse.error;
@@ -72,29 +72,50 @@ export async function GET(request: Request) {
 
     console.log(`⚠️ [CRON] Found ${expiredLeads.length} SLA breaches and ${nrLeads.length} NR leads to cycle.`);
 
-    // 4. GET ACTIVE TELECALLERS & FAIR DISTRIBUTION DATA
-    const startOfTodayISO = getStartOfTodayIST();
+    // ---------------------------------------------------------
+    // 4. GET ACTIVE TELECALLERS (BULLETPROOF FIX)
+    // ---------------------------------------------------------
+    
+    // Look for anyone who checked in within the last 14 hours and hasn't checked out
+    const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
 
-    const { data: attendanceData } = await supabase
+    const { data: attendanceData, error: attError } = await supabase
         .from("attendance")
         .select("user_id")
-        .gte("check_in", startOfTodayISO) 
+        .gte("check_in", maxShiftStart) 
         .is("check_out", null);            
 
-    const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
-    
-    const { data: telecallers } = await supabase
-        .from("users")
-        .select("id, full_name")
-        .in("role", ["telecaller", "agent", "user"]); 
+    if (attError) console.error("❌ Attendance Fetch Error:", attError);
 
-    const activeTelecallers = telecallers?.filter(t => checkedInUserIds.includes(t.id)) || [];
+    const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
+    console.log(`🕵️ [DEBUG] Found ${checkedInUserIds.length} users checked in (without checkout).`);
+    
+    // Fetch all users to check roles manually (fixes case-sensitivity issues)
+    const { data: allUsers, error: userError } = await supabase
+        .from("users")
+        .select("id, full_name, role"); 
+
+    if (userError) console.error("❌ User Fetch Error:", userError);
+
+    const validRoles = ["telecaller", "agent", "user"];
+    
+    const activeTelecallers = allUsers?.filter(user => {
+        // Must be checked in
+        if (!checkedInUserIds.includes(user.id)) return false;
+        // Must have a valid role (case insensitive)
+        const userRole = (user.role || "").toLowerCase();
+        return validRoles.includes(userRole);
+    }) || [];
+
+    console.log(`🕵️ [DEBUG] After role filtering, ${activeTelecallers.length} agents are valid for reassignment.`);
 
     if (activeTelecallers.length <= 1) {
         console.log("⏭️ [CRON] Not enough other online agents to perform reassignments. Skipping.");
         return NextResponse.json({ status: "skipped", message: "Not enough agents" });
     }
 
+    // Fair Distribution Count
+    const startOfTodayISO = getStartOfTodayIST();
     const { data: todaysLeads } = await supabase
         .from("leads")
         .select("assigned_to")
@@ -128,8 +149,7 @@ export async function GET(request: Request) {
 
         await supabase.from("leads").update({ 
             assigned_to: winner.id,
-            notes: updatedNotes,
-            created_at: new Date().toISOString() // Restart SLA timer
+            notes: updatedNotes
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
@@ -140,20 +160,18 @@ export async function GET(request: Request) {
     // 6. PROCESS NR RECYCLING (Stuck in 'nr' > 3 Hours)
     // ---------------------------------------------------------
     for (const lead of nrLeads) {
-        // Step A: Safely read the tags to check how many times it has been NR'd
         let tags: string[] = [];
         try { tags = Array.isArray(lead.tags) ? lead.tags : JSON.parse(lead.tags || '[]'); } catch(e) {}
         
         const nrStrikes = tags.filter(t => t.startsWith('NR_STRIKE_')).length;
 
-        // Step B: The 4-Strike Dead Bucket Rule
-        if (nrStrikes >= 3) { // 3 previous strikes + this current NR = 4 total
+        if (nrStrikes >= 3) { 
             const deadNote = `💀 [SYSTEM: DEAD BUCKET]\nLead reached maximum 4 'No Response' cycles. Moved to Dead Bucket.`;
             const updatedNotes = lead.notes ? `${lead.notes}\n\n${deadNote}` : deadNote;
 
             await supabase.from("leads").update({
                 status: "dead_bucket",
-                assigned_to: null, // Unassign from telecaller view
+                assigned_to: null, 
                 notes: updatedNotes
             }).eq("id", lead.id);
             
@@ -161,7 +179,6 @@ export async function GET(request: Request) {
             continue;
         }
 
-        // Step C: Reassign to new Agent
         const eligibleAgents = activeTelecallers.filter(t => t.id !== lead.assigned_to);
         if (eligibleAgents.length === 0) continue;
 
@@ -177,10 +194,9 @@ export async function GET(request: Request) {
 
         await supabase.from("leads").update({
             assigned_to: winner.id,
-            status: "new",           // Move it back to 'new' for the next caller
-            tags: tags,              // Save the new strike count
-            notes: updatedNotes,
-            created_at: new Date().toISOString() // Restart SLA timer for the new agent!
+            status: "new",           
+            tags: tags,              
+            notes: updatedNotes
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
