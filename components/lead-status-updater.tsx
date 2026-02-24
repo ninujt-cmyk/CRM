@@ -1,4 +1,3 @@
-// components/lead-status-updater.tsx
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -34,7 +33,7 @@ interface LeadStatusUpdaterProps {
   initialLoanAmount?: number | null 
   leadPhoneNumber: string | null | undefined
   telecallerName: string | null | undefined
-  customerName?: string // Optional, to personalize the audit message
+  customerName?: string
   onNextLead?: () => void 
 }
 
@@ -68,13 +67,12 @@ export function LeadStatusUpdater({
   initialLoanAmount = null,
   leadPhoneNumber = "",
   telecallerName = "Telecaller",
-  customerName = "Customer", // Fallback if name is not provided
+  customerName = "Customer", 
   onNextLead
 }: LeadStatusUpdaterProps) {
   const supabase = createClient()
   const { activeCall, endCall, updateCallDuration } = useCallTracking()
 
-  // STATE
   const [status, setStatus] = useState("")
   const [isUpdating, setIsUpdating] = useState(false)
   const [note, setNote] = useState("") 
@@ -82,10 +80,8 @@ export function LeadStatusUpdater({
   const [loanAmount, setLoanAmount] = useState<number | null>(initialLoanAmount)
   const [isModalOpen, setIsModalOpen] = useState(false) 
   
-  // PERSISTENCE STATE
   const [autoNext, setAutoNext] = useState(true)
   
-  // DIALER STATE
   const [elapsedTime, setElapsedTime] = useState(0)
   const [callDurationOverride, setCallDurationOverride] = useState<number | null>(null) 
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -94,10 +90,8 @@ export function LeadStatusUpdater({
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
   const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) 
   
-  // REF to track duplication
   const lastDialedIdRef = useRef<string | null>(null)
 
-  // DERIVED STATE
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
@@ -113,9 +107,6 @@ export function LeadStatusUpdater({
   const isRevenueStatus = status === "Login" || status === "Disbursed";
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
-  // --- EFFECTS ---
-
-  // 1. LocalStorage for Auto Next
   useEffect(() => {
     const saved = localStorage.getItem("crm_auto_next");
     if (saved !== null) setAutoNext(saved === "true");
@@ -126,7 +117,6 @@ export function LeadStatusUpdater({
     localStorage.setItem("crm_auto_next", String(checked));
   }
   
-  // 2. Reset on Lead Change
   useEffect(() => { 
     setLoanAmount(initialLoanAmount);
     handleReset();
@@ -136,7 +126,6 @@ export function LeadStatusUpdater({
     }
   }, [leadId, initialLoanAmount]);
 
-  // AUTOMATION: ROBUST VISUAL AUTO-DIALER
   useEffect(() => {
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
         if (lastDialedIdRef.current !== leadId) {
@@ -172,8 +161,6 @@ export function LeadStatusUpdater({
     }
   }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
 
-
-  // 4. Short Call Detection
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isCallInitiated && !callDurationOverride && !countdown && !dialing) {
@@ -189,15 +176,12 @@ export function LeadStatusUpdater({
     return () => clearInterval(interval);
   }, [isCallInitiated, activeCall, callDurationOverride, countdown, dialing]);
 
-  // 5. Cleanup Reset
   useEffect(() => {
     if (status !== 'not_eligible') {
       setNotEligibleReason("")
       if (status && !isUpdating) setNote("")
     }
   }, [status, isUpdating]);
-
-  // --- HANDLERS ---
 
   const handleMissedCallWA = async () => {
     if (!leadPhoneNumber) return;
@@ -314,37 +298,28 @@ export function LeadStatusUpdater({
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
-      onStatusUpdate?.(status, note) 
-      
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION (KYC Request, Interested, Not Interested Audit)
+      // 2. WHATSAPP AUTOMATION (Runs BEFORE we trigger onStatusUpdate)
       if (status === "Documents_Sent" && leadPhoneNumber) {
-          toast.info("Sending KYC Document Request via WhatsApp...");
+          toast.info("Sending KYC Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
-          
-          if (kycResult.success) {
-              toast.success("KYC WhatsApp Template sent securely!");
-          } else {
-              toast.error("Failed to send automated KYC template.");
-          }
+          if (kycResult.success) toast.success("KYC WhatsApp Template sent securely!");
+          else toast.error("Failed to send automated KYC template.");
       } else if (status === "Interested" && leadPhoneNumber) {
           const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
           const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
           window.open(wUrl, '_blank');
       } else if (status === "Not_Interested" && leadPhoneNumber) {
-          // 🔴 NEW: NOT INTERESTED QA AUDIT TRIGGER
           toast.info("Sending QA Audit via WhatsApp...");
           const auditResult = await sendNotInterestedAudit(leadId, leadPhoneNumber, customerName);
-          
-          if (auditResult.success) {
-              toast.success("QA Audit sent to customer.");
-          } else {
-              toast.error("Failed to send QA Audit.");
-          }
+          if (auditResult.success) toast.success("QA Audit sent to customer.");
+          else toast.error("Failed to send QA Audit. Check logs.");
       }
       
-      // Reset UI state
+      // 3. NOW trigger parent update safely after all fetches are complete
+      onStatusUpdate?.(status, note) 
+
       setNote(""); setRemarks(""); setCallDurationOverride(null); setElapsedTime(0); setNotEligibleReason(""); setStatus("");
       toast.success("Updated successfully!")
 
