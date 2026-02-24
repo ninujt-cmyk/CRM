@@ -110,24 +110,24 @@ export function AgentStatusBar({ userId }: { userId: string }) {
           <DropdownMenuContent className="w-48 font-medium">
             <DropdownMenuLabel>Available Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => handleStatusChange('ready')} className="text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 cursor-pointer">
+            <DropdownMenuItem onSelect={() => handleStatusChange('ready')} className="text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 cursor-pointer">
               <CheckCircle2 className="h-4 w-4 mr-2" /> Ready for Calls
             </DropdownMenuItem>
             
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-slate-400 font-normal uppercase">Take a Break</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => handleStatusChange('break', 'Tea Break')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
+            <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Tea Break')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <Coffee className="h-4 w-4 mr-2" /> Tea / Coffee Break
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleStatusChange('break', 'Lunch')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
+            <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Lunch')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <Coffee className="h-4 w-4 mr-2" /> Lunch Break
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleStatusChange('break', 'Meeting')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
+            <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Meeting')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <AlertCircle className="h-4 w-4 mr-2" /> Team Meeting
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => handleStatusChange('offline')} className="text-slate-600 focus:text-slate-700 focus:bg-slate-50 cursor-pointer">
+            <DropdownMenuItem onSelect={() => handleStatusChange('offline')} className="text-slate-600 focus:text-slate-700 focus:bg-slate-50 cursor-pointer">
               <Power className="h-4 w-4 mr-2" /> Go Offline (Logout)
             </DropdownMenuItem>
           </DropdownMenuContent>
