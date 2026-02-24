@@ -1,3 +1,4 @@
+// components/lead-status-updater.tsx
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -296,8 +297,10 @@ export function LeadStatusUpdater({
 
     setIsUpdating(true)
     try {
-      let finalStatus = status; 
-      const updateData: any = { last_contacted: new Date().toISOString() }
+      const updateData: any = { 
+        status: status, 
+        last_contacted: new Date().toISOString() 
+      }
       
       if (loanAmount !== null && !isNaN(loanAmount)) updateData.loan_amount = loanAmount
       if (remarks.trim()) updateData.notes = remarks
@@ -305,40 +308,16 @@ export function LeadStatusUpdater({
         updateData.notes = updateData.notes ? `${updateData.notes}\n\nNot Eligible: ${note}` : `Not Eligible: ${note}`
       }
 
-      if (status === "Not_Interested") {
-        const { data: leadData } = await supabase.from("leads").select("tags").eq("id", leadId).single()
-        let currentTags: string[] = [];
-        try { currentTags = Array.isArray(leadData?.tags) ? leadData.tags : JSON.parse(leadData?.tags || '[]'); } catch(e){}
-        
-        if (currentTags.includes("NI_STRIKE_1")) {
-            finalStatus = "dead_bucket" 
-        } else {
-            finalStatus = "recycle_pool" 
-            updateData.tags = [...currentTags, "NI_STRIKE_1"]
-        }
-      }
-      
-      updateData.status = finalStatus;
-
       // 1. UPDATE SUPABASE DATABASE
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
-      onStatusUpdate?.(finalStatus, note) 
+      onStatusUpdate?.(status, note) 
       
-      // 2. LOG ACTIONS
-      if (finalStatus !== status) {
-          const logContent = finalStatus === "recycle_pool" 
-            ? "System: Strike 1 (Not Interested). Lead Recycled." 
-            : "System: Strike 2 (Not Interested). Lead moved to Dead Bucket.";
-          const { data: { user } } = await supabase.auth.getUser()
-          if(user) await supabase.from("notes").insert({ lead_id: leadId, user_id: user.id, content: logContent, note_type: "status_change" })
-      }
-
       if (isCallInitiated) await logCall(finalDuration)
 
       // 3. WHATSAPP AUTOMATION (KYC Request vs Interested)
-      if (finalStatus === "Documents_Sent" && leadPhoneNumber) {
+      if (status === "Documents_Sent" && leadPhoneNumber) {
           // 🔴 AUTOMATED KYC PIPELINE TRIGGER
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
@@ -348,7 +327,7 @@ export function LeadStatusUpdater({
           } else {
               toast.error("Failed to send automated KYC template.");
           }
-      } else if (finalStatus === "Interested" && leadPhoneNumber) {
+      } else if (status === "Interested" && leadPhoneNumber) {
           // Standard manual redirect for Interest
           const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
           const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
