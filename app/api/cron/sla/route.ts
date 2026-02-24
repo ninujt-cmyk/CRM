@@ -26,22 +26,24 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  console.log("⏱️ [CRON] Running SLA & NR Auto-Reassignment check...");
+  console.log("⏱️ [CRON] Running SLA, NR & Interested Auto-Reassignment check...");
 
   try {
     // 2. DEFINE LIMITS & THRESHOLDS
     const SLA_MINUTES = 30;
     const NR_HOURS = 3;
+    const INTERESTED_HOURS = 72;
     
     const slaTimeLimit = new Date(Date.now() - SLA_MINUTES * 60 * 1000).toISOString();
     const nrTimeLimit = new Date(Date.now() - NR_HOURS * 60 * 60 * 1000).toISOString();
+    const interestedTimeLimit = new Date(Date.now() - INTERESTED_HOURS * 60 * 60 * 1000).toISOString();
     
     // Exact UTC timestamp for: 18th Feb 2026, 8:00 AM IST
     const NR_START_DATE_LIMIT = "2026-02-18T02:30:00.000Z";
 
-    // 3. FETCH BREACHING LEADS (SLA & NR)
-    const [slaResponse, nrResponse] = await Promise.all([
-      // SLA LEADS (Stuck in 'new' for 30+ mins)
+    // 3. FETCH BREACHING LEADS (SLA, NR & INTERESTED)
+    const [slaResponse, nrResponse, interestedResponse] = await Promise.all([
+      // A. SLA LEADS (Stuck in 'new' for 30+ mins)
       supabase
         .from("leads")
         .select("id, assigned_to, notes")
@@ -49,34 +51,42 @@ export async function GET(request: Request) {
         .not("assigned_to", "is", null)
         .lt("created_at", slaTimeLimit),
         
-      // NR LEADS (Stuck in 'nr' for 3+ hours, created after Feb 18 8AM)
+      // B. NR LEADS (Stuck in 'nr' for 3+ hours)
       supabase
         .from("leads")
         .select("id, assigned_to, notes, tags")
         .eq("status", "nr")
         .not("assigned_to", "is", null)
         .gte("created_at", NR_START_DATE_LIMIT)
-        .lt("last_contacted", nrTimeLimit) 
+        .lt("last_contacted", nrTimeLimit),
+        
+      // C. 🔴 INTERESTED LEADS (Stuck in 'interested' with no calls for 72+ hours)
+      supabase
+        .from("leads")
+        .select("id, assigned_to, notes")
+        .eq("status", "interested")
+        .not("assigned_to", "is", null)
+        .lt("last_contacted", interestedTimeLimit)
     ]);
 
     if (slaResponse.error) throw slaResponse.error;
     if (nrResponse.error) throw nrResponse.error;
+    if (interestedResponse.error) throw interestedResponse.error;
 
     const expiredLeads = slaResponse.data || [];
     const nrLeads = nrResponse.data || [];
+    const interestedLeads = interestedResponse.data || [];
 
-    if (expiredLeads.length === 0 && nrLeads.length === 0) {
-      console.log("✅ [CRON] No SLA or NR breaches found.");
+    if (expiredLeads.length === 0 && nrLeads.length === 0 && interestedLeads.length === 0) {
+      console.log("✅ [CRON] No SLA, NR, or Stale Interested breaches found.");
       return NextResponse.json({ status: "success", message: "No breaches" });
     }
 
-    console.log(`⚠️ [CRON] Found ${expiredLeads.length} SLA breaches and ${nrLeads.length} NR leads to cycle.`);
+    console.log(`⚠️ [CRON] Found: ${expiredLeads.length} SLA, ${nrLeads.length} NR, ${interestedLeads.length} Stale Interested.`);
 
     // ---------------------------------------------------------
     // 4. GET ACTIVE TELECALLERS (BULLETPROOF FIX)
     // ---------------------------------------------------------
-    
-    // Look for anyone who checked in within the last 14 hours and hasn't checked out
     const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
 
     const { data: attendanceData, error: attError } = await supabase
@@ -88,9 +98,8 @@ export async function GET(request: Request) {
     if (attError) console.error("❌ Attendance Fetch Error:", attError);
 
     const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
-    console.log(`🕵️ [DEBUG] Found ${checkedInUserIds.length} users checked in (without checkout).`);
     
-    // Fetch all users to check roles manually (fixes case-sensitivity issues)
+    // Fetch all users to check roles manually
     const { data: allUsers, error: userError } = await supabase
         .from("users")
         .select("id, full_name, role"); 
@@ -100,14 +109,10 @@ export async function GET(request: Request) {
     const validRoles = ["telecaller", "agent", "user"];
     
     const activeTelecallers = allUsers?.filter(user => {
-        // Must be checked in
         if (!checkedInUserIds.includes(user.id)) return false;
-        // Must have a valid role (case insensitive)
         const userRole = (user.role || "").toLowerCase();
         return validRoles.includes(userRole);
     }) || [];
-
-    console.log(`🕵️ [DEBUG] After role filtering, ${activeTelecallers.length} agents are valid for reassignment.`);
 
     if (activeTelecallers.length <= 5) {
         console.log("⏭️ [CRON] Not enough other online agents to perform reassignments. Skipping.");
@@ -131,6 +136,7 @@ export async function GET(request: Request) {
 
     let reassignedSLA = 0;
     let reassignedNR = 0;
+    let reassignedInterested = 0;
     let movedToDead = 0;
 
     // ---------------------------------------------------------
@@ -203,11 +209,37 @@ export async function GET(request: Request) {
         reassignedNR++;
     }
 
-    console.log(`🔄 [CRON RESULTS] SLA Reassigned: ${reassignedSLA} | NR Recycled: ${reassignedNR} | Sent to Dead: ${movedToDead}`);
+    // ---------------------------------------------------------
+    // 7. 🔴 PROCESS STALE INTERESTED LEADS (> 72 Hours)
+    // ---------------------------------------------------------
+    for (const lead of interestedLeads) {
+        const eligibleAgents = activeTelecallers.filter(t => t.id !== lead.assigned_to);
+        if (eligibleAgents.length === 0) continue;
+
+        const minLeads = Math.min(...eligibleAgents.map(a => leadCounts[a.id]));
+        const tiedAgents = eligibleAgents.filter(a => leadCounts[a.id] === minLeads);
+        const winner = tiedAgents[Math.floor(Math.random() * tiedAgents.length)];
+
+        const staleNote = `🚨 [SYSTEM: STALE LEAD]\nLead was marked 'Interested' but had no calls logged for ${INTERESTED_HOURS} hours. Reassigned to ${winner.full_name} as 'New'.`;
+        const updatedNotes = lead.notes ? `${lead.notes}\n\n${staleNote}` : staleNote;
+
+        await supabase.from("leads").update({
+            assigned_to: winner.id,
+            status: "new",          // Revert to new so the agent knows to act on it
+            notes: updatedNotes
+        }).eq("id", lead.id);
+
+        leadCounts[winner.id]++;
+        reassignedInterested++;
+    }
+
+    console.log(`🔄 [CRON RESULTS] SLA Reassigned: ${reassignedSLA} | NR Recycled: ${reassignedNR} | Interested Recycled: ${reassignedInterested} | Sent to Dead: ${movedToDead}`);
+    
     return NextResponse.json({ 
         status: "success", 
         sla_reassigned: reassignedSLA, 
         nr_recycled: reassignedNR, 
+        interested_recycled: reassignedInterested,
         moved_to_dead: movedToDead 
     });
 
