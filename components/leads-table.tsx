@@ -1,3 +1,4 @@
+// components/leads-table.tsx
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -246,7 +247,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
   // Columns Visibility
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     name: true,
-    contact: true,
+    contact: false, 
     company: false, 
     status: true,
     notes: true,
@@ -778,18 +779,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
          if (!lead) return;
 
          let updateData: any = { status: bulkStatus, last_contacted: new Date().toISOString() };
-         const currentTags = lead.tags || [];
-
-         if (bulkStatus === "Not_Interested") {
-            if (currentTags.includes("NI_STRIKE_1")) {
-                updateData.status = "dead_bucket";
-                updateData.assigned_to = null;
-            } else {
-                updateData.status = "recycle_pool";
-                updateData.assigned_to = null;
-                updateData.tags = [...currentTags, "NI_STRIKE_1"];
-            }
-         }
 
          return supabase.from("leads").update(updateData).eq("id", leadId);
       })
@@ -1044,32 +1033,9 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     try {
       if (!selectedLead?.id) return
       
-      const currentTags = selectedLead.tags || [];
       let updateData: any = { 
         status: newStatus,
         last_contacted: new Date().toISOString()
-      }
-
-      if (newStatus === "Not_Interested") {
-          if (currentTags.includes("NI_STRIKE_1")) {
-              updateData.status = "dead_bucket";
-              updateData.assigned_to = null; 
-              await supabase.from("notes").insert({
-                lead_id: selectedLead.id,
-                note: "System: Lead marked 'Not Interested' twice. Moved to Dead Bucket.",
-                note_type: "status_change"
-              })
-          } else {
-              updateData.status = "recycle_pool"; 
-              updateData.assigned_to = null; 
-              updateData.tags = [...currentTags, "NI_STRIKE_1"];
-              
-              await supabase.from("notes").insert({
-                lead_id: selectedLead.id,
-                note: "System: Lead marked 'Not Interested' (Strike 1). Recycled to pool.",
-                note_type: "status_change"
-              })
-          }
       }
 
       if (newStatus === "not_eligible" && note) {
@@ -1110,20 +1076,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         if(!lead) return;
 
         let updateData: any = { status: newStatus, last_contacted: new Date().toISOString() };
-        const currentTags = lead.tags || [];
-
-         if (newStatus === "Not_Interested") {
-            if (currentTags.includes("NI_STRIKE_1")) {
-                updateData.status = "dead_bucket";
-                updateData.assigned_to = null;
-                await supabase.from("notes").insert({ lead_id: leadId, note: "System: Strike 2. Moved to Dead Bucket.", note_type: "status_change" });
-            } else {
-                updateData.status = "recycle_pool";
-                updateData.assigned_to = null;
-                updateData.tags = [...currentTags, "NI_STRIKE_1"];
-                await supabase.from("notes").insert({ lead_id: leadId, note: "System: Strike 1. Recycled.", note_type: "status_change" });
-            }
-         }
 
       const { error } = await supabase
         .from("leads")
@@ -1819,11 +1771,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                                     value={lead.name} 
                                     onSave={(val) => handleInlineUpdate(lead.id, 'name', val)} 
                                 />
-                                {(lead.tags || []).includes("NI_STRIKE_1") && (
-                                    <Badge variant="outline" className="text-[10px] bg-cyan-50 text-cyan-700 border-cyan-200 px-1 py-0 h-5">
-                                        <RefreshCw className="h-3 w-3 mr-1" /> Recycled
-                                    </Badge>
-                                )}
                                 {lead.status === 'dead_bucket' && (
                                     <Badge variant="outline" className="text-[10px] bg-slate-100 text-slate-700 border-slate-300 px-1 py-0 h-5">
                                         <Skull className="h-3 w-3 mr-1" /> Dead
@@ -2163,7 +2110,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                           <div className="flex justify-between items-start">
                             <Link href={`/admin/leads/${lead.id}`} className="font-medium text-sm hover:underline hover:text-blue-600 truncate flex items-center gap-1">
                               {lead.name}
-                              {(lead.tags || []).includes("NI_STRIKE_1") && <RefreshCw className="h-3 w-3 text-cyan-600" />}
                             </Link>
                             {lead.priority === 'high' && <div className="h-2 w-2 rounded-full bg-red-500" title="High Priority" />}
                           </div>
