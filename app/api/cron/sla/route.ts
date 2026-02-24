@@ -109,7 +109,7 @@ export async function GET(request: Request) {
 
     console.log(`🕵️ [DEBUG] After role filtering, ${activeTelecallers.length} agents are valid for reassignment.`);
 
-    if (activeTelecallers.length <= 1) {
+    if (activeTelecallers.length <= 5) {
         console.log("⏭️ [CRON] Not enough other online agents to perform reassignments. Skipping.");
         return NextResponse.json({ status: "skipped", message: "Not enough agents" });
     }
