@@ -58,17 +58,24 @@ export function AgentStatusBar({ userId }: { userId: string }) {
     if (status === newStatus && reason === newReason) return;
     setLoading(true);
     
-    const res = await updateAgentStatus(userId, newStatus, newReason);
-    
-    if (res.success) {
-      setStatus(newStatus);
-      setReason(newReason);
-      setTimer(0); // Reset timer on state change
-      toast({ description: `Status updated to ${newReason || newStatus}` })
-    } else {
-      toast({ description: "Failed to update status", variant: "destructive" })
+    // FIX 1: Added try/catch so the button doesn't permanently lock if the action fails
+    try {
+      const res = await updateAgentStatus(userId, newStatus, newReason);
+      
+      if (res?.success) {
+        setStatus(newStatus);
+        setReason(newReason);
+        setTimer(0); // Reset timer on state change
+        toast({ description: `Status updated to ${newReason || newStatus}` })
+      } else {
+        toast({ description: "Failed to update status", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ description: "An error occurred while updating status.", variant: "destructive" })
+    } finally {
+      setLoading(false); // ALWAYS release the loading lock
     }
-    setLoading(false);
   }
 
   // Visuals based on current status
@@ -100,28 +107,34 @@ export function AgentStatusBar({ userId }: { userId: string }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button disabled={loading} className={`${getStatusColor()} w-48 justify-between transition-colors shadow-sm`}>
-              <div className="flex items-center">
+              {/* Pointer events none ensures the SVG/Text doesn't steal the click target from the button */}
+              <div className="flex items-center pointer-events-none">
                 {getStatusIcon()}
                 <span className="capitalize">{reason || status.replace('_', ' ')}</span>
               </div>
-              <ChevronDown className="h-4 w-4 opacity-70" />
+              <ChevronDown className="h-4 w-4 opacity-70 pointer-events-none" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-48 font-medium">
             <DropdownMenuLabel>Available Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
+
+            {/* FIX 2: Switched onClick to onSelect for native Radix UI support */}
             <DropdownMenuItem onSelect={() => handleStatusChange('ready')} className="text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 cursor-pointer">
               <CheckCircle2 className="h-4 w-4 mr-2" /> Ready for Calls
             </DropdownMenuItem>
             
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-slate-400 font-normal uppercase">Take a Break</DropdownMenuLabel>
+            
             <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Tea Break')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <Coffee className="h-4 w-4 mr-2" /> Tea / Coffee Break
             </DropdownMenuItem>
+            
             <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Lunch')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <Coffee className="h-4 w-4 mr-2" /> Lunch Break
             </DropdownMenuItem>
+            
             <DropdownMenuItem onSelect={() => handleStatusChange('break', 'Meeting')} className="text-orange-600 focus:text-orange-700 focus:bg-orange-50 cursor-pointer">
               <AlertCircle className="h-4 w-4 mr-2" /> Team Meeting
             </DropdownMenuItem>
