@@ -213,7 +213,30 @@ export async function POST(request: NextRequest) {
       // 6. SMART AUTO-REPLY LOGIC
       if (!isMedia) {
           const textLower = messageText.toLowerCase();
-          
+
+           // 🔴 NEW: THE "LIE-DETECTOR" RESCUE LOGIC
+          if (textLower === "i am still interested" || textLower.includes("still interested")) {
+              console.log(`🚨 [LIE DETECTOR TRIGGERED] Customer clicked 'Still Interested'! Rescuing lead...`);
+              
+              // 1. Send an immediate apology/confirmation to the customer
+              const rescueMsg = `Thank you for confirming! We apologize for the confusion. A senior executive has been notified and will contact you immediately to assist with your loan.`;
+              await sendFonadaMessage(customerPhone, rescueMsg, lead?.id);
+              
+              // 2. Unassign from the lying agent, change status back to 'new', and leave a massive warning note
+              const currentNotes = lead?.notes || "";
+              const auditWarning = `🚨 [SYSTEM ALERT: AGENT AUDIT FAILED]\nPrevious agent marked this lead as Not Interested. The system pinged the customer, and the customer clicked "I AM STILL INTERESTED". Lead has been stripped from previous agent and reset to New.`;
+              
+              await supabase.from("leads").update({
+                  status: "new",
+                  assigned_to: null, // Strip it from the current agent
+                  notes: `${currentNotes}\n\n${auditWarning}`,
+                  last_contacted: new Date().toISOString() // Restart SLA timer
+              }).eq("id", lead?.id);
+
+              return NextResponse.json({ status: "success", action: "lead_rescued" });
+          }
+
+        
           const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply") || textLower.includes("documents are required");
           const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent");
           const isHelp = textLower.includes("help");
