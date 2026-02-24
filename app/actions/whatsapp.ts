@@ -227,3 +227,74 @@ export async function sendKYCRequestTemplate(leadId: string, customerPhone: stri
     return { success: false, error: error.message };
   }
 }
+
+
+// ============================================================================
+// 4. SEND "NOT INTERESTED" AUDIT (The Lie-Detector)
+// ============================================================================
+export async function sendNotInterestedAudit(leadId: string, customerPhone: string, customerName: string) {
+  try {
+    const supabase = await createClient();
+    
+    // Auth Check
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
+
+    // The text version of the template for the DB history
+    const textMessage = `Hi ${customerName}, our agent noted that you are no longer interested in a loan at this time.\n\nTo help us improve our service, could you let us know why by tapping a button below?\n\n🔘 Rate is too high\n🔘 Got another loan\n🔘 I am still interested`;
+
+    const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+    const formData = new FormData();
+    formData.append("userid", process.env.FONADA_USERID || "bankscart");
+    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
+    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    
+    let safePhone = customerPhone.replace(/^\+/, '');
+    if (safePhone.length === 10) safePhone = `91${safePhone}`;
+    formData.append("mobile", safePhone); 
+    
+    formData.append("msg", textMessage);
+    formData.append("msgType", "text");
+    formData.append("templateName", "not_interested_audit"); // MUST MATCH META
+    formData.append("sendMethod", "quick");
+    formData.append("output", "json");
+
+    // Add Required Buttons Payload for Template
+    const buttonsPayload = JSON.stringify({
+      button1: "Rate is too high",
+      button2: "Got another loan",
+      button3: "I am still interested"
+    });
+    formData.append("buttonsPayload", buttonsPayload);
+
+    const res = await fetch(apiUrl, { method: "POST", body: formData });
+    const data = await res.json();
+    
+    if (data.status === "error" || data.error) throw new Error(data.message);
+
+    // Save outbound template to DB History
+    await supabase.from("chat_messages").insert({
+        lead_id: leadId,
+        phone_number: safePhone, 
+        direction: 'outbound',
+        message_type: 'template',
+        content: textMessage,
+        fonada_message_id: data.msgId || null, 
+        status: 'sent'
+    });
+
+    await supabase.from("leads").update({ 
+        last_message_at: new Date().toISOString(),
+        last_message_content: "Sent QA Audit Template",
+        last_message_type: 'outbound'
+    }).eq("id", leadId);
+
+    return { success: true };
+
+  } catch (error: any) {
+    console.error("QA Audit WA Error:", error);
+    return { success: false, error: error.message };
+  }
+}
