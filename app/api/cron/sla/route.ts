@@ -64,7 +64,7 @@ export async function GET(request: Request) {
       supabase
         .from("leads")
         .select("id, assigned_to, notes")
-        .eq("status", "interested")
+        .eq("status", "Interested")
         .not("assigned_to", "is", null)
         .lt("last_contacted", interestedTimeLimit)
     ]);
