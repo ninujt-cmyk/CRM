@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { updateAgentStatus } from "@/app/actions/agent-state"
 import { 
-  PhoneCall, Coffee, Power, Clock, CheckCircle2, AlertCircle, ChevronDown
+  PhoneCall, Coffee, Power, Clock, CheckCircle2, AlertCircle, ChevronDown, Loader2
 } from "lucide-react"
 import { 
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator
@@ -56,6 +56,10 @@ export function AgentStatusBar({ userId }: { userId: string }) {
 
   const handleStatusChange = async (newStatus: string, newReason: string | null = null) => {
     if (status === newStatus && reason === newReason) return;
+    
+    // Safety check: Prevent multiple clicks without disabling the HTML element
+    if (loading) return; 
+    
     setLoading(true);
     
     try {
@@ -103,15 +107,15 @@ export function AgentStatusBar({ userId }: { userId: string }) {
       <div className="flex items-center gap-4">
         <span className="font-semibold text-slate-700 hidden sm:inline-block">Dialer State:</span>
         
-        {/* FIX: modal={false} prevents Radix UI from locking the screen's pointer events */}
-        <DropdownMenu modal={false}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button disabled={loading} className={`${getStatusColor()} w-48 justify-between transition-colors shadow-sm`}>
+            {/* FIX: Removed disabled={loading} so Radix UI can safely return focus without crashing */}
+            <Button className={`${getStatusColor()} w-48 justify-between transition-colors shadow-sm`}>
               <div className="flex items-center">
-                {getStatusIcon()}
-                <span className="capitalize">{reason || status.replace('_', ' ')}</span>
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : getStatusIcon()}
+                <span className="capitalize">{loading ? "Updating..." : (reason || status.replace('_', ' '))}</span>
               </div>
-              <ChevronDown className="h-4 w-4 opacity-70" />
+              {!loading && <ChevronDown className="h-4 w-4 opacity-70" />}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-48 font-medium">
