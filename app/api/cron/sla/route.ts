@@ -34,22 +34,20 @@ export async function GET(request: Request) {
     const NR_HOURS = 3;
     const INTERESTED_HOURS = 72;
     
-    const slaTimeLimit = new Date(Date.now() - SLA_MINUTES * 60 * 1000).toISOString();
     const nrTimeLimit = new Date(Date.now() - NR_HOURS * 60 * 60 * 1000).toISOString();
     const interestedTimeLimit = new Date(Date.now() - INTERESTED_HOURS * 60 * 60 * 1000).toISOString();
     
     // Exact UTC timestamp for: 18th Feb 2026, 8:00 AM IST
     const NR_START_DATE_LIMIT = "2026-02-18T02:30:00.000Z";
 
-    // 3. FETCH BREACHING LEADS (SLA, NR & INTERESTED)
-    const [slaResponse, nrResponse, interestedResponse] = await Promise.all([
-      // A. SLA LEADS (Stuck in 'new' for 30+ mins)
+    // 3. FETCH BREACHING LEADS
+    const [newLeadsResponse, nrResponse, interestedResponse] = await Promise.all([
+      // A. SLA LEADS (Fetch all 'new' assigned leads, we will filter by timer in JS)
       supabase
         .from("leads")
-        .select("id, assigned_to, notes")
+        .select("id, assigned_to, notes, created_at, last_contacted")
         .eq("status", "new")
-        .not("assigned_to", "is", null)
-        .lt("created_at", slaTimeLimit),
+        .not("assigned_to", "is", null),
         
       // B. NR LEADS (Stuck in 'nr' for 3+ hours)
       supabase
@@ -60,20 +58,28 @@ export async function GET(request: Request) {
         .gte("created_at", NR_START_DATE_LIMIT)
         .lt("last_contacted", nrTimeLimit),
         
-      // C. 🔴 INTERESTED LEADS (Stuck in 'interested' with no calls for 72+ hours)
+      // C. INTERESTED LEADS (Stuck in 'interested' with no calls for 72+ hours)
       supabase
         .from("leads")
         .select("id, assigned_to, notes")
-        .eq("status", "Interested")
+        .eq("status", "interested")
         .not("assigned_to", "is", null)
         .lt("last_contacted", interestedTimeLimit)
     ]);
 
-    if (slaResponse.error) throw slaResponse.error;
+    if (newLeadsResponse.error) throw newLeadsResponse.error;
     if (nrResponse.error) throw nrResponse.error;
     if (interestedResponse.error) throw interestedResponse.error;
 
-    const expiredLeads = slaResponse.data || [];
+    // 🔴 SMART SLA FILTERING: Check last_contacted first, fallback to created_at
+    const allNewLeads = newLeadsResponse.data || [];
+    const slaLimitTimestamp = Date.now() - (SLA_MINUTES * 60 * 1000);
+    
+    const expiredLeads = allNewLeads.filter(lead => {
+        const timerStart = lead.last_contacted ? new Date(lead.last_contacted).getTime() : new Date(lead.created_at).getTime();
+        return timerStart < slaLimitTimestamp;
+    });
+
     const nrLeads = nrResponse.data || [];
     const interestedLeads = interestedResponse.data || [];
 
@@ -85,7 +91,7 @@ export async function GET(request: Request) {
     console.log(`⚠️ [CRON] Found: ${expiredLeads.length} SLA, ${nrLeads.length} NR, ${interestedLeads.length} Stale Interested.`);
 
     // ---------------------------------------------------------
-    // 4. GET ACTIVE TELECALLERS (BULLETPROOF FIX)
+    // 4. GET ACTIVE TELECALLERS
     // ---------------------------------------------------------
     const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
 
@@ -99,7 +105,6 @@ export async function GET(request: Request) {
 
     const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
     
-    // Fetch all users to check roles manually
     const { data: allUsers, error: userError } = await supabase
         .from("users")
         .select("id, full_name, role"); 
@@ -114,7 +119,7 @@ export async function GET(request: Request) {
         return validRoles.includes(userRole);
     }) || [];
 
-    if (activeTelecallers.length <= 5) {
+    if (activeTelecallers.length <= 1) {
         console.log("⏭️ [CRON] Not enough other online agents to perform reassignments. Skipping.");
         return NextResponse.json({ status: "skipped", message: "Not enough agents" });
     }
@@ -140,7 +145,7 @@ export async function GET(request: Request) {
     let movedToDead = 0;
 
     // ---------------------------------------------------------
-    // 5. PROCESS SLA BREACHES (Stuck in 'new')
+    // 5. PROCESS SLA BREACHES
     // ---------------------------------------------------------
     for (const lead of expiredLeads) {
         const eligibleAgents = activeTelecallers.filter(t => t.id !== lead.assigned_to);
@@ -155,7 +160,8 @@ export async function GET(request: Request) {
 
         await supabase.from("leads").update({ 
             assigned_to: winner.id,
-            notes: updatedNotes
+            notes: updatedNotes,
+            last_contacted: new Date().toISOString() // 🔴 NEW: Give new agent a fresh 30 mins
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
@@ -163,7 +169,7 @@ export async function GET(request: Request) {
     }
 
     // ---------------------------------------------------------
-    // 6. PROCESS NR RECYCLING (Stuck in 'nr' > 3 Hours)
+    // 6. PROCESS NR RECYCLING
     // ---------------------------------------------------------
     for (const lead of nrLeads) {
         let tags: string[] = [];
@@ -202,7 +208,8 @@ export async function GET(request: Request) {
             assigned_to: winner.id,
             status: "new",           
             tags: tags,              
-            notes: updatedNotes
+            notes: updatedNotes,
+            last_contacted: new Date().toISOString() // 🔴 NEW: Give new agent a fresh 30 mins
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
@@ -210,7 +217,7 @@ export async function GET(request: Request) {
     }
 
     // ---------------------------------------------------------
-    // 7. 🔴 PROCESS STALE INTERESTED LEADS (> 72 Hours)
+    // 7. PROCESS STALE INTERESTED LEADS
     // ---------------------------------------------------------
     for (const lead of interestedLeads) {
         const eligibleAgents = activeTelecallers.filter(t => t.id !== lead.assigned_to);
@@ -225,8 +232,9 @@ export async function GET(request: Request) {
 
         await supabase.from("leads").update({
             assigned_to: winner.id,
-            status: "new",          // Revert to new so the agent knows to act on it
-            notes: updatedNotes
+            status: "new",          
+            notes: updatedNotes,
+            last_contacted: new Date().toISOString() // 🔴 NEW: Give new agent a fresh 30 mins
         }).eq("id", lead.id);
 
         leadCounts[winner.id]++;
