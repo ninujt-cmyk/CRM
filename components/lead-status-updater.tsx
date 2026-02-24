@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 // --- IMPORT THE SERVER ACTIONS ---
-import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" // 👈 Added sendKYCRequestTemplate
+import { sendMissedCallMessage, sendKYCRequestTemplate, sendNotInterestedAudit } from "@/app/actions/whatsapp" 
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -34,6 +34,7 @@ interface LeadStatusUpdaterProps {
   initialLoanAmount?: number | null 
   leadPhoneNumber: string | null | undefined
   telecallerName: string | null | undefined
+  customerName?: string // Optional, to personalize the audit message
   onNextLead?: () => void 
 }
 
@@ -67,6 +68,7 @@ export function LeadStatusUpdater({
   initialLoanAmount = null,
   leadPhoneNumber = "",
   telecallerName = "Telecaller",
+  customerName = "Customer", // Fallback if name is not provided
   onNextLead
 }: LeadStatusUpdaterProps) {
   const supabase = createClient()
@@ -201,7 +203,7 @@ export function LeadStatusUpdater({
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
     try {
-      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); // Pass leadId for tracking
+      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); 
       if (result.success) {
         toast.success("Missed call WhatsApp sent!");
         if(!status) setStatus('nr'); 
@@ -316,9 +318,8 @@ export function LeadStatusUpdater({
       
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION (KYC Request vs Interested)
+      // 3. WHATSAPP AUTOMATION (KYC Request, Interested, Not Interested Audit)
       if (status === "Documents_Sent" && leadPhoneNumber) {
-          // 🔴 AUTOMATED KYC PIPELINE TRIGGER
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
@@ -328,10 +329,19 @@ export function LeadStatusUpdater({
               toast.error("Failed to send automated KYC template.");
           }
       } else if (status === "Interested" && leadPhoneNumber) {
-          // Standard manual redirect for Interest
           const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
           const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
           window.open(wUrl, '_blank');
+      } else if (status === "Not_Interested" && leadPhoneNumber) {
+          // 🔴 NEW: NOT INTERESTED QA AUDIT TRIGGER
+          toast.info("Sending QA Audit via WhatsApp...");
+          const auditResult = await sendNotInterestedAudit(leadId, leadPhoneNumber, customerName);
+          
+          if (auditResult.success) {
+              toast.success("QA Audit sent to customer.");
+          } else {
+              toast.error("Failed to send QA Audit.");
+          }
       }
       
       // Reset UI state
