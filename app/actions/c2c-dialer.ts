@@ -26,9 +26,14 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     }
 
     // 3. Prepare the Fonada C2C API Payload
-    // ⚠️ NOTE: Replace 'apiUrl' with your exact Fonada OBD/C2C API endpoint
+    // ⚠️ WARNING: If deployed to the cloud, a 192.168.x.x IP will fail. 
+    // You need a public IP or domain for Fonada if this is hosted remotely.
     const apiUrl = "http://192.168.1.16:7992/fonada_c2c_api.php"; 
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    
+    // NOTE: It is better to handle TLS at the system level, but if you must use this for local dev:
+    if (process.env.NODE_ENV === 'development') {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    }
 
     const formData = new FormData();
     formData.append("userid", process.env.FONADA_USERID || "bankscart");
@@ -41,25 +46,39 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     let safeAgentPhone = agent.phone.replace(/^\+?91/, '');
     if (safeAgentPhone.length > 10) safeAgentPhone = safeAgentPhone.slice(-10);
 
-    // Fonada C2C Parameters (Agent Leg & Customer Leg)
     formData.append("agent_number", safeAgentPhone); 
     formData.append("destination_number", safeCustomerPhone);
-    // formData.append("caller_id", "YOUR_OBD_CLI_NUMBER"); // Uncomment if Fonada requires a specific CLI
 
-    // 4. Trigger the Call
-    const res = await fetch(apiUrl, { method: "POST", body: formData });
+    // 4. Trigger the Call WITH A TIMEOUT (Prevents UI Freezing)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+
+    let res;
+    try {
+      res = await fetch(apiUrl, { 
+          method: "POST", 
+          body: formData,
+          signal: controller.signal // Attaches the timeout
+      });
+    } catch (fetchError: any) {
+      if (fetchError.name === 'AbortError') {
+          throw new Error("Call API timed out. The server took too long to respond.");
+      }
+      throw fetchError;
+    } finally {
+      clearTimeout(timeoutId); // Clean up the timer
+    }
     
-    // NOTE: Depending on Fonada's C2C response, you might need to parse as text instead of JSON if they return a raw string.
     const rawText = await res.text();
     console.log("📞 [C2C API Response]:", rawText);
 
     // 5. Log the call attempt in the CRM
     await supabase.from("leads").update({ 
-        status: "Contacted", // Auto-move from New to Contacted
+        status: "Contacted",
         last_contacted: new Date().toISOString() 
     }).eq("id", leadId);
 
-    // We also set the agent's state to 'on_call' automatically!
+    // 6. Set agent state to 'on_call'
     await supabase.from("users").update({
         current_status: 'on_call',
         status_updated_at: new Date().toISOString()
