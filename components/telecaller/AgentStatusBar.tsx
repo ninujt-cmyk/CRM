@@ -58,7 +58,6 @@ export function AgentStatusBar({ userId }: { userId: string }) {
     if (status === newStatus && reason === newReason) return;
     setLoading(true);
     
-    // FIX 1: Added try/catch so the button doesn't permanently lock if the action fails
     try {
       const res = await updateAgentStatus(userId, newStatus, newReason);
       
@@ -74,7 +73,7 @@ export function AgentStatusBar({ userId }: { userId: string }) {
       console.error(error);
       toast({ description: "An error occurred while updating status.", variant: "destructive" })
     } finally {
-      setLoading(false); // ALWAYS release the loading lock
+      setLoading(false); 
     }
   }
 
@@ -104,22 +103,21 @@ export function AgentStatusBar({ userId }: { userId: string }) {
       <div className="flex items-center gap-4">
         <span className="font-semibold text-slate-700 hidden sm:inline-block">Dialer State:</span>
         
-        <DropdownMenu>
+        {/* FIX: modal={false} prevents Radix UI from locking the screen's pointer events */}
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button disabled={loading} className={`${getStatusColor()} w-48 justify-between transition-colors shadow-sm`}>
-              {/* Pointer events none ensures the SVG/Text doesn't steal the click target from the button */}
-              <div className="flex items-center pointer-events-none">
+              <div className="flex items-center">
                 {getStatusIcon()}
                 <span className="capitalize">{reason || status.replace('_', ' ')}</span>
               </div>
-              <ChevronDown className="h-4 w-4 opacity-70 pointer-events-none" />
+              <ChevronDown className="h-4 w-4 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-48 font-medium">
             <DropdownMenuLabel>Available Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
 
-            {/* FIX 2: Switched onClick to onSelect for native Radix UI support */}
             <DropdownMenuItem onSelect={() => handleStatusChange('ready')} className="text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 cursor-pointer">
               <CheckCircle2 className="h-4 w-4 mr-2" /> Ready for Calls
             </DropdownMenuItem>
