@@ -1,5 +1,5 @@
 import type React from "react"
-import { createClient } from "@/lib/supabase/server" // <--- Added Supabase import
+import { createClient } from "@/lib/supabase/server"
 import { AuthGuard } from "@/components/auth-guard"
 import { TelecallerSidebar } from "@/components/telecaller-sidebar"
 import { CallTrackingProvider } from "@/context/call-tracking-context"
@@ -7,9 +7,8 @@ import { PushSubscriber } from "@/components/push-subscriber"
 import { TelecallerTicker } from "@/components/telecaller-ticker"
 import { DailyWelcomeModal } from "@/components/telecaller/daily-welcome-modal"
 import { Watermark } from "@/components/watermark" 
-import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar" // <--- Added Status Bar import
+import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
 
-// Made this an async function to fetch the user securely
 export default async function TelecallerLayout({
   children,
 }: {
@@ -31,9 +30,13 @@ export default async function TelecallerLayout({
           
           <div className="flex-1 flex flex-col overflow-hidden relative"> 
             
-            {/* 🔴 INJECTED STATUS BAR HERE */}
-            {user && <AgentStatusBar />}
+            {/* 🔴 FIXED STATUS BAR */}
+            {/* Added sticky positioning, high z-index, and prevented flex shrinking */}
+            <div className="sticky top-0 z-[60] flex-shrink-0 w-full bg-white shadow-sm">
+              {user && <AgentStatusBar />}
+            </div>
 
+            {/* Note: Kept z-50 here so it sits nicely below the z-[60] status bar */}
             <div className="absolute top-20 w-full flex justify-center z-50 bg-transparent pointer-events-none">
                <div className="w-full max-w-4xl pointer-events-auto opacity-90 hover:opacity-100 transition-opacity">
                   <TelecallerTicker />
