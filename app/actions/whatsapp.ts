@@ -9,8 +9,6 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 export async function sendWhatsAppText(leadId: string, customerPhone: string, text: string) {
   try {
     const supabase = await createClient();
-    
-    // Auth Check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
@@ -22,7 +20,6 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
     formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
     formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
 
-    // Clean phone number format
     let safePhone = customerPhone.replace(/^\+/, '');
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
     formData.append("mobile", safePhone); 
@@ -35,30 +32,16 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
     const res = await fetch(apiUrl, { method: "POST", body: formData });
     const data = await res.json();
 
-    if (data.status === "error" || data.error) {
-        throw new Error(data.message || data.error || "Fonada API Error");
-    }
+    if (data.status === "error" || data.error) throw new Error(data.message || data.error || "Fonada API Error");
 
-    // Save outbound message to DB History
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId,
-        phone_number: safePhone, 
-        direction: 'outbound',
-        message_type: 'text',
-        content: text,
-        fonada_message_id: data.msgId || null, 
-        status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'text', content: text, fonada_message_id: data.msgId || null, status: 'sent'
     });
 
-    // Throw error if DB insert fails so UI knows about it
-    if (insertError) {
-        console.error("❌ [DB ERROR] Saving text:", insertError);
-        throw new Error(`Database Insert Failed: ${insertError.message}`);
-    }
+    if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
 
-    // Bump lead to top of list
     await supabase.from("leads").update({ last_message_at: new Date().toISOString() }).eq("id", leadId);
-    
     return { success: true };
   } catch (error: any) {
     console.error("WA Text Send Error:", error);
@@ -66,28 +49,18 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
   }
 }
 
-
 // ============================================================================
 // 2. SEND MISSED CALL TEMPLATE (With Interactive Buttons)
 // ============================================================================
 export async function sendMissedCallMessage(leadId: string, customerPhone: string) {
   try {
     const supabase = await createClient();
-    
-    // Auth Check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // Fetch Telecaller's details for the template variables
-    const { data: agent, error } = await supabase
-      .from('users')
-      .select('full_name, phone')
-      .eq('id', user.id)
-      .single();
-
+    const { data: agent, error } = await supabase.from('users').select('full_name, phone').eq('id', user.id).single();
     if (error || !agent) throw new Error("Could not fetch agent details");
 
-    // Construct the EXACT Template Message
     const textMessage = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you. 3`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
@@ -107,63 +80,34 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
     formData.append("templateName", "agent_callback_request"); 
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
-
-    // Add Required Buttons Payload for Template
-    const buttonsPayload = JSON.stringify({
-      button1: "Call in 1 Hour",
-      button2: "Call in 2 Hours",
-      button3: "Call me after 5 PM"
-    });
-    formData.append("buttonsPayload", buttonsPayload);
+    formData.append("buttonsPayload", JSON.stringify({ button1: "Call in 1 Hour", button2: "Call in 2 Hours", button3: "Call me after 5 PM" }));
 
     const res = await fetch(apiUrl, { method: "POST", body: formData });
     const data = await res.json();
     
-    if (data.status === "error" || data.error) {
-        throw new Error(data.message || data.error || "Fonada API Error");
-    }
+    if (data.status === "error" || data.error) throw new Error(data.message || data.error || "Fonada API Error");
 
-    // Save outbound template to DB History
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId,
-        phone_number: safePhone, 
-        direction: 'outbound',
-        message_type: 'template',
-        content: textMessage,
-        fonada_message_id: data.msgId || null, 
-        status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: data.msgId || null, status: 'sent'
     });
 
-    // Throw error if DB insert fails so UI knows about it
-    if (insertError) {
-        console.error("❌ [DB ERROR] Saving template:", insertError);
-        throw new Error(`Database Insert Failed: ${insertError.message}`);
-    }
+    if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
 
-    // Bump lead to top of list
     await supabase.from("leads").update({ last_message_at: new Date().toISOString() }).eq("id", leadId);
-
     return { success: true };
-
   } catch (error: any) {
     console.error("Missed Call WA Error:", error);
     return { success: false, error: error.message };
   }
 }
 
-
 // ============================================================================
 // 3. SEND AUTOMATED KYC DOCUMENT REQUEST (Handles Initial & 24h Reminder)
 // ============================================================================
 export async function sendKYCRequestTemplate(leadId: string, customerPhone: string, isReminder: boolean = false) {
   try {
-    // 🔴 Use Service Role so Cron Job doesn't fail due to missing user session
-    const supabase = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    
-    // Using the exact approved template for both requests
+    const supabase = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const textMessage = `Hello,\n\nThis is an update regarding your loan application. Your application is currently pending.\n\nPlease share clear photos or PDFs of your Aadhar Card, PAN Card, and latest Bank Statement by replying directly to this chat.\n\nThank you.`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
@@ -180,67 +124,48 @@ export async function sendKYCRequestTemplate(leadId: string, customerPhone: stri
     
     formData.append("msg", textMessage);
     formData.append("msgType", "text");
-    formData.append("templateName", "kyc_document_request"); // MUST MATCH META EXACTLY
+    formData.append("templateName", "kyc_document_request"); 
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
 
     const res = await fetch(apiUrl, { method: "POST", body: formData });
     const data = await res.json();
     
-    if (data.status === "error" || data.error) {
-        throw new Error(data.message || data.error || "Fonada API Error");
-    }
+    if (data.status === "error" || data.error) throw new Error(data.message || data.error || "Fonada API Error");
 
-    // Save outbound template to DB History
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId,
-        phone_number: safePhone, 
-        direction: 'outbound',
-        message_type: 'template',
-        content: textMessage,
-        fonada_message_id: data.msgId || null, 
-        status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: data.msgId || null, status: 'sent'
     });
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
 
-    // Update DB with Timers and Sidebar snippet
-    const updatePayload: any = {
-        last_message_at: new Date().toISOString(),
-        last_message_content: isReminder ? "Sent 24h KYC Reminder" : "Sent Initial KYC Request",
-        last_message_type: 'outbound'
-    };
-
-    if (isReminder) {
-        updatePayload.kyc_reminder_sent = true; // Mark as done so it never sends again
-    } else {
-        updatePayload.kyc_requested_at = new Date().toISOString(); // Start the 24h clock
-        updatePayload.kyc_reminder_sent = false;
-    }
+    const updatePayload: any = { last_message_at: new Date().toISOString(), last_message_content: isReminder ? "Sent 24h KYC Reminder" : "Sent Initial KYC Request", last_message_type: 'outbound' };
+    if (isReminder) updatePayload.kyc_reminder_sent = true; 
+    else { updatePayload.kyc_requested_at = new Date().toISOString(); updatePayload.kyc_reminder_sent = false; }
 
     await supabase.from("leads").update(updatePayload).eq("id", leadId);
-
     return { success: true };
-
   } catch (error: any) {
     console.error("KYC Request WA Error:", error);
     return { success: false, error: error.message };
   }
 }
 
-
 // ============================================================================
 // 4. SEND "NOT INTERESTED" AUDIT (The Lie-Detector)
 // ============================================================================
 export async function sendNotInterestedAudit(leadId: string, customerPhone: string, customerName: string) {
+  console.log(`🚀 [SERVER ACTION] Triggering QA Audit for Lead: ${leadId} | Phone: ${customerPhone}`);
+  
   try {
     const supabase = await createClient();
-    
-    // Auth Check
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Unauthorized");
+    if (!user) {
+        console.error("❌ [QA AUDIT ERROR] No active user session.");
+        throw new Error("Unauthorized");
+    }
 
-    // The text version of the template for the DB history
     const textMessage = `Hi ${customerName}, our agent noted that you are no longer interested in a loan at this time.\n\nTo help us improve our service, could you let us know why by tapping a button below?\n\n🔘 Rate is too high\n🔘 Got another loan\n🔘 I am still interested`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
@@ -257,32 +182,27 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
     
     formData.append("msg", textMessage);
     formData.append("msgType", "text");
-    formData.append("templateName", "not_interested_audit"); // MUST MATCH META
+    formData.append("templateName", "not_interested_audit"); 
     formData.append("sendMethod", "quick");
     formData.append("output", "json");
 
-    // Add Required Buttons Payload for Template
-    const buttonsPayload = JSON.stringify({
+    formData.append("buttonsPayload", JSON.stringify({
       button1: "Rate is too high",
       button2: "Got another loan",
       button3: "I am still interested"
-    });
-    formData.append("buttonsPayload", buttonsPayload);
+    }));
 
+    console.log(`📡 [QA AUDIT] Sending payload to Fonada API...`);
     const res = await fetch(apiUrl, { method: "POST", body: formData });
     const data = await res.json();
     
-    if (data.status === "error" || data.error) throw new Error(data.message);
+    console.log(`📤 [FONADA QA RESPONSE]:`, data);
 
-    // Save outbound template to DB History
+    if (data.status === "error" || data.error) throw new Error(data.message || data.error || "Fonada API Rejected Template");
+
     await supabase.from("chat_messages").insert({
-        lead_id: leadId,
-        phone_number: safePhone, 
-        direction: 'outbound',
-        message_type: 'template',
-        content: textMessage,
-        fonada_message_id: data.msgId || null, 
-        status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: data.msgId || null, status: 'sent'
     });
 
     await supabase.from("leads").update({ 
@@ -291,10 +211,11 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
         last_message_type: 'outbound'
     }).eq("id", leadId);
 
+    console.log(`✅ [QA AUDIT SUCCESS] Template sent!`);
     return { success: true };
 
   } catch (error: any) {
-    console.error("QA Audit WA Error:", error);
+    console.error("❌ [QA Audit WA Error]:", error);
     return { success: false, error: error.message };
   }
 }
