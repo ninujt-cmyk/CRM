@@ -38,7 +38,8 @@ export default async function TelecallerLayout({
 
             {/* Note: Kept z-50 here so it sits nicely below the z-[60] status bar */}
             <div className="absolute top-20 w-full flex justify-center z-50 bg-transparent pointer-events-none">
-               <div className="w-full max-w-4xl pointer-events-auto opacity-90 hover:opacity-100 transition-opacity">
+               {/* 🟢 THE FIX: Changed w-full max-w-4xl to w-fit so it doesn't block clicks on the dialer underneath */}
+               <div className="w-fit pointer-events-auto opacity-90 hover:opacity-100 transition-opacity">
                   <TelecallerTicker />
                </div>
             </div>
