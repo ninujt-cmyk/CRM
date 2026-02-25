@@ -36,6 +36,9 @@ export const sidebarGroups = [
       { name: "Disbursed Data", href: "/admin/disbursement-report", icon: IndianRupee },
       { name: "Activities", href: "/admin/audit-logs", icon: Logs },
       { name: "Logins", href: "/admin/logins", icon: KeyRound },
+      { name: "Wallboard", href: "/admin/wallboard", icon: KeyRound },
+      { name: "Operations", href: "/admin/operations", icon: KeyRound },
+      { name: "Dialer", href: "/admin/dialer-assignment", icon: KeyRound },
     ]
   },
   {
