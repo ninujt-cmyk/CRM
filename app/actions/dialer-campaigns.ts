@@ -2,24 +2,34 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-export async function assignLeadsBulk(leadIds: string[], agentId: string) {
+export async function assignLeadsBulk(
+    leadIds: string[], 
+    agentId: string, 
+    options: { resetStatus: boolean; priority: string } = { resetStatus: true, priority: "none" }
+) {
   try {
     const supabase = await createClient();
 
-    // 1. Authenticate Admin (Optional but recommended)
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // 2. Perform the Bulk Update
-    // We update the assignee AND forcefully set the status back to 'New Lead' 
-    // so the Auto-Dialer instantly recognizes them as fresh numbers to call.
+    // Build the dynamic update payload
+    const updatePayload: any = { 
+        assigned_to: agentId, 
+        updated_at: new Date().toISOString() 
+    };
+
+    if (options.resetStatus) {
+        updatePayload.status = 'New Lead';
+    }
+    
+    if (options.priority !== "none") {
+        updatePayload.priority = options.priority;
+    }
+
     const { error } = await supabase
       .from('leads')
-      .update({ 
-          assigned_to: agentId, 
-          status: 'New Lead', 
-          updated_at: new Date().toISOString() 
-      })
+      .update(updatePayload)
       .in('id', leadIds);
 
     if (error) throw error;
@@ -30,4 +40,28 @@ export async function assignLeadsBulk(leadIds: string[], agentId: string) {
     console.error("🔥 Bulk Assignment Error:", error);
     return { success: false, error: error.message };
   }
+}
+
+export async function unassignLeadsBulk(leadIds: string[]) {
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Unauthorized");
+  
+      // Pull leads out of queues
+      const { error } = await supabase
+        .from('leads')
+        .update({ 
+            assigned_to: null, 
+            updated_at: new Date().toISOString() 
+        })
+        .in('id', leadIds);
+  
+      if (error) throw error;
+      return { success: true, count: leadIds.length };
+  
+    } catch (error: any) {
+      console.error("🔥 Bulk Unassign Error:", error);
+      return { success: false, error: error.message };
+    }
 }
