@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { 
-  Users, Search, Filter, Loader2, Send, CheckSquare, Square, Calendar, X, SplitSquareHorizontal, UserCheck, AlertOctagon
+  Users, Search, Filter, Loader2, Send, CheckSquare, Square, X, SplitSquareHorizontal, UserCheck, AlertOctagon, Zap
 } from "lucide-react"
 import { assignLeadsBulk, unassignLeadsBulk } from "@/app/actions/dialer-campaigns"
 
@@ -51,7 +51,8 @@ export default function DialerAssignmentPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [sourceFilter, setSourceFilter] = useState("all")
-  const [agentFilter, setAgentFilter] = useState("all") // NEW: Agent Sweeper Filter
+  const [agentFilter, setAgentFilter] = useState("all") 
+  const [priorityFilter, setPriorityFilter] = useState("all") // NEW
   const [dateRange, setDateRange] = useState("all")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
@@ -113,6 +114,8 @@ export default function DialerAssignmentPage() {
     else if (agentFilter !== "all") query = query.eq('assigned_to', agentFilter)
 
     if (sourceFilter !== "all") query = query.eq('source', sourceFilter)
+    
+    if (priorityFilter !== "all") query = query.eq('priority', priorityFilter)
 
     // Date Logic
     if (dateRange !== "all") {
@@ -136,19 +139,26 @@ export default function DialerAssignmentPage() {
     if (leadsData) setLeads(leadsData)
     setSelectedLeadIds([]) 
     setLoading(false)
-  }, [supabase, statusFilter, sourceFilter, agentFilter, dateRange, customStart, customEnd, fetchLimit])
+  }, [supabase, statusFilter, sourceFilter, agentFilter, priorityFilter, dateRange, customStart, customEnd, fetchLimit])
 
   useEffect(() => { fetchLeadsAndAgents() }, [fetchLeadsAndAgents])
 
   const clearFilters = () => {
-    setStatusFilter("all"); setSourceFilter("all"); setAgentFilter("all"); setDateRange("all");
+    setStatusFilter("all"); setSourceFilter("all"); setAgentFilter("all"); setPriorityFilter("all"); setDateRange("all");
     setCustomStart(""); setCustomEnd(""); setSearchQuery("");
   }
 
   // --- SELECTION LOGIC ---
+  const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone.includes(searchQuery))
+
   const toggleSelectAll = () => setSelectedLeadIds(selectedLeadIds.length === filteredLeads.length ? [] : filteredLeads.map(l => l.id))
   const toggleSelectLead = (id: string) => setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(lId => lId !== id) : [...prev, id])
   const toggleSelectAgent = (id: string) => setSelectedAgentIds(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
+
+  // Quick Select Tools
+  const selectTopN = (n: number) => {
+    setSelectedLeadIds(filteredLeads.slice(0, n).map(l => l.id));
+  }
 
   // --- ACTIONS ---
   const handleAssign = async () => {
@@ -159,16 +169,21 @@ export default function DialerAssignmentPage() {
 
     setAssigning(true)
     
-    const agentsCount = selectedAgentIds.length;
-    const chunkSize = Math.ceil(selectedLeadIds.length / agentsCount);
+    // 🔥 TRUE ROUND-ROBIN DISTRIBUTION ALGORITHM
+    const agentBatches: Record<string, string[]> = {};
+    selectedAgentIds.forEach(id => agentBatches[id] = []);
+    
+    selectedLeadIds.forEach((leadId, index) => {
+        const agentId = selectedAgentIds[index % selectedAgentIds.length];
+        agentBatches[agentId].push(leadId);
+    });
     
     let successCount = 0;
     let failCount = 0;
 
-    for (let i = 0; i < agentsCount; i++) {
-        const agentId = selectedAgentIds[i];
-        const assignedLeads = selectedLeadIds.slice(i * chunkSize, (i + 1) * chunkSize);
-        
+    // Send the batches
+    for (const agentId of selectedAgentIds) {
+        const assignedLeads = agentBatches[agentId];
         if (assignedLeads.length > 0) {
             const res = await assignLeadsBulk(assignedLeads, agentId, { resetStatus, priority: assignPriority });
             if (res.success) successCount += res.count || 0;
@@ -177,7 +192,7 @@ export default function DialerAssignmentPage() {
     }
     
     if (successCount > 0) {
-      toast({ title: "Distribution Complete 🚀", description: `Successfully distributed ${successCount} leads.`, className: "bg-indigo-600 text-white" })
+      toast({ title: "Distribution Complete 🚀", description: `Successfully distributed ${successCount} leads seamlessly.`, className: "bg-indigo-600 text-white" })
       setSelectedAgentIds([]); setAssignPriority("none");
       fetchLeadsAndAgents();
     }
@@ -201,8 +216,6 @@ export default function DialerAssignmentPage() {
       setAssigning(false);
   }
 
-  const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone.includes(searchQuery))
-
   return (
     <div className="space-y-6 pb-10 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -214,8 +227,8 @@ export default function DialerAssignmentPage() {
           <p className="text-slate-500 mt-1">Select leads, set priority, and auto-distribute into dialer queues.</p>
         </div>
         <div className="flex items-center gap-3">
-            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={handleUnassign} disabled={selectedLeadIds.length === 0 || assigning}>
-                <AlertOctagon className="h-4 w-4 mr-2" /> Unassign Selected
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 shadow-sm" onClick={handleUnassign} disabled={selectedLeadIds.length === 0 || assigning}>
+                <AlertOctagon className="h-4 w-4 mr-2" /> Unassign Selected ({selectedLeadIds.length})
             </Button>
         </div>
       </div>
@@ -234,6 +247,11 @@ export default function DialerAssignmentPage() {
               <div className="bg-slate-100 p-4 rounded-lg text-center border border-slate-200 transition-all">
                 <span className="text-4xl font-black text-indigo-600">{selectedLeadIds.length}</span>
                 <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mt-1">Leads Selected</p>
+                {selectedLeadIds.length > 0 && selectedAgentIds.length > 0 && (
+                    <p className="text-xs text-indigo-500 font-bold mt-2">
+                        ≈ {Math.ceil(selectedLeadIds.length / selectedAgentIds.length)} leads per agent
+                    </p>
+                )}
               </div>
 
               {/* Injection Options */}
@@ -259,10 +277,15 @@ export default function DialerAssignmentPage() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold text-slate-700">Select Agents (Round-Robin)</Label>
-                <div className="max-h-[300px] overflow-y-auto space-y-2 border border-slate-200 rounded-md p-2 bg-slate-50">
+                <div className="flex justify-between items-center">
+                    <Label className="text-sm font-semibold text-slate-700">Select Agents</Label>
+                    <span className="text-xs text-slate-400">Round-Robin</span>
+                </div>
+                <div className="max-h-[250px] overflow-y-auto space-y-2 border border-slate-200 rounded-md p-2 bg-slate-50">
                     {agents.map(agent => {
                         const isSelected = selectedAgentIds.includes(agent.id)
+                        const isOverloaded = agent.pending_leads >= 50; // Visual warning if queue is getting full
+                        
                         return (
                             <label key={agent.id} className={`flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-300'}`}>
                                 <div className="flex items-center gap-3">
@@ -271,7 +294,7 @@ export default function DialerAssignmentPage() {
                                     </div>
                                     <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{agent.full_name}</span>
                                 </div>
-                                <Badge variant="secondary" className={`${agent.pending_leads > 100 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                                <Badge variant="secondary" className={`${isOverloaded ? 'bg-red-100 text-red-700 font-bold' : 'bg-slate-100 text-slate-600'}`}>
                                     {agent.pending_leads}
                                 </Badge>
                             </label>
@@ -304,6 +327,12 @@ export default function DialerAssignmentPage() {
                   </div>
                </div>
                <div className="flex items-center gap-2">
+                   {/* QUICK SELECT BADGES */}
+                   <div className="hidden md:flex gap-1 mr-4 border-r pr-4">
+                       <Button variant="ghost" size="sm" onClick={() => selectTopN(50)} className="text-xs text-indigo-600 hover:bg-indigo-50">Select 50</Button>
+                       <Button variant="ghost" size="sm" onClick={() => selectTopN(100)} className="text-xs text-indigo-600 hover:bg-indigo-50">Select 100</Button>
+                   </div>
+                   
                    <Select value={fetchLimit} onValueChange={setFetchLimit}>
                       <SelectTrigger className="w-[120px] bg-white text-xs"><SelectValue placeholder="Limit" /></SelectTrigger>
                       <SelectContent>
@@ -320,7 +349,7 @@ export default function DialerAssignmentPage() {
 
             {/* Advanced Filters */}
             {showFilters && (
-              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-b">
+              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-b shadow-inner">
                 
                 {/* Agent Sweeper */}
                 <div className="space-y-1">
@@ -344,21 +373,21 @@ export default function DialerAssignmentPage() {
                         <SelectItem value="New Lead">New Lead</SelectItem>
                         <SelectItem value="Contacted">Contacted</SelectItem>
                         <SelectItem value="Follow Up">Follow Up</SelectItem>
-                        <SelectItem value="Interested">Interested</SelectItem>
                         <SelectItem value="Dead Bucket">Dead Bucket</SelectItem>
                     </SelectContent>
                     </Select>
                 </div>
 
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Source</Label>
-                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                    <SelectTrigger><SelectValue placeholder="Lead Source" /></SelectTrigger>
+                    <Label className="text-xs text-slate-500">Priority Level</Label>
+                    <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                    <SelectTrigger><SelectValue placeholder="Any Priority" /></SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">All Sources</SelectItem>
-                        <SelectItem value="website">Website</SelectItem>
-                        <SelectItem value="facebook">Facebook Ads</SelectItem>
-                        <SelectItem value="referral">Referral</SelectItem>
+                        <SelectItem value="all">Any Priority</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="low">Low</SelectItem>
                     </SelectContent>
                     </Select>
                 </div>
