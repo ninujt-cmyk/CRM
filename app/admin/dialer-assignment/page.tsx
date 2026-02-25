@@ -339,6 +339,8 @@ export default function DialerAssignmentPage() {
                           <SelectItem value="100">Fetch 100</SelectItem>
                           <SelectItem value="500">Fetch 500</SelectItem>
                           <SelectItem value="1000">Fetch 1000</SelectItem>
+                          <SelectItem value="2000">Fetch 2000</SelectItem>
+                          <SelectItem value="3000">Fetch 3000</SelectItem>
                       </SelectContent>
                    </Select>
                    <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2">
