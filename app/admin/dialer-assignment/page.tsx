@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { 
-  Users, Search, Filter, Loader2, Send, CheckSquare, Square, Calendar, X
+  Users, Search, Filter, Loader2, Send, CheckSquare, Square, Calendar, X, SplitSquareHorizontal, UserCheck
 } from "lucide-react"
 import { assignLeadsBulk } from "@/app/actions/dialer-campaigns"
 
@@ -22,11 +22,13 @@ interface Lead {
   source: string | null;
   status: string;
   created_at: string;
+  priority?: string;
 }
 
 interface Agent {
   id: string;
   full_name: string;
+  pending_leads: number; // NEW: Track workload
 }
 
 export default function DialerAssignmentPage() {
@@ -37,7 +39,7 @@ export default function DialerAssignmentPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([])
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("")
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]) // NEW: Multi-Agent selection
   
   // Filter States
   const [searchQuery, setSearchQuery] = useState("")
@@ -46,170 +48,202 @@ export default function DialerAssignmentPage() {
   const [dateRange, setDateRange] = useState("all")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
+  const [fetchLimit, setFetchLimit] = useState("500") // NEW: Performance Control
   
   // UI States
   const [loading, setLoading] = useState(true)
   const [assigning, setAssigning] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
-  // 1. FETCH LOGIC (Now heavily tied to Database-Level Filters)
+  // 1. FETCH LOGIC
   const fetchLeadsAndAgents = useCallback(async () => {
     setLoading(true)
     
-    // Fetch Agents
+    // A. Fetch Agents
     const { data: agentsData } = await supabase
       .from('users')
       .select('id, full_name')
       .in('role', ['telecaller', 'agent'])
       .order('full_name', { ascending: true })
-      
-    if (agentsData) setAgents(agentsData)
 
-    // Fetch Leads dynamically based on filters
+    // B. Fetch Active Workloads for Agents
+    const { data: activeLeads } = await supabase
+      .from('leads')
+      .select('assigned_to')
+      .in('status', ['New Lead', 'new', 'Follow Up', 'Contacted'])
+      .not('assigned_to', 'is', null)
+
+    const workloadMap: Record<string, number> = {}
+    if (activeLeads) {
+        activeLeads.forEach(lead => {
+            if (lead.assigned_to) {
+                workloadMap[lead.assigned_to] = (workloadMap[lead.assigned_to] || 0) + 1
+            }
+        })
+    }
+
+    if (agentsData) {
+        setAgents(agentsData.map(a => ({
+            ...a,
+            pending_leads: workloadMap[a.id] || 0
+        })))
+    }
+
+    // C. Fetch Leads dynamically based on filters
     let query = supabase
       .from('leads')
-      .select('id, name, phone, source, status, created_at')
+      .select('id, name, phone, source, status, created_at, priority')
       
-    // Status Logic
     if (statusFilter === "all") {
-      // Default: Show Unassigned OR Dead Bucket leads
       query = query.or('assigned_to.is.null,status.in.(Not Interested,Dead Bucket,nr,not_eligible,self_employed)')
     } else {
       query = query.eq('status', statusFilter)
     }
 
-    // Source Logic
-    if (sourceFilter !== "all") {
-      query = query.eq('source', sourceFilter)
-    }
+    if (sourceFilter !== "all") query = query.eq('source', sourceFilter)
 
-    // Date Logic
     if (dateRange !== "all") {
       const today = new Date();
       today.setHours(0,0,0,0);
-      
-      if (dateRange === "today") {
-        query = query.gte('created_at', today.toISOString());
-      } else if (dateRange === "yesterday") {
+      if (dateRange === "today") query = query.gte('created_at', today.toISOString());
+      else if (dateRange === "yesterday") {
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         query = query.gte('created_at', yesterday.toISOString()).lt('created_at', today.toISOString());
-      } else if (dateRange === "this_month") {
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        query = query.gte('created_at', firstDay.toISOString());
-      } else if (dateRange === "custom" && customStart && customEnd) {
+      } 
+      else if (dateRange === "this_month") query = query.gte('created_at', new Date(today.getFullYear(), today.getMonth(), 1).toISOString());
+      else if (dateRange === "custom" && customStart && customEnd) {
         query = query.gte('created_at', new Date(customStart).toISOString())
                      .lte('created_at', new Date(customEnd + 'T23:59:59').toISOString());
       }
     }
 
-    // Execute query with a high limit for bulk operations
-    const { data: leadsData } = await query.order('created_at', { ascending: false }).limit(500)
+    const { data: leadsData } = await query.order('created_at', { ascending: false }).limit(parseInt(fetchLimit))
 
     if (leadsData) setLeads(leadsData)
-    setSelectedLeadIds([]) // Reset selections when data changes
+    setSelectedLeadIds([]) 
     setLoading(false)
-  }, [supabase, statusFilter, sourceFilter, dateRange, customStart, customEnd])
+  }, [supabase, statusFilter, sourceFilter, dateRange, customStart, customEnd, fetchLimit])
 
-  // Initial Load
-  useEffect(() => {
-    fetchLeadsAndAgents()
-  }, [fetchLeadsAndAgents])
+  useEffect(() => { fetchLeadsAndAgents() }, [fetchLeadsAndAgents])
 
   const clearFilters = () => {
-    setStatusFilter("all")
-    setSourceFilter("all")
-    setDateRange("all")
-    setCustomStart("")
-    setCustomEnd("")
-    setSearchQuery("")
+    setStatusFilter("all"); setSourceFilter("all"); setDateRange("all");
+    setCustomStart(""); setCustomEnd(""); setSearchQuery("");
   }
 
   // --- SELECTION LOGIC ---
-  const toggleSelectAll = () => {
-    if (selectedLeadIds.length === filteredLeads.length) {
-      setSelectedLeadIds([]) 
-    } else {
-      setSelectedLeadIds(filteredLeads.map(l => l.id)) 
-    }
-  }
+  const toggleSelectAll = () => setSelectedLeadIds(selectedLeadIds.length === filteredLeads.length ? [] : filteredLeads.map(l => l.id))
+  const toggleSelectLead = (id: string) => setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(lId => lId !== id) : [...prev, id])
+  const toggleSelectAgent = (id: string) => setSelectedAgentIds(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
 
-  const toggleSelectLead = (id: string) => {
-    setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(leadId => leadId !== id) : [...prev, id])
-  }
-
-  // --- ASSIGN LOGIC ---
+  // --- ROUND-ROBIN ASSIGN LOGIC ---
   const handleAssign = async () => {
-    if (!selectedAgentId || selectedLeadIds.length === 0) {
-      toast({ title: "Error", description: "Select at least one lead and an agent.", variant: "destructive" })
+    if (selectedAgentIds.length === 0 || selectedLeadIds.length === 0) {
+      toast({ title: "Error", description: "Select at least one lead and one agent.", variant: "destructive" })
       return
     }
 
     setAssigning(true)
-    const res = await assignLeadsBulk(selectedLeadIds, selectedAgentId)
     
-    if (res.success) {
-      toast({ title: "Success! 🚀", description: `${res.count} leads injected into the dialer.`, className: "bg-indigo-600 text-white" })
-      fetchLeadsAndAgents() // Refresh table
-    } else {
-      toast({ title: "Assignment Failed", description: res.error, variant: "destructive" })
+    // Split leads evenly among selected agents
+    const agentsCount = selectedAgentIds.length;
+    const chunkSize = Math.ceil(selectedLeadIds.length / agentsCount);
+    
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < agentsCount; i++) {
+        const agentId = selectedAgentIds[i];
+        const assignedLeads = selectedLeadIds.slice(i * chunkSize, (i + 1) * chunkSize);
+        
+        if (assignedLeads.length > 0) {
+            const res = await assignLeadsBulk(assignedLeads, agentId);
+            if (res.success) successCount += res.count || 0;
+            else failCount += assignedLeads.length;
+        }
     }
+    
+    if (successCount > 0) {
+      toast({ 
+          title: "Distribution Complete 🚀", 
+          description: `Successfully distributed ${successCount} leads among ${agentsCount} telecaller(s).`, 
+          className: "bg-indigo-600 text-white" 
+      })
+      setSelectedAgentIds([]) // Reset agent selection
+      fetchLeadsAndAgents() 
+    }
+    if (failCount > 0) {
+      toast({ title: "Partial Failure", description: `Failed to assign ${failCount} leads.`, variant: "destructive" })
+    }
+    
     setAssigning(false)
   }
 
-  // Client-side text search filter
-  const filteredLeads = leads.filter(l => 
-    l.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    l.phone.includes(searchQuery)
-  )
+  const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone.includes(searchQuery))
 
   return (
     <div className="space-y-6 pb-10 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-            <Users className="h-8 w-8 text-indigo-600" />
-            Dialer Queue Management
+            <SplitSquareHorizontal className="h-8 w-8 text-indigo-600" />
+            Campaign Distribution
           </h1>
-          <p className="text-slate-500 mt-1">Select and filter leads to inject them into a telecaller's Auto-Dialer.</p>
+          <p className="text-slate-500 mt-1">Select leads and auto-distribute them into telecaller dialer queues.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        {/* --- LEFT: THE ACTION PANEL --- */}
+        {/* --- LEFT: THE ACTION PANEL (UPGRADED) --- */}
         <div className="lg:col-span-1 space-y-4">
           <Card className="border-2 border-indigo-100 shadow-lg sticky top-6">
             <CardHeader className="bg-indigo-50 border-b border-indigo-100 pb-4">
-              <CardTitle className="text-indigo-800 text-lg">Assign Selected Leads</CardTitle>
+              <CardTitle className="text-indigo-800 text-lg flex items-center gap-2">
+                  <UserCheck className="h-5 w-5" /> Target Telecallers
+              </CardTitle>
             </CardHeader>
             <CardContent className="pt-6 space-y-6">
               <div className="bg-slate-100 p-4 rounded-lg text-center border border-slate-200 transition-all">
                 <span className="text-4xl font-black text-indigo-600">{selectedLeadIds.length}</span>
                 <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mt-1">Leads Selected</p>
+                {selectedAgentIds.length > 1 && selectedLeadIds.length > 0 && (
+                    <Badge className="mt-2 bg-indigo-100 text-indigo-800 hover:bg-indigo-100">
+                        ~{Math.ceil(selectedLeadIds.length / selectedAgentIds.length)} leads per agent
+                    </Badge>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold text-slate-700">Target Telecaller</Label>
-                <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-                  <SelectTrigger className="w-full bg-white border-slate-300">
-                    <SelectValue placeholder="Choose an agent..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.map(agent => (
-                      <SelectItem key={agent.id} value={agent.id}>{agent.full_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-sm font-semibold text-slate-700">Select Agents (Round-Robin)</Label>
+                <div className="max-h-[300px] overflow-y-auto space-y-2 border border-slate-200 rounded-md p-2 bg-slate-50">
+                    {agents.map(agent => {
+                        const isSelected = selectedAgentIds.includes(agent.id)
+                        return (
+                            <label key={agent.id} className={`flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-300'}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                                        {isSelected && <CheckSquare className="h-3 w-3 text-white" />}
+                                    </div>
+                                    <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{agent.full_name}</span>
+                                </div>
+                                <Badge variant="secondary" className={`${agent.pending_leads > 100 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`} title="Pending leads currently in their queue">
+                                    {agent.pending_leads}
+                                </Badge>
+                            </label>
+                        )
+                    })}
+                </div>
               </div>
 
               <Button 
                 onClick={handleAssign} 
-                disabled={assigning || selectedLeadIds.length === 0 || !selectedAgentId}
+                disabled={assigning || selectedLeadIds.length === 0 || selectedAgentIds.length === 0}
                 className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-base"
               >
                 {assigning ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Send className="h-5 w-5 mr-2" />}
-                Inject into Dialer
+                Distribute Leads
               </Button>
             </CardContent>
           </Card>
@@ -218,20 +252,30 @@ export default function DialerAssignmentPage() {
         {/* --- RIGHT: THE LEAD TABLE & FILTERS --- */}
         <div className="lg:col-span-3 space-y-4">
           
-          {/* ADVANCED FILTER PANEL */}
           <Card className="shadow-sm border border-slate-200">
-            <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
-               <div className="flex items-center gap-4 flex-1 mr-4">
+            <div className="p-4 border-b bg-slate-50 flex items-center justify-between flex-wrap gap-4">
+               <div className="flex items-center gap-4 flex-1 min-w-[250px]">
                   <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input placeholder="Quick search name or phone..." className="pl-9 bg-white" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                   </div>
                </div>
-               <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2">
-                 <Filter className="h-4 w-4" /> {showFilters ? 'Hide Filters' : 'Advanced Filters'}
-               </Button>
+               <div className="flex items-center gap-2">
+                   <Select value={fetchLimit} onValueChange={setFetchLimit}>
+                      <SelectTrigger className="w-[120px] bg-white text-xs"><SelectValue placeholder="Limit" /></SelectTrigger>
+                      <SelectContent>
+                          <SelectItem value="100">Fetch 100</SelectItem>
+                          <SelectItem value="500">Fetch 500</SelectItem>
+                          <SelectItem value="1000">Fetch 1000</SelectItem>
+                      </SelectContent>
+                   </Select>
+                   <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2">
+                     <Filter className="h-4 w-4" /> {showFilters ? 'Hide Filters' : 'Advanced Filters'}
+                   </Button>
+               </div>
             </div>
 
+            {/* Advanced Filters (Same as before) */}
             {showFilters && (
               <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-3 gap-4 border-b">
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -276,15 +320,14 @@ export default function DialerAssignmentPage() {
 
                 <div className="md:col-span-3 flex justify-end gap-2 mt-2">
                   <Button variant="ghost" onClick={clearFilters}><X className="h-4 w-4 mr-2" /> Clear All</Button>
-                  {/* Note: Fetch happens automatically due to useEffect dependency array! */}
                 </div>
               </div>
             )}
             
             {/* THE DATA TABLE */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 bg-slate-100 uppercase font-semibold">
+            <div className="overflow-x-auto max-h-[600px]">
+              <table className="w-full text-sm text-left relative">
+                <thead className="text-xs text-slate-500 bg-slate-100 uppercase font-semibold sticky top-0 z-10 shadow-sm">
                   <tr>
                     <th className="p-4 w-12 text-center">
                       <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600">
@@ -303,9 +346,9 @@ export default function DialerAssignmentPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={5} className="text-center p-8"><Loader2 className="h-6 w-6 animate-spin mx-auto text-indigo-500" /></td></tr>
+                    <tr><td colSpan={5} className="text-center p-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" /></td></tr>
                   ) : filteredLeads.length === 0 ? (
-                    <tr><td colSpan={5} className="text-center p-8 text-slate-500">No leads found matching your filters.</td></tr>
+                    <tr><td colSpan={5} className="text-center p-12 text-slate-500">No leads found matching your filters.</td></tr>
                   ) : (
                     filteredLeads.map(lead => {
                       const isSelected = selectedLeadIds.includes(lead.id)
@@ -314,7 +357,13 @@ export default function DialerAssignmentPage() {
                           <td className="p-4 text-center">
                             {isSelected ? <CheckSquare className="h-5 w-5 text-indigo-600 mx-auto" /> : <Square className="h-5 w-5 text-slate-300 mx-auto" />}
                           </td>
-                          <td className="py-3 px-4"><p className="font-semibold text-slate-800">{lead.name}</p><p className="text-xs text-slate-500">{lead.phone}</p></td>
+                          <td className="py-3 px-4 flex items-center gap-2">
+                             <div>
+                                <p className="font-semibold text-slate-800">{lead.name}</p>
+                                <p className="text-xs text-slate-500">{lead.phone}</p>
+                             </div>
+                             {lead.priority === 'urgent' && <Badge className="bg-red-100 text-red-700 ml-2">Urgent</Badge>}
+                          </td>
                           <td className="py-3 px-4">
                             <Badge variant="outline" className={['New Lead', 'new'].includes(lead.status) ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600'}>
                               {lead.status || "Unassigned"}
@@ -330,8 +379,9 @@ export default function DialerAssignmentPage() {
               </table>
             </div>
             
-            <div className="p-4 bg-slate-50 border-t text-xs text-slate-400 text-right">
-                Showing {filteredLeads.length} leads
+            <div className="p-4 bg-slate-50 border-t flex items-center justify-between text-xs text-slate-500">
+                <span>Showing {filteredLeads.length} leads</span>
+                <span>Database Limit: {fetchLimit} rows</span>
             </div>
           </Card>
         </div>
