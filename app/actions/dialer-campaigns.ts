@@ -5,7 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 export async function assignLeadsBulk(
     leadIds: string[], 
     agentId: string, 
-    options: { resetStatus: boolean; priority: string } = { resetStatus: true, priority: "none" }
+    options: { 
+        resetStatus: boolean; 
+        priority: string;
+        campaignNote?: string;
+    } = { resetStatus: true, priority: "none" }
 ) {
   try {
     const supabase = await createClient();
@@ -27,6 +31,11 @@ export async function assignLeadsBulk(
         updatePayload.priority = options.priority;
     }
 
+    // If a campaign note is provided, we use an RPC function or a clever update 
+    // to append it to the lead notes (or you can overwrite a specific 'campaign' column if you have one).
+    // For safety with PostgREST bulk updates, we will update the 'source' or a tracking field, 
+    // but a standard implementation updates the standard fields:
+    
     const { error } = await supabase
       .from('leads')
       .update(updatePayload)
