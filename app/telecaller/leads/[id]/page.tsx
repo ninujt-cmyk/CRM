@@ -22,8 +22,9 @@ import { LeadNotes } from "@/components/lead-notes"
 import { LeadCallHistory } from "@/components/lead-call-history"
 import { FollowUpsList } from "@/components/follow-ups-list"
 import { WhatsAppChat } from "@/components/WhatsAppChat" 
-// ✅ 1. IMPORT THE NEW LIVE SCRIPT CARD HERE
 import { LiveScriptCard } from "@/components/telecaller/LiveScriptCard"
+// ✅ 1. IMPORT THE NEW ESCALATION BUTTON HERE
+import { ManagerEscalationButton } from "@/components/telecaller/ManagerEscalationButton"
 
 // --- CONSTANTS ---
 const STATUSES = {
@@ -215,8 +216,9 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     const [isSavingDetails, setIsSavingDetails] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     
-    // ✅ 2. State for the fetched Telecaller Name
+    // Auth States
     const [agentName, setAgentName] = useState<string>("Agent");
+    const [agentId, setAgentId] = useState<string>(""); // ✅ ADDED THIS FOR ESCALATION BUTTON
 
     const fetchLeadData = useCallback(async () => {
         const { data, error } = await supabase
@@ -235,19 +237,18 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         setLoading(false)
     }, [leadId, supabase])
 
-    // ✅ 3. Fetch the currently logged-in user's name on mount
     useEffect(() => {
         const fetchUserData = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                // Try fetching from users table for full_name
+                setAgentId(user.id); // ✅ SAVING THE ID FOR THE COMPONENT
+                
                 const { data: userProfile } = await supabase
                     .from('users')
                     .select('full_name')
                     .eq('id', user.id)
                     .single();
                 
-                // Fallback to metadata full_name, then email prefix, then "Agent"
                 const fetchedName = userProfile?.full_name 
                     || user.user_metadata?.full_name 
                     || user.email?.split('@')[0] 
@@ -418,7 +419,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                         </CardContent>
                     </Card>
 
-                    {/* ✅ 4. INJECTED LIVE SCRIPT CARD HERE ✅ */}
                     <div className="mt-6">
                         <LiveScriptCard 
                             agentName={agentName} 
@@ -426,7 +426,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                             loanType={lead.loan_type || ""} 
                         />
                     </div>
-                    {/* ==================================== */}
 
                     {/* TABS SECTION */}
                     <Tabs defaultValue="timeline" className="w-full">
@@ -448,6 +447,16 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 {/* --- RIGHT COLUMN (1/3) --- */}
                 <div className="lg:col-span-1 space-y-6">
                     
+                    {/* ✅ 2. INJECTED ESCALATION BUTTON HERE ✅ */}
+                    {agentId && (
+                        <ManagerEscalationButton
+                            leadId={lead.id}
+                            agentId={agentId} 
+                            customerPhone={lead.phone}
+                        />
+                    )}
+
+                    {/* EXISTING WHATSAPP PANEL */}
                     <div className="mb-6">
                        <WhatsAppChat leadId={lead.id} phone={lead.phone} />
                     </div>
