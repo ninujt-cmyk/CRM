@@ -16,9 +16,6 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
 
-// ✅ IMPORT CONFETTI
-import confetti from "canvas-confetti"
-
 // --- CUSTOM COMPONENTS ---
 import { TimelineView } from "@/components/timeline-view"
 import { LeadNotes } from "@/components/lead-notes"
@@ -26,6 +23,7 @@ import { LeadCallHistory } from "@/components/lead-call-history"
 import { FollowUpsList } from "@/components/follow-ups-list"
 import { WhatsAppChat } from "@/components/WhatsAppChat" 
 import { LiveScriptCard } from "@/components/telecaller/LiveScriptCard"
+// ✅ 1. IMPORT THE NEW ESCALATION BUTTON HERE
 import { ManagerEscalationButton } from "@/components/telecaller/ManagerEscalationButton"
 
 // --- CONSTANTS ---
@@ -36,7 +34,6 @@ const STATUSES = {
     NOT_INTERESTED: "Not Interested",
     LOGIN_DONE: "Login Done",
     TRANSFERRED_TO_KYC: "Transferred to KYC",
-    DISBURSED: "Disbursed", // ✅ Added Disbursed Status
 } as const;
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
@@ -76,7 +73,6 @@ const getStatusBadge = (status: string) => {
         case STATUSES.NOT_INTERESTED: return <Badge className="bg-red-500 hover:bg-red-600">Not Interested</Badge>;
         case STATUSES.LOGIN_DONE: return <Badge className="bg-purple-500 hover:bg-purple-600">Login Done</Badge>;
         case STATUSES.TRANSFERRED_TO_KYC: return <Badge className="bg-indigo-600 hover:bg-indigo-700">Transferred to KYC</Badge>;
-        case STATUSES.DISBURSED: return <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm border border-emerald-400">Disbursed</Badge>; // ✅ Added Badge
         default: return <Badge variant="secondary">Other</Badge>;
     }
 };
@@ -222,7 +218,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     
     // Auth States
     const [agentName, setAgentName] = useState<string>("Agent");
-    const [agentId, setAgentId] = useState<string>("");
+    const [agentId, setAgentId] = useState<string>(""); // ✅ ADDED THIS FOR ESCALATION BUTTON
 
     const fetchLeadData = useCallback(async () => {
         const { data, error } = await supabase
@@ -245,7 +241,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         const fetchUserData = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                setAgentId(user.id);
+                setAgentId(user.id); // ✅ SAVING THE ID FOR THE COMPONENT
                 
                 const { data: userProfile } = await supabase
                     .from('users')
@@ -311,7 +307,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         }
     };
 
-    // ✅ UPDATED STATUS FUNCTION WITH CONFETTI LOGIC
     const handleStatusUpdate = async (newStatus: string) => {
         if (!lead || newStatus === lead.status) return;
         setIsUpdatingStatus(true);
@@ -325,27 +320,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
 
         if (error) {
             toast({ title: "Status Update Failed", description: error.message, variant: "destructive" });
-        } else {
-            // 🎉 THE CONFETTI TRIGGER 🎉
-            if (newStatus === STATUSES.DISBURSED) {
-                const duration = 3000;
-                const end = Date.now() + duration;
-
-                const frame = () => {
-                    confetti({
-                        particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#22c55e', '#eab308', '#3b82f6']
-                    });
-                    confetti({
-                        particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#22c55e', '#eab308', '#3b82f6']
-                    });
-                    if (Date.now() < end) requestAnimationFrame(frame);
-                };
-                frame();
-                toast({ title: "BOOM! 💰", description: "Loan Disbursed! Great job closing the deal!" });
-            } else {
-                // Regular toast for other status changes
-                toast({ title: "Status Updated", description: `Lead marked as ${newStatus}.` });
-            }
         }
     };
 
@@ -473,6 +447,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 {/* --- RIGHT COLUMN (1/3) --- */}
                 <div className="lg:col-span-1 space-y-6">
                     
+                    {/* ✅ 2. INJECTED ESCALATION BUTTON HERE ✅ */}
                     {agentId && (
                         <ManagerEscalationButton
                             leadId={lead.id}
@@ -481,6 +456,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                         />
                     )}
 
+                    {/* EXISTING WHATSAPP PANEL */}
                     <div className="mb-6">
                        <WhatsAppChat leadId={lead.id} phone={lead.phone} />
                     </div>
