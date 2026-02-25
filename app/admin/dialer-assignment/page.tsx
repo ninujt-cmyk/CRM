@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { 
-  Users, Search, Filter, Loader2, Send, CheckSquare, Square, Calendar, X, SplitSquareHorizontal, UserCheck
+  Users, Search, Filter, Loader2, Send, CheckSquare, Square, Calendar, X, SplitSquareHorizontal, UserCheck, AlertOctagon
 } from "lucide-react"
-import { assignLeadsBulk } from "@/app/actions/dialer-campaigns"
+import { assignLeadsBulk, unassignLeadsBulk } from "@/app/actions/dialer-campaigns"
 
 // --- TYPES ---
 interface Lead {
@@ -23,12 +24,13 @@ interface Lead {
   status: string;
   created_at: string;
   priority?: string;
+  assigned_to?: string | null;
 }
 
 interface Agent {
   id: string;
   full_name: string;
-  pending_leads: number; // NEW: Track workload
+  pending_leads: number; 
 }
 
 export default function DialerAssignmentPage() {
@@ -39,16 +41,21 @@ export default function DialerAssignmentPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([])
-  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]) // NEW: Multi-Agent selection
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]) 
   
+  // Injection Options State
+  const [resetStatus, setResetStatus] = useState(true)
+  const [assignPriority, setAssignPriority] = useState("none")
+
   // Filter States
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [sourceFilter, setSourceFilter] = useState("all")
+  const [agentFilter, setAgentFilter] = useState("all") // NEW: Agent Sweeper Filter
   const [dateRange, setDateRange] = useState("all")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
-  const [fetchLimit, setFetchLimit] = useState("500") // NEW: Performance Control
+  const [fetchLimit, setFetchLimit] = useState("500") 
   
   // UI States
   const [loading, setLoading] = useState(true)
@@ -92,16 +99,22 @@ export default function DialerAssignmentPage() {
     // C. Fetch Leads dynamically based on filters
     let query = supabase
       .from('leads')
-      .select('id, name, phone, source, status, created_at, priority')
+      .select('id, name, phone, source, status, created_at, priority, assigned_to')
       
-    if (statusFilter === "all") {
+    // Status Logic
+    if (statusFilter === "all" && agentFilter === "all") {
       query = query.or('assigned_to.is.null,status.in.(Not Interested,Dead Bucket,nr,not_eligible,self_employed)')
-    } else {
+    } else if (statusFilter !== "all") {
       query = query.eq('status', statusFilter)
     }
 
+    // Agent Ownership Logic (The Sweeper)
+    if (agentFilter === "unassigned") query = query.is('assigned_to', null)
+    else if (agentFilter !== "all") query = query.eq('assigned_to', agentFilter)
+
     if (sourceFilter !== "all") query = query.eq('source', sourceFilter)
 
+    // Date Logic
     if (dateRange !== "all") {
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -123,12 +136,12 @@ export default function DialerAssignmentPage() {
     if (leadsData) setLeads(leadsData)
     setSelectedLeadIds([]) 
     setLoading(false)
-  }, [supabase, statusFilter, sourceFilter, dateRange, customStart, customEnd, fetchLimit])
+  }, [supabase, statusFilter, sourceFilter, agentFilter, dateRange, customStart, customEnd, fetchLimit])
 
   useEffect(() => { fetchLeadsAndAgents() }, [fetchLeadsAndAgents])
 
   const clearFilters = () => {
-    setStatusFilter("all"); setSourceFilter("all"); setDateRange("all");
+    setStatusFilter("all"); setSourceFilter("all"); setAgentFilter("all"); setDateRange("all");
     setCustomStart(""); setCustomEnd(""); setSearchQuery("");
   }
 
@@ -137,7 +150,7 @@ export default function DialerAssignmentPage() {
   const toggleSelectLead = (id: string) => setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(lId => lId !== id) : [...prev, id])
   const toggleSelectAgent = (id: string) => setSelectedAgentIds(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
 
-  // --- ROUND-ROBIN ASSIGN LOGIC ---
+  // --- ACTIONS ---
   const handleAssign = async () => {
     if (selectedAgentIds.length === 0 || selectedLeadIds.length === 0) {
       toast({ title: "Error", description: "Select at least one lead and one agent.", variant: "destructive" })
@@ -146,7 +159,6 @@ export default function DialerAssignmentPage() {
 
     setAssigning(true)
     
-    // Split leads evenly among selected agents
     const agentsCount = selectedAgentIds.length;
     const chunkSize = Math.ceil(selectedLeadIds.length / agentsCount);
     
@@ -158,45 +170,59 @@ export default function DialerAssignmentPage() {
         const assignedLeads = selectedLeadIds.slice(i * chunkSize, (i + 1) * chunkSize);
         
         if (assignedLeads.length > 0) {
-            const res = await assignLeadsBulk(assignedLeads, agentId);
+            const res = await assignLeadsBulk(assignedLeads, agentId, { resetStatus, priority: assignPriority });
             if (res.success) successCount += res.count || 0;
             else failCount += assignedLeads.length;
         }
     }
     
     if (successCount > 0) {
-      toast({ 
-          title: "Distribution Complete 🚀", 
-          description: `Successfully distributed ${successCount} leads among ${agentsCount} telecaller(s).`, 
-          className: "bg-indigo-600 text-white" 
-      })
-      setSelectedAgentIds([]) // Reset agent selection
-      fetchLeadsAndAgents() 
+      toast({ title: "Distribution Complete 🚀", description: `Successfully distributed ${successCount} leads.`, className: "bg-indigo-600 text-white" })
+      setSelectedAgentIds([]); setAssignPriority("none");
+      fetchLeadsAndAgents();
     }
-    if (failCount > 0) {
-      toast({ title: "Partial Failure", description: `Failed to assign ${failCount} leads.`, variant: "destructive" })
-    }
+    if (failCount > 0) toast({ title: "Partial Failure", description: `Failed to assign ${failCount} leads.`, variant: "destructive" })
     
     setAssigning(false)
+  }
+
+  const handleUnassign = async () => {
+      if (selectedLeadIds.length === 0) return;
+      if (!confirm(`Are you sure you want to pull ${selectedLeadIds.length} leads out of their current queues?`)) return;
+
+      setAssigning(true);
+      const res = await unassignLeadsBulk(selectedLeadIds);
+      if (res.success) {
+          toast({ title: "Queues Cleared", description: `Unassigned ${res.count} leads successfully.` })
+          fetchLeadsAndAgents();
+      } else {
+          toast({ title: "Error", description: res.error, variant: "destructive" })
+      }
+      setAssigning(false);
   }
 
   const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone.includes(searchQuery))
 
   return (
     <div className="space-y-6 pb-10 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
             <SplitSquareHorizontal className="h-8 w-8 text-indigo-600" />
             Campaign Distribution
           </h1>
-          <p className="text-slate-500 mt-1">Select leads and auto-distribute them into telecaller dialer queues.</p>
+          <p className="text-slate-500 mt-1">Select leads, set priority, and auto-distribute into dialer queues.</p>
+        </div>
+        <div className="flex items-center gap-3">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={handleUnassign} disabled={selectedLeadIds.length === 0 || assigning}>
+                <AlertOctagon className="h-4 w-4 mr-2" /> Unassign Selected
+            </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        {/* --- LEFT: THE ACTION PANEL (UPGRADED) --- */}
+        {/* --- LEFT: THE ACTION PANEL --- */}
         <div className="lg:col-span-1 space-y-4">
           <Card className="border-2 border-indigo-100 shadow-lg sticky top-6">
             <CardHeader className="bg-indigo-50 border-b border-indigo-100 pb-4">
@@ -208,11 +234,28 @@ export default function DialerAssignmentPage() {
               <div className="bg-slate-100 p-4 rounded-lg text-center border border-slate-200 transition-all">
                 <span className="text-4xl font-black text-indigo-600">{selectedLeadIds.length}</span>
                 <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mt-1">Leads Selected</p>
-                {selectedAgentIds.length > 1 && selectedLeadIds.length > 0 && (
-                    <Badge className="mt-2 bg-indigo-100 text-indigo-800 hover:bg-indigo-100">
-                        ~{Math.ceil(selectedLeadIds.length / selectedAgentIds.length)} leads per agent
-                    </Badge>
-                )}
+              </div>
+
+              {/* Injection Options */}
+              <div className="bg-white border rounded-md p-3 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                      <Label htmlFor="reset-status" className="text-xs text-slate-600 font-bold flex flex-col">
+                          Reset to 'New Lead'
+                          <span className="font-normal text-[10px] text-slate-400">Forces dialer pickup</span>
+                      </Label>
+                      <Switch id="reset-status" checked={resetStatus} onCheckedChange={setResetStatus} />
+                  </div>
+                  <div className="space-y-1">
+                      <Label className="text-xs text-slate-600 font-bold">Inject Priority</Label>
+                      <Select value={assignPriority} onValueChange={setAssignPriority}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Standard Priority" /></SelectTrigger>
+                          <SelectContent>
+                              <SelectItem value="none">Standard Priority</SelectItem>
+                              <SelectItem value="urgent">Urgent (Top of Queue)</SelectItem>
+                              <SelectItem value="high">High Priority</SelectItem>
+                          </SelectContent>
+                      </Select>
+                  </div>
               </div>
 
               <div className="space-y-2">
@@ -228,7 +271,7 @@ export default function DialerAssignmentPage() {
                                     </div>
                                     <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{agent.full_name}</span>
                                 </div>
-                                <Badge variant="secondary" className={`${agent.pending_leads > 100 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`} title="Pending leads currently in their queue">
+                                <Badge variant="secondary" className={`${agent.pending_leads > 100 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
                                     {agent.pending_leads}
                                 </Badge>
                             </label>
@@ -240,7 +283,7 @@ export default function DialerAssignmentPage() {
               <Button 
                 onClick={handleAssign} 
                 disabled={assigning || selectedLeadIds.length === 0 || selectedAgentIds.length === 0}
-                className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-base"
+                className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-base shadow-md"
               >
                 {assigning ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Send className="h-5 w-5 mr-2" />}
                 Distribute Leads
@@ -275,51 +318,74 @@ export default function DialerAssignmentPage() {
                </div>
             </div>
 
-            {/* Advanced Filters (Same as before) */}
+            {/* Advanced Filters */}
             {showFilters && (
-              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-3 gap-4 border-b">
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger><SelectValue placeholder="Lead Status" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Default (Unassigned / Dead)</SelectItem>
-                    <SelectItem value="New Lead">New Lead</SelectItem>
-                    <SelectItem value="Contacted">Contacted</SelectItem>
-                    <SelectItem value="Interested">Interested</SelectItem>
-                    <SelectItem value="Not Interested">Not Interested</SelectItem>
-                    <SelectItem value="Dead Bucket">Dead Bucket</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-b">
+                
+                {/* Agent Sweeper */}
+                <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">Current Assignee</Label>
+                    <Select value={agentFilter} onValueChange={setAgentFilter}>
+                        <SelectTrigger><SelectValue placeholder="All Agents" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Any / Default</SelectItem>
+                            <SelectItem value="unassigned">Unassigned Only</SelectItem>
+                            {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}'s Queue</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
 
-                <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                  <SelectTrigger><SelectValue placeholder="Lead Source" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sources</SelectItem>
-                    <SelectItem value="website">Website</SelectItem>
-                    <SelectItem value="facebook">Facebook Ads</SelectItem>
-                    <SelectItem value="referral">Referral</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">Lead Status</Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger><SelectValue placeholder="Lead Status" /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Any Status</SelectItem>
+                        <SelectItem value="New Lead">New Lead</SelectItem>
+                        <SelectItem value="Contacted">Contacted</SelectItem>
+                        <SelectItem value="Follow Up">Follow Up</SelectItem>
+                        <SelectItem value="Interested">Interested</SelectItem>
+                        <SelectItem value="Dead Bucket">Dead Bucket</SelectItem>
+                    </SelectContent>
+                    </Select>
+                </div>
 
-                <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger><div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><SelectValue placeholder="Date Added" /></div></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Time</SelectItem>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="yesterday">Yesterday</SelectItem>
-                    <SelectItem value="this_month">This Month</SelectItem>
-                    <SelectItem value="custom">Custom Range</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">Source</Label>
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                    <SelectTrigger><SelectValue placeholder="Lead Source" /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="website">Website</SelectItem>
+                        <SelectItem value="facebook">Facebook Ads</SelectItem>
+                        <SelectItem value="referral">Referral</SelectItem>
+                    </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">Date Added</Label>
+                    <Select value={dateRange} onValueChange={setDateRange}>
+                    <SelectTrigger><SelectValue placeholder="Date Added" /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Time</SelectItem>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="yesterday">Yesterday</SelectItem>
+                        <SelectItem value="this_month">This Month</SelectItem>
+                        <SelectItem value="custom">Custom Range</SelectItem>
+                    </SelectContent>
+                    </Select>
+                </div>
 
                 {dateRange === "custom" && (
-                  <div className="md:col-span-3 flex items-center gap-4 p-3 bg-slate-50 border rounded-md">
+                  <div className="lg:col-span-4 flex items-center gap-4 p-3 bg-slate-50 border rounded-md mt-2">
                     <div className="flex items-center gap-2"><Label>From:</Label><Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-auto"/></div>
                     <div className="flex items-center gap-2"><Label>To:</Label><Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-auto"/></div>
                   </div>
                 )}
 
-                <div className="md:col-span-3 flex justify-end gap-2 mt-2">
-                  <Button variant="ghost" onClick={clearFilters}><X className="h-4 w-4 mr-2" /> Clear All</Button>
+                <div className="lg:col-span-4 flex justify-end gap-2 mt-2 pt-2 border-t">
+                  <Button variant="ghost" size="sm" onClick={clearFilters}><X className="h-4 w-4 mr-2" /> Clear Filters</Button>
                 </div>
               </div>
             )}
@@ -339,8 +405,8 @@ export default function DialerAssignmentPage() {
                       </button>
                     </th>
                     <th className="py-3 px-4">Customer Details</th>
+                    <th className="py-3 px-4">Assignee</th>
                     <th className="py-3 px-4">Current Status</th>
-                    <th className="py-3 px-4">Source</th>
                     <th className="py-3 px-4">Date Added</th>
                   </tr>
                 </thead>
@@ -352,6 +418,8 @@ export default function DialerAssignmentPage() {
                   ) : (
                     filteredLeads.map(lead => {
                       const isSelected = selectedLeadIds.includes(lead.id)
+                      const owner = agents.find(a => a.id === lead.assigned_to)?.full_name || "Unassigned";
+
                       return (
                         <tr key={lead.id} className={`border-b transition-colors hover:bg-slate-50 cursor-pointer ${isSelected ? 'bg-indigo-50/50' : ''}`} onClick={() => toggleSelectLead(lead.id)}>
                           <td className="p-4 text-center">
@@ -362,14 +430,16 @@ export default function DialerAssignmentPage() {
                                 <p className="font-semibold text-slate-800">{lead.name}</p>
                                 <p className="text-xs text-slate-500">{lead.phone}</p>
                              </div>
-                             {lead.priority === 'urgent' && <Badge className="bg-red-100 text-red-700 ml-2">Urgent</Badge>}
+                             {['urgent', 'high'].includes(lead.priority || "") && <Badge className="bg-red-100 text-red-700 ml-2 uppercase text-[10px]">{lead.priority}</Badge>}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 font-medium">
+                            {owner}
                           </td>
                           <td className="py-3 px-4">
                             <Badge variant="outline" className={['New Lead', 'new'].includes(lead.status) ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600'}>
-                              {lead.status || "Unassigned"}
+                              {lead.status || "Unknown"}
                             </Badge>
                           </td>
-                          <td className="py-3 px-4 text-slate-600">{lead.source || "Unknown"}</td>
                           <td className="py-3 px-4 text-slate-500">{new Date(lead.created_at).toLocaleDateString()}</td>
                         </tr>
                       )
