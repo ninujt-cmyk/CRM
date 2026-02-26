@@ -42,18 +42,24 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
 
-    // 5. The Fetch Request (WITH 10-SECOND TIMEOUT SO IT NEVER HANGS)
+    // 5. The Fetch Request (WITH 10-SECOND TIMEOUT)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 💡 Bumped to 15 seconds
 
     let res;
     try {
         res = await fetch("https://c2c.ivrobd.com/api/c2c/process", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+                "Content-Type": "application/json",
+                // 💡 THE FIX: Impersonate Postman so Fonada's firewall doesn't block Vercel!
+                "Accept": "*/*",
+                "User-Agent": "PostmanRuntime/7.36.3",
+                "Connection": "keep-alive"
+            },
             body: JSON.stringify(payload),
             cache: 'no-store',
-            signal: controller.signal // Attaches the 10s timeout limit
+            signal: controller.signal 
         });
     } catch (fetchErr: any) {
         if (fetchErr.name === 'AbortError') {
