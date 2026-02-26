@@ -4,8 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function initiateC2CCall(leadId: string, customerPhone: string) {
   try {
-    // 💡 Added a version tag so we know for SURE Vercel updated!
-    console.log(`\n🚀 [C2C START - V2] Initiating call to ${customerPhone}`);
+    console.log(`\n🚀 [C2C START] Dialing Lead ID: ${leadId}, Phone: ${customerPhone}`);
     
     const supabase = await createClient();
     
@@ -26,11 +25,11 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     // Fetch Lead Name
     const { data: lead } = await supabase.from('leads').select('name').eq('id', leadId).single();
 
-    // 3. Clean Phone Numbers (Exactly 10 digits like Postman)
+    // 3. Clean Phone Numbers (Exactly 10 digits)
     let safeCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
     let safeAgentPhone = agent.phone.replace(/^\+?91/, '').slice(-10);
 
-    // 4. Exact Postman Payload (Plus calledId for the webhook!)
+    // 4. Exact Payload (WITH THE LEAD ID RESTORED!)
     const payload = {
         secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
         clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
@@ -38,18 +37,32 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
         customerName: lead?.name || "Customer",
-        calledId: leadId 
+        calledId: leadId // 💡 Put the Lead ID back exactly as requested
     };
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
 
-    // 5. The Fetch Request to the CORRECT Fonada Cloud URL
-    const res = await fetch("https://c2c.ivrobd.com/api/c2c/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: 'no-store' 
-    });
+    // 5. The Fetch Request (WITH 10-SECOND TIMEOUT SO IT NEVER HANGS)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    let res;
+    try {
+        res = await fetch("https://c2c.ivrobd.com/api/c2c/process", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            cache: 'no-store',
+            signal: controller.signal // Attaches the 10s timeout limit
+        });
+    } catch (fetchErr: any) {
+        if (fetchErr.name === 'AbortError') {
+            throw new Error("Fonada API timed out. The server took longer than 10 seconds to respond.");
+        }
+        throw fetchErr;
+    } finally {
+        clearTimeout(timeoutId); // Clean up the timer
+    }
 
     const rawText = await res.text();
     console.log("📞 [C2C RESPONSE]:", rawText);
