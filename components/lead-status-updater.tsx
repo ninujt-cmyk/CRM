@@ -126,6 +126,7 @@ export function LeadStatusUpdater({
     }
   }, [leadId, initialLoanAmount]);
 
+  // ✅ CRITICAL FIX: Replaced iframe logic with API call
   useEffect(() => {
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
         if (lastDialedIdRef.current !== leadId) {
@@ -139,16 +140,26 @@ export function LeadStatusUpdater({
                         clearInterval(interval);
                         setDialing(true);
                         
-                        const cleanNumber = leadPhoneNumber.replace(/\D/g, '');
-                        const iframe = document.createElement('iframe');
-                        iframe.style.display = 'none';
-                        document.body.appendChild(iframe);
-                        iframe.src = `tel:${cleanNumber}`;
-                        
-                        setTimeout(() => {
-                            if(document.body.contains(iframe)) document.body.removeChild(iframe);
-                            setDialing(false);
-                        }, 1000);
+                        // Execute C2C API instead of iframe tel injection
+                        fetch('/api/click-to-call', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                customerPhone: leadPhoneNumber,
+                                leadId: leadId 
+                            })
+                        })
+                        .then(res => {
+                            if (!res.ok) throw new Error("Dialer API Error");
+                            toast.success(`Dialing ${customerName || leadPhoneNumber}...`, { id: `auto-dial-${leadId}`});
+                        })
+                        .catch(err => {
+                            console.error("Auto-Dial C2C Error:", err);
+                            toast.error("Failed to connect C2C automatically.", { id: `auto-dial-${leadId}`});
+                        })
+                        .finally(() => {
+                            setTimeout(() => setDialing(false), 1000);
+                        });
                         
                         return null;
                     }
@@ -159,7 +170,7 @@ export function LeadStatusUpdater({
             return () => clearInterval(interval);
         }
     }
-  }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
+  }, [leadId, isCallInitiated, leadPhoneNumber, autoNext, customerName]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -300,7 +311,7 @@ export function LeadStatusUpdater({
       
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 2. WHATSAPP AUTOMATION (Runs BEFORE we trigger onStatusUpdate)
+      // 2. WHATSAPP AUTOMATION
       if (status === "Documents_Sent" && leadPhoneNumber) {
           toast.info("Sending KYC Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
@@ -317,7 +328,7 @@ export function LeadStatusUpdater({
           else toast.error("Failed to send QA Audit. Check logs.");
       }
       
-      // 3. NOW trigger parent update safely after all fetches are complete
+      // 3. Trigger parent update
       onStatusUpdate?.(status, note) 
 
       setNote(""); setRemarks(""); setCallDurationOverride(null); setElapsedTime(0); setNotEligibleReason(""); setStatus("");
