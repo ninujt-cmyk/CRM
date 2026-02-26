@@ -21,50 +21,68 @@ export async function POST(request: NextRequest) {
 
     console.log("📋 [C2C PAYLOAD]:", body);
 
-    // 1. Extract Fonada's C2C parameters
+    // 1. Extract Fonada's incoming numbers
     const customerPhone = body.customerNumber || body.customer_number || body.destination || body.mobile;
-    const agentPhone = body.agentNumber || body.agent_number || body.caller;
+    const agentPhone = body.agentNumber || body.agent_number || body.caller || body.src;
     const duration = parseInt(body.billsec || body.duration || "0");
     const disposition = body.disposition || body.status || "UNKNOWN";
-    const recordingUrl = body.recordingUrl || body.recording_url || body.voiceFileName || null;
-    
-    // 💡 THE UPGRADE: We catch the exact Lead ID we passed earlier
-    const calledId = body.calledId || body.called_id || body.referenceId || null;
+    const recordingUrl = body.recordingUrl || body.recording_url || body.recordingLink || null;
 
     if (!customerPhone || !agentPhone) {
       return NextResponse.json({ status: "ignored", reason: "Missing phone numbers" });
     }
 
-    // Normalize phones for DB matching (Fallback)
-    let dbCustomerPhone = customerPhone.replace(/^\+?91/, '');
-    if (dbCustomerPhone.length > 10) dbCustomerPhone = dbCustomerPhone.slice(-10);
+    // Normalize phones (grab exact last 10 digits)
+    let dbCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
+    let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
 
-    let dbAgentPhone = agentPhone.replace(/^\+?91/, '');
-    if (dbAgentPhone.length > 10) dbAgentPhone = dbAgentPhone.slice(-10);
+    // 2. Find the Agent First
+    const { data: agent } = await supabase
+        .from("users")
+        .select("id")
+        .ilike("phone", `%${dbAgentPhone}%`)
+        .limit(1)
+        .maybeSingle();
 
-    // 2. Find the Lead (By exact ID first, fallback to Phone) and the Agent
-    let lead = null;
-    if (calledId) {
-        const { data } = await supabase.from("leads").select("id").eq("id", calledId).maybeSingle();
-        lead = data;
-    } 
-    
-    if (!lead) {
-        // Fallback if Fonada dropped the calledId
-        const { data } = await supabase.from("leads").select("id").ilike("phone", `%${dbCustomerPhone}%`).limit(1).maybeSingle();
-        lead = data;
+    if (!agent) {
+      console.log(`⚠️ [ORPHAN CALL] Agent phone ${dbAgentPhone} not found in DB.`);
+      return NextResponse.json({ status: "ignored", reason: "agent_not_found" });
     }
 
-    const { data: agent } = await supabase.from("users").select("id").ilike("phone", `%${dbAgentPhone}%`).limit(1).maybeSingle();
+    // 3. 🧠 THE SMART MATCH: Find the Lead
+    // We look for a lead with this phone number, ASSIGNED to this specific agent, 
+    // and we grab the one that was most recently "contacted" (which we updated when the dialer started).
+    const { data: leads } = await supabase
+        .from("leads")
+        .select("id")
+        .ilike("phone", `%${dbCustomerPhone}%`)
+        .eq("assigned_to", agent.id) 
+        .order("last_contacted", { ascending: false }) 
+        .limit(1);
 
-    if (!lead || !agent) {
-      console.log("⚠️ [ORPHAN CALL] Could not match lead or agent.");
-      return NextResponse.json({ status: "ignored", reason: "no_db_match" });
+    let finalLeadId = leads?.[0]?.id;
+
+    // Fallback: If for some reason the lead was reassigned mid-call, just grab the newest lead with that phone number.
+    if (!finalLeadId) {
+        const { data: fallbackLead } = await supabase
+            .from("leads")
+            .select("id")
+            .ilike("phone", `%${dbCustomerPhone}%`)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+            
+        finalLeadId = fallbackLead?.id;
     }
 
-    // 3. Save the Call Log with the Recording
+    if (!finalLeadId) {
+      console.log(`⚠️ [ORPHAN CALL] Lead phone ${dbCustomerPhone} not found in DB.`);
+      return NextResponse.json({ status: "ignored", reason: "lead_not_found" });
+    }
+
+    // 4. Save the Call Log with the Recording attached to the matched Lead
     const { error: logError } = await supabase.from("call_logs").insert({
-        lead_id: lead.id,
+        lead_id: finalLeadId,
         user_id: agent.id,
         call_type: "outbound_c2c",
         duration_seconds: duration,
@@ -75,14 +93,14 @@ export async function POST(request: NextRequest) {
 
     if (logError) console.error("❌ [DB ERROR] Saving call log:", logError);
 
-    // 4. THE "WRAP-UP" PROTECTION 
+    // 5. The "Wrap-Up" Protection
     await supabase.from("users").update({
         current_status: 'wrap_up',
         status_reason: 'Post-Call Notes',
         status_updated_at: new Date().toISOString()
     }).eq("id", agent.id);
 
-    console.log(`✅ [SUCCESS] Call log saved. Agent ${agent.id} moved to Wrap-Up.`);
+    console.log(`✅ [SUCCESS] Call log mapped to Lead ${finalLeadId} and saved. Agent moved to Wrap-Up.`);
 
     return NextResponse.json({ status: "success", message: "C2C Call logged successfully" });
 
