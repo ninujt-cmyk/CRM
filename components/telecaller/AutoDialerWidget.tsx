@@ -1,19 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { PhoneForwarded, Loader2, AlertCircle } from "lucide-react"
+import { PhoneForwarded, Loader2, AlertCircle, ListOrdered } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function AutoDialerWidget({ userId }: { userId: string }) {
   const [dialing, setDialing] = useState(false)
+  const [queueSize, setQueueSize] = useState<number | null>(null)
   const supabase = createClient()
   const router = useRouter()
   const { toast } = useToast()
+
+  // Fetch queue size for visual feedback
+  useEffect(() => {
+    const fetchQueueSize = async () => {
+        const { count } = await supabase
+            .from('leads')
+            .select('*', { count: 'exact', head: true })
+            .eq('assigned_to', userId)
+            .in('status', ['New Lead', 'Follow Up', 'new', 'Contacted'])
+        
+        setQueueSize(count);
+    }
+    fetchQueueSize();
+  }, [userId, supabase])
 
   const handleDialNext = async () => {
     setDialing(true)
@@ -27,21 +42,32 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
         return
       }
 
-      // 2. Find the Absolute Best Next Lead (New Leads or Follow Ups)
-      const { data: nextLead, error } = await supabase
+      // 2. 💡 THE UPGRADE: Fetch top leads and sort by Priority!
+      const { data: potentialLeads, error } = await supabase
         .from('leads')
-        .select('id, name, phone')
+        .select('id, name, phone, priority, created_at')
         .eq('assigned_to', userId)
-        .in('status', ['New Lead', 'Follow Up', 'new']) // Add any other statuses that need dialing
-        .order('created_at', { ascending: true }) // Oldest waiting lead first
-        .limit(1)
-        .maybeSingle()
+        .in('status', ['New Lead', 'Follow Up', 'new']) 
+        .limit(50) // Grab a chunk to analyze priorities
 
-      if (error || !nextLead) {
+      if (error || !potentialLeads || potentialLeads.length === 0) {
         toast({ title: "Queue Empty 🎉", description: "You have no pending leads to call right now!", className: "bg-emerald-500 text-white" })
         setDialing(false)
         return
       }
+
+      // Priority Sorting Logic: Urgent > High > Medium > Low/None. 
+      // If tied, oldest `created_at` wins.
+      const priorityWeights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
+      
+      const sortedLeads = potentialLeads.sort((a, b) => {
+          const weightA = priorityWeights[a.priority || "none"] || 0;
+          const weightB = priorityWeights[b.priority || "none"] || 0;
+          if (weightA !== weightB) return weightB - weightA; // Higher weight goes first
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); // Older goes first
+      });
+
+      const nextLead = sortedLeads[0];
 
       toast({ title: "Connecting...", description: `Dialing ${nextLead.name}... Please answer your phone.` })
 
@@ -49,7 +75,7 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
       const res = await initiateC2CCall(nextLead.id, nextLead.phone)
 
       if (res.success) {
-        // 4. Instantly redirect the agent to the lead's profile so they can read the details while it rings!
+        // 4. Instantly redirect
         router.push(`/telecaller/leads/${nextLead.id}`)
       } else {
         toast({ title: "Call Failed", description: res.error, variant: "destructive" })
@@ -68,10 +94,15 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
         <PhoneForwarded className="h-24 w-24 text-emerald-600" />
       </div>
       
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <CardTitle className="text-xl text-emerald-800 flex items-center gap-2 z-10">
-          <PhoneForwarded className="h-5 w-5" /> Progressive Auto-Dialer
+          <PhoneForwarded className="h-5 w-5" /> Auto-Dialer
         </CardTitle>
+        {queueSize !== null && (
+          <div className="bg-white border border-emerald-200 text-emerald-700 text-xs font-bold px-2 py-1 rounded-md shadow-sm z-10 flex items-center gap-1">
+             <ListOrdered className="h-3 w-3" /> Queue: {queueSize}
+          </div>
+        )}
       </CardHeader>
       
       <CardContent className="z-10 relative space-y-4">
