@@ -5,7 +5,10 @@ import { CallTrackingProvider } from "@/context/call-tracking-context"
 import { PushSubscriber } from "@/components/push-subscriber" 
 import { TelecallerTicker } from "@/components/telecaller-ticker"
 import { DailyWelcomeModal } from "@/components/telecaller/daily-welcome-modal"
-import { Watermark } from "@/components/watermark" // <--- 1. IMPORT THIS
+import { Watermark } from "@/components/watermark" 
+
+// ✅ 1. IMPORT THE GLOBAL AUTO DIALER HERE
+import { GlobalAutoDialer } from "@/components/telecaller/GlobalAutoDialer"
 
 export default function TelecallerLayout({
   children,
@@ -15,10 +18,13 @@ export default function TelecallerLayout({
   return (
     <AuthGuard requiredRole="telecaller">
       <PushSubscriber />
-      <Watermark /> {/* <--- 2. ADD COMPONENT HERE */}
+      <Watermark /> 
       <CallTrackingProvider>
         
         <DailyWelcomeModal />
+        
+        {/* 🔴 2. INJECT THE AUTONOMOUS ENGINE HERE */}
+        <GlobalAutoDialer />
         
         <div className="flex h-screen bg-gray-50">
           <TelecallerSidebar />
