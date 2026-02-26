@@ -3,13 +3,12 @@
 import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { PhoneForwarded, Loader2, Timer, CheckCircle2, StopCircle, User } from "lucide-react"
+import { PhoneForwarded, Loader2, Timer, CheckCircle2, StopCircle, User, FastForward } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 import { Button } from "@/components/ui/button"
 
 export function GlobalAutoDialer() {
-    // UI States
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
     const [countdown, setCountdown] = useState(5)
     const [isVisible, setIsVisible] = useState(false)
@@ -19,64 +18,78 @@ export function GlobalAutoDialer() {
     const router = useRouter()
     const { toast } = useToast()
 
-    // 💡 THE LOCKS: These prevent the infinite loop race condition
     const stateLock = useRef<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
     const timerRef = useRef<NodeJS.Timeout | null>(null)
     const userIdRef = useRef<string | null>(null)
 
-    // Helper to safely update both State and Ref simultaneously
     const changeState = (newState: typeof stateLock.current) => {
         stateLock.current = newState;
         setDialState(newState);
     }
 
+    // 1. Initial Setup and WebSocket Listener
     useEffect(() => {
         const initDialer = async () => {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
             userIdRef.current = user.id
 
-            // Initial Sync
             const { data } = await supabase.from('users').select('current_status').eq('id', user.id).single()
             if (data) handleDatabaseStatusChange(data.current_status)
 
-            // Real-time Subscription (Listens for Webhook updates!)
             const channel = supabase.channel('auto_dialer_sync')
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${user.id}` }, 
-                (payload) => {
-                    handleDatabaseStatusChange(payload.new.current_status)
-                })
+                (payload) => handleDatabaseStatusChange(payload.new.current_status))
                 .subscribe()
 
             return () => { supabase.removeChannel(channel) }
         }
-
         initDialer()
     }, [supabase])
+
+    // 💡 2. THE NEW SAFETY NET: Active Polling during calls
+    // If WebSockets fail, this guarantees we catch the Webhook's update!
+    useEffect(() => {
+        let pollInterval: NodeJS.Timeout;
+        
+        if (dialState === 'on_call' && userIdRef.current) {
+            pollInterval = setInterval(async () => {
+                const { data } = await supabase
+                    .from('users')
+                    .select('current_status')
+                    .eq('id', userIdRef.current!)
+                    .single();
+                
+                // If the webhook changed the DB to wrap_up, update the UI instantly!
+                if (data && data.current_status !== 'on_call' && data.current_status !== 'dialing') {
+                    handleDatabaseStatusChange(data.current_status);
+                }
+            }, 3000); // Check every 3 seconds
+        }
+
+        return () => {
+            if (pollInterval) clearInterval(pollInterval);
+        }
+    }, [dialState, supabase]);
 
     const handleDatabaseStatusChange = (dbStatus: string) => {
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
 
         if (normalizedStatus === 'active') {
-            // 🔒 STRICT LOCK: Only start dialing if we are completely idle or empty.
             if (['offline', 'wrap_up', 'empty', 'idle'].includes(stateLock.current)) {
                 changeState('idle');
                 setIsVisible(true);
-                executeAutoDial(); // Trigger the engine
+                executeAutoDial(); 
             }
-        } 
-        else if (normalizedStatus === 'on_call') {
+        } else if (normalizedStatus === 'on_call') {
             changeState('on_call');
             setIsVisible(true);
             if (timerRef.current) clearInterval(timerRef.current);
-        } 
-        else if (normalizedStatus === 'wrap_up') {
+        } else if (normalizedStatus === 'wrap_up') {
             changeState('wrap_up');
             setIsVisible(true);
             startWrapUpCountdown();
-        } 
-        else {
-            // Offline / Break
+        } else {
             changeState('offline');
             setIsVisible(false);
             setCurrentCustomer(null);
@@ -86,16 +99,13 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(5) // ⏳ 5 Second Wrap-up Timer
+        setCountdown(5) 
         
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
                 if (prev <= 1) {
                     clearInterval(timerRef.current!)
-                    // 🚀 TIMER FINISHED: Push DB back to active to start next call
-                    if (userIdRef.current) {
-                        supabase.from('users').update({ current_status: 'active' }).eq('id', userIdRef.current).then()
-                    }
+                    if (userIdRef.current) supabase.from('users').update({ current_status: 'active' }).eq('id', userIdRef.current).then()
                     return 0
                 }
                 return prev - 1
@@ -105,14 +115,11 @@ export function GlobalAutoDialer() {
 
     const executeAutoDial = async () => {
         const uid = userIdRef.current
-        
-        // 🔒 DOUBLE LOCK: If already dialing or on call, instantly abort to prevent loops.
         if (!uid || stateLock.current === 'dialing' || stateLock.current === 'on_call') return;
         
         changeState('dialing');
 
         try {
-            // Fetch highest priority lead
             const { data: potentialLeads } = await supabase
                 .from('leads')
                 .select('id, name, phone, priority, created_at')
@@ -123,8 +130,6 @@ export function GlobalAutoDialer() {
             if (!potentialLeads || potentialLeads.length === 0) {
                 changeState('empty');
                 setCurrentCustomer(null);
-                
-                // Poll again in 10s if they are still active
                 setTimeout(async () => {
                     const { data } = await supabase.from('users').select('current_status').eq('id', uid).single()
                     if (data?.current_status === 'active' || data?.current_status === 'ready') executeAutoDial()
@@ -132,7 +137,6 @@ export function GlobalAutoDialer() {
                 return
             }
 
-            // Priority Logic
             const priorityWeights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
             const sortedLeads = potentialLeads.sort((a, b) => {
                 const weightA = priorityWeights[a.priority || "none"] || 0;
@@ -143,13 +147,10 @@ export function GlobalAutoDialer() {
 
             const nextLead = sortedLeads[0];
             setCurrentCustomer(nextLead.name);
-            console.log("👉 [AUTO-DIALER] Calling:", nextLead.name)
 
-            // Trigger Fonada
             const res = await initiateC2CCall(nextLead.id, nextLead.phone);
 
             if (res.success) {
-                // 🔒 Force local state to on_call instantly so it doesn't double-dial while waiting for DB sync
                 changeState('on_call'); 
                 router.push(`/telecaller/leads/${nextLead.id}`);
             } else {
@@ -157,7 +158,6 @@ export function GlobalAutoDialer() {
                 changeState('offline');
                 await supabase.from('users').update({ current_status: 'offline', status_reason: 'API Error' }).eq('id', uid)
             }
-
         } catch (err) {
             console.error("AutoDial Error", err)
             changeState('offline');
@@ -170,6 +170,12 @@ export function GlobalAutoDialer() {
         setIsVisible(false);
         await supabase.from('users').update({ current_status: 'offline', status_reason: 'Manual Pause' }).eq('id', userIdRef.current);
         toast({ title: "Dialer Paused", description: "You are now offline." });
+    }
+
+    const forceSkip = async () => {
+        if (!userIdRef.current) return;
+        toast({ title: "Skipping Call", description: "Moving to next lead..." });
+        await supabase.from('users').update({ current_status: 'wrap_up', status_reason: 'Force Skipped' }).eq('id', userIdRef.current);
     }
 
     if (!isVisible) return null;
@@ -208,17 +214,23 @@ export function GlobalAutoDialer() {
                 </div>
             </div>
 
-            {/* Emergency Stop Button */}
-            {(dialState === 'empty' || dialState === 'wrap_up' || dialState === 'dialing') && (
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t">
                 <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={pauseDialer}
-                    className="w-full mt-3 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs h-8"
+                    variant="outline" size="sm" onClick={pauseDialer}
+                    className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs h-8"
                 >
-                    <StopCircle className="h-3 w-3 mr-2" /> Stop Dialer
+                    <StopCircle className="h-3 w-3 mr-1" /> Stop
                 </Button>
-            )}
+
+                {dialState === 'on_call' && (
+                    <Button 
+                        variant="outline" size="sm" onClick={forceSkip}
+                        className="flex-1 border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700 text-xs h-8"
+                    >
+                        <FastForward className="h-3 w-3 mr-1" /> Skip
+                    </Button>
+                )}
+            </div>
         </div>
     )
 }
