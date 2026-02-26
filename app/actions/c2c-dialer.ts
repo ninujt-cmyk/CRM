@@ -37,7 +37,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
         customerName: lead?.name || "Customer",
-        calledId: leadId // 💡 Put the Lead ID back exactly as requested
+        calledId: "" // 💡 Put the Lead ID back exactly as requested
     };
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
