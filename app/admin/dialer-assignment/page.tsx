@@ -52,7 +52,7 @@ export default function DialerAssignmentPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [sourceFilter, setSourceFilter] = useState("all")
   const [agentFilter, setAgentFilter] = useState("all") 
-  const [priorityFilter, setPriorityFilter] = useState("all") // NEW
+  const [priorityFilter, setPriorityFilter] = useState("all") 
   const [dateRange, setDateRange] = useState("all")
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
@@ -154,6 +154,7 @@ export default function DialerAssignmentPage() {
   const toggleSelectAll = () => setSelectedLeadIds(selectedLeadIds.length === filteredLeads.length ? [] : filteredLeads.map(l => l.id))
   const toggleSelectLead = (id: string) => setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(lId => lId !== id) : [...prev, id])
   const toggleSelectAgent = (id: string) => setSelectedAgentIds(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
+  const handleSelectAllAgents = () => setSelectedAgentIds(selectedAgentIds.length === agents.length ? [] : agents.map(a => a.id))
 
   // Quick Select Tools
   const selectTopN = (n: number) => {
@@ -279,15 +280,29 @@ export default function DialerAssignmentPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <Label className="text-sm font-semibold text-slate-700">Select Agents</Label>
-                    <span className="text-xs text-slate-400">Round-Robin</span>
+                    <div className="flex items-center gap-2">
+                        {/* ✅ ADDED: Select All / Deselect All Button */}
+                        <button 
+                            onClick={handleSelectAllAgents} 
+                            className="text-[10px] text-indigo-600 hover:underline font-medium"
+                        >
+                            {selectedAgentIds.length === agents.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                        <span className="text-xs text-slate-400">Round-Robin</span>
+                    </div>
                 </div>
                 <div className="max-h-[250px] overflow-y-auto space-y-2 border border-slate-200 rounded-md p-2 bg-slate-50">
                     {agents.map(agent => {
                         const isSelected = selectedAgentIds.includes(agent.id)
-                        const isOverloaded = agent.pending_leads >= 50; // Visual warning if queue is getting full
+                        const isOverloaded = agent.pending_leads >= 50; 
                         
                         return (
-                            <label key={agent.id} className={`flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-300'}`}>
+                            // ✅ FIXED: Changed <label> to <div onClick={...}> so selection works!
+                            <div 
+                                key={agent.id} 
+                                onClick={() => toggleSelectAgent(agent.id)}
+                                className={`flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
+                            >
                                 <div className="flex items-center gap-3">
                                     <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
                                         {isSelected && <CheckSquare className="h-3 w-3 text-white" />}
@@ -297,7 +312,7 @@ export default function DialerAssignmentPage() {
                                 <Badge variant="secondary" className={`${isOverloaded ? 'bg-red-100 text-red-700 font-bold' : 'bg-slate-100 text-slate-600'}`}>
                                     {agent.pending_leads}
                                 </Badge>
-                            </label>
+                            </div>
                         )
                     })}
                 </div>
