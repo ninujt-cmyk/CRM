@@ -1,12 +1,20 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export async function initiateC2CCall(leadId: string, customerPhone: string) {
   try {
     console.log(`\n🚀 [C2C START] Dialing Lead ID: ${leadId}, Phone: ${customerPhone}`);
     
+    // Standard client for fetching the user
     const supabase = await createClient();
+    
+    // 💡 THE FIX: Admin client to forcefully bypass Row Level Security (RLS) updates!
+    const supabaseAdmin = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     
     // 1. Authenticate
     const { data: { user } } = await supabase.auth.getUser();
@@ -20,7 +28,11 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
       .single();
 
     if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
-    if (agent.current_status !== 'ready') throw new Error("You must be 'Ready' to dial.");
+
+    // Allow both 'ready' and 'active' just in case
+    if (agent.current_status !== 'ready' && agent.current_status !== 'active') {
+        throw new Error("You must be 'Active' to dial.");
+    }
 
     // Fetch Lead Name
     const { data: lead } = await supabase.from('leads').select('name').eq('id', leadId).single();
@@ -29,7 +41,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     let safeCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
     let safeAgentPhone = agent.phone.replace(/^\+?91/, '').slice(-10);
 
-    // 4. Exact Payload (WITH THE LEAD ID RESTORED!)
+    // 4. Exact Payload
     const payload = {
         secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
         clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
@@ -37,14 +49,14 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
         customerName: lead?.name || "Customer",
-        calledId: "" // 💡 Put the Lead ID back exactly as requested
+        calledId: "" 
     };
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
 
-    // 5. The Fetch Request (WITH 10-SECOND TIMEOUT)
+    // 5. The Fetch Request (10-SECOND TIMEOUT)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 💡 Bumped to 15 seconds
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     let res;
     try {
@@ -52,7 +64,6 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
             method: "POST",
             headers: { 
                 "Content-Type": "application/json",
-                // 💡 THE FIX: Impersonate Postman so Fonada's firewall doesn't block Vercel!
                 "Accept": "*/*",
                 "User-Agent": "PostmanRuntime/7.36.3",
                 "Connection": "keep-alive"
@@ -63,11 +74,11 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         });
     } catch (fetchErr: any) {
         if (fetchErr.name === 'AbortError') {
-            throw new Error("Fonada API timed out. The server took longer than 10 seconds to respond.");
+            throw new Error("Fonada API timed out after 10 seconds.");
         }
         throw fetchErr;
     } finally {
-        clearTimeout(timeoutId); // Clean up the timer
+        clearTimeout(timeoutId); 
     }
 
     const rawText = await res.text();
@@ -82,10 +93,20 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         // Not JSON, ignore
     }
 
-    // 6. Update Database
-    console.log("💾 [C2C DB UPDATE] Updating Lead and Agent Status...");
-    await supabase.from("leads").update({ status: "Contacted", last_contacted: new Date().toISOString() }).eq("id", leadId);
-    await supabase.from("users").update({ current_status: 'on_call', status_updated_at: new Date().toISOString() }).eq("id", user.id);
+    // 6. 🚀 FORCE UPDATE DATABASE (Using Admin Client to bypass RLS)
+    console.log("💾 [C2C DB UPDATE] Forcing Admin Update for Lead and Agent Status...");
+    
+    const { error: leadErr } = await supabaseAdmin.from("leads")
+        .update({ status: "Contacted", last_contacted: new Date().toISOString() })
+        .eq("id", leadId);
+    
+    if (leadErr) console.error("❌ Lead Update Failed:", leadErr);
+
+    const { error: userErr } = await supabaseAdmin.from("users")
+        .update({ current_status: 'on_call', status_updated_at: new Date().toISOString() })
+        .eq("id", user.id);
+        
+    if (userErr) console.error("❌ User Update Failed:", userErr);
 
     return { success: true, message: "Call Initiated! Your phone is ringing..." };
 
