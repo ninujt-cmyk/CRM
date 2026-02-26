@@ -5,8 +5,15 @@ import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { 
-  Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle 
+  Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle, CalendarClock 
 } from "lucide-react"
+// ✅ ADDED DIALOG IMPORTS
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // --- TYPES ---
 interface Agent {
@@ -20,20 +27,148 @@ interface Agent {
 
 type FilterState = 'all' | 'online' | 'ready' | 'on_call' | 'break' | 'offline';
 
+// --- HELPER: FORMAT TIME ---
+const formatDuration = (seconds: number) => {
+  if (isNaN(seconds) || seconds < 0) return "00:00:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h.toString().padStart(2, '0')}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`;
+}
+
+// --- SUB-COMPONENT: Agent Stats Modal ---
+function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: boolean, onClose: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ ready: 0, on_call: 0, wrap_up: 0, break: 0, offline: 0 });
+  const supabase = createClient();
+
+  useEffect(() => {
+    if (!open || !agent) return;
+    
+    const fetchStats = async () => {
+      setLoading(true);
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const { data, error } = await supabase
+        .from('agent_state_logs')
+        .select('status, started_at, ended_at, duration_seconds')
+        .eq('user_id', agent.id)
+        .gte('started_at', startOfDay.toISOString());
+
+      if (error) {
+        console.error("Error fetching logs:", error);
+        setLoading(false);
+        return;
+      }
+
+      const totals = { ready: 0, on_call: 0, wrap_up: 0, break: 0, offline: 0 };
+
+      if (data) {
+        data.forEach(log => {
+          let duration = log.duration_seconds || 0;
+          
+          // If the log hasn't ended, calculate live duration up to this exact moment
+          if (!log.ended_at) {
+            duration = Math.floor((Date.now() - new Date(log.started_at).getTime()) / 1000);
+          }
+
+          const status = (log.status || '').toLowerCase();
+          if (status === 'ready' || status === 'active') totals.ready += duration;
+          else if (status === 'on_call' || status === 'on call') totals.on_call += duration;
+          else if (status === 'wrap_up' || status === 'wrap up') totals.wrap_up += duration;
+          else if (status === 'break') totals.break += duration;
+          else if (status === 'offline') totals.offline += duration;
+        });
+      }
+
+      setStats(totals);
+      setLoading(false);
+    };
+
+    fetchStats();
+    
+    // Optional: Refresh stats every 10 seconds while modal is open
+    const interval = setInterval(fetchStats, 10000);
+    return () => clearInterval(interval);
+
+  }, [agent, open, supabase]);
+
+  if (!agent) return null;
+
+  const totalLoginTime = stats.ready + stats.on_call + stats.wrap_up + stats.break;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between">
+            <span className="text-xl font-bold text-slate-800">{agent.full_name}</span>
+            <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200">
+              Today's Report
+            </Badge>
+          </DialogTitle>
+          <p className="text-sm text-slate-500 font-mono">{agent.phone}</p>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-12 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>
+        ) : (
+          <div className="space-y-4 pt-4">
+            {/* Total Login Time Banner */}
+            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-2 text-indigo-700">
+                <CalendarClock className="h-5 w-5" />
+                <span className="font-semibold text-sm uppercase tracking-wide">Total Login Time</span>
+              </div>
+              <span className="text-xl font-black text-indigo-900">{formatDuration(totalLoginTime)}</span>
+            </div>
+
+            {/* Detailed Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex flex-col justify-center">
+                <span className="text-xs text-emerald-600 font-bold uppercase mb-1 flex items-center gap-1"><CheckCircle2 className="h-3 w-3"/> Ready / Waiting</span>
+                <span className="text-lg font-bold text-emerald-800">{formatDuration(stats.ready)}</span>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex flex-col justify-center">
+                <span className="text-xs text-blue-600 font-bold uppercase mb-1 flex items-center gap-1"><PhoneCall className="h-3 w-3"/> On Call</span>
+                <span className="text-lg font-bold text-blue-800">{formatDuration(stats.on_call)}</span>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 p-3 rounded-lg flex flex-col justify-center">
+                <span className="text-xs text-amber-600 font-bold uppercase mb-1 flex items-center gap-1"><Clock className="h-3 w-3"/> Wrap-Up</span>
+                <span className="text-lg font-bold text-amber-800">{formatDuration(stats.wrap_up)}</span>
+              </div>
+
+              <div className="bg-orange-50 border border-orange-100 p-3 rounded-lg flex flex-col justify-center">
+                <span className="text-xs text-orange-600 font-bold uppercase mb-1 flex items-center gap-1"><Coffee className="h-3 w-3"/> On Break</span>
+                <span className="text-lg font-bold text-orange-800">{formatDuration(stats.break)}</span>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t flex justify-between items-center px-1">
+              <span className="text-sm text-slate-500 flex items-center gap-1"><Power className="h-4 w-4"/> Offline Time Logged:</span>
+              <span className="text-sm font-bold text-slate-700">{formatDuration(stats.offline)}</span>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // --- SUB-COMPONENT: Live Timer for Each Agent ---
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({ agent, onClick }: { agent: Agent, onClick: () => void }) {
   const [timer, setTimer] = useState(0)
 
   // Calculate time spent in current status
   useEffect(() => {
     const startTime = agent.status_updated_at ? new Date(agent.status_updated_at).getTime() : Date.now()
-    
     setTimer(Math.floor((Date.now() - startTime) / 1000))
-
     const interval = setInterval(() => {
       setTimer(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
-
     return () => clearInterval(interval)
   }, [agent.status_updated_at, agent.current_status])
 
@@ -88,7 +223,8 @@ function AgentCard({ agent }: { agent: Agent }) {
   }
 
   return (
-    <Card className={`transition-all duration-300 ${bgColor}`}>
+    // ✅ ADDED ONCLICK AND HOVER EFFECTS TO CARD
+    <Card onClick={onClick} className={`transition-all duration-300 cursor-pointer hover:shadow-md hover:scale-[1.02] ${bgColor}`}>
       <CardContent className="p-5 flex flex-col justify-between h-full">
         <div className="flex justify-between items-start mb-4">
           <div>
@@ -119,6 +255,7 @@ export default function AdminWallboardPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterState>('all')
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null) // ✅ ADDED SELECTED AGENT STATE
   const supabase = createClient()
 
   useEffect(() => {
@@ -213,7 +350,7 @@ export default function AdminWallboardPage() {
         </div>
       </div>
 
-      {/* METRICS ROW - NOW CLICKABLE! */}
+      {/* METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         
         <Card 
@@ -313,7 +450,8 @@ export default function AdminWallboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredAgents.map(agent => (
-          <AgentCard key={agent.id} agent={agent} />
+          {/* ✅ UPDATED CARD WITH ONCLICK */}
+          <AgentCard key={agent.id} agent={agent} onClick={() => setSelectedAgent(agent)} />
         ))}
         {filteredAgents.length === 0 && (
           <div className="col-span-full text-center p-10 text-slate-500 bg-slate-50 rounded-lg border border-dashed">
@@ -324,6 +462,14 @@ export default function AdminWallboardPage() {
           </div>
         )}
       </div>
+
+      {/* ✅ ADDED THE MODAL TO THE PAGE */}
+      <AgentStatsModal 
+        agent={selectedAgent} 
+        open={!!selectedAgent} 
+        onClose={() => setSelectedAgent(null)} 
+      />
+
     </div>
   )
 }
