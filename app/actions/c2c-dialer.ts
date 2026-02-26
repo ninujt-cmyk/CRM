@@ -10,10 +10,11 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // 2. Fetch the Agent's Phone Number & Status
+    // 2. Fetch the Agent's Details & Status
+    // Added 'full_name' to pass to the new Fonada API
     const { data: agent, error: agentError } = await supabase
       .from('users')
-      .select('phone, current_status')
+      .select('full_name, phone, current_status')
       .eq('id', user.id)
       .single();
 
@@ -25,19 +26,15 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
       throw new Error("You must be 'Ready' to make automated calls. Please change your status.");
     }
 
-    // 3. Prepare the Fonada C2C API Payload
-    // ⚠️ WARNING: If deployed to the cloud, a 192.168.x.x IP will fail. 
-    // You need a public IP or domain for Fonada if this is hosted remotely.
-    const apiUrl = "http://192.168.1.16:7992/fonada_c2c_api.php"; 
-    
-    // NOTE: It is better to handle TLS at the system level, but if you must use this for local dev:
-    if (process.env.NODE_ENV === 'development') {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-    }
+    // Fetch Lead Name for the API
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('name')
+      .eq('id', leadId)
+      .single();
 
-    const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
+    // 3. Prepare the New Fonada C2C JSON Payload
+    const apiUrl = "https://c2c.ivrobd.com/api/c2c/process"; 
     
     // Ensure 10-digit format for both legs
     let safeCustomerPhone = customerPhone.replace(/^\+?91/, '');
@@ -46,8 +43,16 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     let safeAgentPhone = agent.phone.replace(/^\+?91/, '');
     if (safeAgentPhone.length > 10) safeAgentPhone = safeAgentPhone.slice(-10);
 
-    formData.append("agent_number", safeAgentPhone); 
-    formData.append("destination_number", safeCustomerPhone);
+    // Build the exact JSON structure Fonada requested
+    const payload = {
+        secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
+        clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
+        agentNumber: safeAgentPhone,
+        customerNumber: safeCustomerPhone,
+        agentName: agent.full_name || "BanksCart Agent",
+        customerName: lead?.name || "Customer",
+        calledId: leadId // 💡 We pass the leadId here so Fonada returns it in the webhook!
+    };
 
     // 4. Trigger the Call WITH A TIMEOUT (Prevents UI Freezing)
     const controller = new AbortController();
@@ -57,7 +62,10 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     try {
       res = await fetch(apiUrl, { 
           method: "POST", 
-          body: formData,
+          headers: {
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
           signal: controller.signal // Attaches the timeout
       });
     } catch (fetchError: any) {
@@ -71,6 +79,16 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     
     const rawText = await res.text();
     console.log("📞 [C2C API Response]:", rawText);
+
+    // Parse response if it's JSON to check for Fonada-specific errors
+    try {
+        const jsonResponse = JSON.parse(rawText);
+        if (jsonResponse.status === false || jsonResponse.status === "error") {
+             throw new Error(jsonResponse.message || "Fonada rejected the call request.");
+        }
+    } catch (e) {
+        // If it's not JSON, we just continue
+    }
 
     // 5. Log the call attempt in the CRM
     await supabase.from("leads").update({ 
