@@ -9,7 +9,7 @@ import { Watermark } from "@/components/watermark"
 import { GlobalAutoDialer } from "@/components/telecaller/GlobalAutoDialer"
 
 // ✅ 1. IMPORT YOUR AGENT STATUS BAR & SUPABASE SERVER
-import { AgentStatusBar } from "@/components/AgentStatusBar" // Adjust path if yours is different
+import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
 import { createClient } from "@/lib/supabase/server"
 
 // ✅ 2. MAKE THE LAYOUT ASYNC TO FETCH THE USER
