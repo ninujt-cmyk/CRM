@@ -7,67 +7,84 @@ import { PhoneForwarded, Loader2, Timer, CheckCircle2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
-export function GlobalAutoDialer({ userId }: { userId: string }) {
+export function GlobalAutoDialer() {
+    // UI States
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
     const [countdown, setCountdown] = useState(5)
+    const [isVisible, setIsVisible] = useState(false)
     
     const supabase = createClient()
     const router = useRouter()
     const { toast } = useToast()
 
+    // Refs for safe background processing
     const isProcessing = useRef(false)
     const timerRef = useRef<NodeJS.Timeout | null>(null)
+    const userIdRef = useRef<string | null>(null) // 💡 Now stores the User ID internally
 
     useEffect(() => {
-        // 1. Initial sync on load
-        syncStatus()
+        const initDialer = async () => {
+            // 1. Fetch the User ID automatically
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+            
+            userIdRef.current = user.id
 
-        // 2. Real-time listener for Status Changes (Detects Webhook updates!)
-        const channel = supabase.channel('auto_dialer_sync')
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'users', 
-                filter: `id=eq.${userId}` 
-            }, (payload) => {
-                handleStatusChange(payload.new.current_status)
-            })
-            .subscribe()
+            // 2. Initial Sync
+            const { data } = await supabase.from('users').select('current_status').eq('id', user.id).single()
+            if (data) handleStatusChange(data.current_status)
 
-        return () => { supabase.removeChannel(channel) }
-    }, [userId, supabase])
+            // 3. Real-time Subscription (Listens for your Webhook!)
+            const channel = supabase.channel('auto_dialer_sync')
+                .on('postgres_changes', { 
+                    event: 'UPDATE', 
+                    schema: 'public', 
+                    table: 'users', 
+                    filter: `id=eq.${user.id}` 
+                }, (payload) => {
+                    handleStatusChange(payload.new.current_status)
+                })
+                .subscribe()
 
-    const syncStatus = async () => {
-        const { data } = await supabase.from('users').select('current_status').eq('id', userId).single()
-        if (data) handleStatusChange(data.current_status)
-    }
+            return () => { supabase.removeChannel(channel) }
+        }
+
+        initDialer()
+    }, [supabase])
 
     const handleStatusChange = (status: string) => {
-        if (status === 'ready') {
+        // 💡 Accepts both 'ready' and 'active' depending on your button's wording
+        if (status === 'ready' || status === 'active') {
             setDialState('idle')
+            setIsVisible(true)
             executeAutoDial()
         } else if (status === 'on_call') {
             setDialState('on_call')
+            setIsVisible(true)
             if (timerRef.current) clearInterval(timerRef.current)
         } else if (status === 'wrap_up') {
             setDialState('wrap_up')
+            setIsVisible(true)
             startWrapUpCountdown()
         } else {
             setDialState('offline')
+            setIsVisible(false) // Hide the widget completely when offline/on break
             if (timerRef.current) clearInterval(timerRef.current)
         }
     }
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(5) // Start 5 second timer
+        setCountdown(5) // 5 Second Wrap-up Timer
         
         timerRef.current = setInterval(async () => {
             setCountdown((prev) => {
                 if (prev <= 1) {
                     clearInterval(timerRef.current!)
-                    // 🚀 TIMER FINISHED: Auto-flip back to 'ready' to trigger next call!
-                    supabase.from('users').update({ current_status: 'ready' }).eq('id', userId).then()
+                    // 🚀 TIMER FINISHED: Auto-flip status to 'ready' to trigger the next call
+                    if (userIdRef.current) {
+                        supabase.from('users').update({ current_status: 'ready' }).eq('id', userIdRef.current).then()
+                    }
                     return 0
                 }
                 return prev - 1
@@ -76,7 +93,9 @@ export function GlobalAutoDialer({ userId }: { userId: string }) {
     }
 
     const executeAutoDial = async () => {
-        if (isProcessing.current) return;
+        const uid = userIdRef.current
+        if (!uid || isProcessing.current) return;
+        
         isProcessing.current = true;
         setDialState('dialing')
 
@@ -85,18 +104,18 @@ export function GlobalAutoDialer({ userId }: { userId: string }) {
             const { data: potentialLeads } = await supabase
                 .from('leads')
                 .select('id, name, phone, priority, created_at')
-                .eq('assigned_to', userId)
+                .eq('assigned_to', uid)
                 .in('status', ['New Lead', 'Follow Up', 'new'])
                 .limit(50)
 
-            // If empty queue, wait and check again in 10 seconds
+            // If queue is empty, wait 10 seconds and check again
             if (!potentialLeads || potentialLeads.length === 0) {
                 setDialState('empty')
                 isProcessing.current = false
                 
                 setTimeout(async () => {
-                    const { data } = await supabase.from('users').select('current_status').eq('id', userId).single()
-                    if (data?.current_status === 'ready') executeAutoDial()
+                    const { data } = await supabase.from('users').select('current_status').eq('id', uid).single()
+                    if (data?.current_status === 'ready' || data?.current_status === 'active') executeAutoDial()
                 }, 10000)
                 return
             }
@@ -111,8 +130,7 @@ export function GlobalAutoDialer({ userId }: { userId: string }) {
             });
 
             const nextLead = sortedLeads[0];
-
-            console.log("👉 [AUTO-DIALER] Connecting:", nextLead.name)
+            console.log("👉 [AUTO-DIALER] Calling Next Lead:", nextLead.name)
 
             // Trigger Fonada
             const res = await initiateC2CCall(nextLead.id, nextLead.phone);
@@ -122,8 +140,8 @@ export function GlobalAutoDialer({ userId }: { userId: string }) {
                 router.push(`/telecaller/leads/${nextLead.id}`)
             } else {
                 toast({ title: "Call Failed", description: res.error, variant: "destructive" })
-                // Safety feature: If API fails, push agent to 'offline' so it doesn't infinite loop
-                await supabase.from('users').update({ current_status: 'offline', status_reason: 'API Error' }).eq('id', userId)
+                // Safety feature: Push agent to 'offline' so it doesn't infinite loop on broken API
+                await supabase.from('users').update({ current_status: 'offline', status_reason: 'API Error' }).eq('id', uid)
             }
 
         } catch (err) {
@@ -133,8 +151,7 @@ export function GlobalAutoDialer({ userId }: { userId: string }) {
         }
     }
 
-    // Only show the floating widget if they are actively in the dialing cycle
-    if (dialState === 'offline') return null;
+    if (!isVisible) return null;
 
     return (
         <div className="fixed bottom-6 left-6 z-50 bg-white border-2 border-emerald-500 rounded-lg shadow-2xl p-4 w-72 animate-in slide-in-from-bottom-5">
