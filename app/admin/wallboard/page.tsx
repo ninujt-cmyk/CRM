@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { 
   Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle 
@@ -15,7 +15,7 @@ interface Agent {
   phone: string
   current_status: string
   status_reason: string | null
-  status_updated_at: string
+  status_updated_at: string | null
 }
 
 // --- SUB-COMPONENT: Live Timer for Each Agent ---
@@ -24,22 +24,20 @@ function AgentCard({ agent }: { agent: Agent }) {
 
   // Calculate time spent in current status
   useEffect(() => {
-    const startTime = new Date(agent.status_updated_at).getTime()
+    // 💡 BUG FIX: Safe fallback if status_updated_at is missing so Math doesn't return NaN
+    const startTime = agent.status_updated_at ? new Date(agent.status_updated_at).getTime() : Date.now()
     
-    // Initial calculation
     setTimer(Math.floor((Date.now() - startTime) / 1000))
 
-    // Tick every second
     const interval = setInterval(() => {
       setTimer(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [agent.status_updated_at])
+  }, [agent.status_updated_at, agent.current_status])
 
-  // Format Timer (HH:MM:SS)
   const formatTime = (seconds: number) => {
-    if (seconds < 0) return "00:00";
+    if (isNaN(seconds) || seconds < 0) return "00:00";
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
@@ -54,32 +52,38 @@ function AgentCard({ agent }: { agent: Agent }) {
   let textColor = "text-slate-700"
   let isWarning = false
 
-  switch(agent.current_status) {
+  // 💡 BUG FIX: Normalize the status string to lowercase so 'Active' and 'active' both work
+  const normalizedStatus = (agent.current_status || 'offline').toLowerCase()
+
+  switch(normalizedStatus) {
     case 'ready': 
+    case 'active': // 💡 ADDED THIS: Now it catches the Auto-Dialer's status!
       bgColor = "bg-emerald-50 border-emerald-200"
       icon = <CheckCircle2 className="h-5 w-5 text-emerald-600" />
       statusText = "Ready for Calls"
       textColor = "text-emerald-700"
       break;
     case 'on_call': 
+    case 'on call':
       bgColor = "bg-blue-50 border-blue-200 shadow-md ring-1 ring-blue-400"
       icon = <PhoneCall className="h-5 w-5 text-blue-600 animate-pulse" />
       statusText = "On Call"
       textColor = "text-blue-700"
       break;
     case 'wrap_up': 
+    case 'wrap up':
       bgColor = "bg-amber-50 border-amber-200"
       icon = <Clock className="h-5 w-5 text-amber-600" />
       statusText = "Wrap-Up (Notes)"
       textColor = "text-amber-700"
-      if (timer > 300) isWarning = true; // Warning if wrapping up for > 5 mins
+      if (timer > 300) isWarning = true; 
       break;
     case 'break': 
       bgColor = "bg-orange-50 border-orange-200"
       icon = <Coffee className="h-5 w-5 text-orange-600" />
       statusText = agent.status_reason || "On Break"
       textColor = "text-orange-700"
-      if (timer > 1800) isWarning = true; // Warning if break > 30 mins
+      if (timer > 1800) isWarning = true; 
       break;
   }
 
@@ -117,9 +121,8 @@ export default function AdminWallboardPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // 1. Fetch all telecallers on initial load
     const fetchAgents = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('users')
         .select('id, full_name, phone, current_status, status_reason, status_updated_at')
         .in('role', ['telecaller', 'agent'])
@@ -131,7 +134,6 @@ export default function AdminWallboardPage() {
 
     fetchAgents()
 
-    // 2. 🔴 SUPABASE REALTIME: Listen for live status changes
     const channel = supabase.channel('wallboard_updates')
       .on('postgres_changes', { 
         event: 'UPDATE', 
@@ -139,8 +141,6 @@ export default function AdminWallboardPage() {
         table: 'users' 
       }, (payload) => {
         const updatedUser = payload.new as Agent
-        
-        // Only update if they are in our current telecaller list
         setAgents(prev => prev.map(agent => 
           agent.id === updatedUser.id ? { ...agent, ...updatedUser } : agent
         ))
@@ -152,11 +152,19 @@ export default function AdminWallboardPage() {
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
-  // Calculate Metrics
-  const onlineAgents = agents.filter(a => a.current_status !== 'offline' && a.current_status !== null)
-  const readyCount = agents.filter(a => a.current_status === 'ready').length
-  const onCallCount = agents.filter(a => a.current_status === 'on_call').length
-  const breakCount = agents.filter(a => a.current_status === 'break').length
+  // 💡 BUG FIX: Metrics calculations also updated to recognize 'active' as a valid Ready state
+  const onlineAgents = agents.filter(a => {
+      const s = (a.current_status || '').toLowerCase();
+      return s !== 'offline' && s !== '';
+  })
+  
+  const readyCount = agents.filter(a => {
+      const s = (a.current_status || '').toLowerCase();
+      return s === 'ready' || s === 'active';
+  }).length
+  
+  const onCallCount = agents.filter(a => (a.current_status || '').toLowerCase() === 'on_call').length
+  const breakCount = agents.filter(a => (a.current_status || '').toLowerCase() === 'break').length
 
   return (
     <div className="space-y-6 pb-10">
@@ -172,7 +180,7 @@ export default function AdminWallboardPage() {
 
       {/* METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-white">
+        <Card className="bg-white shadow-sm border-slate-200">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-500 font-medium">Total Online</p>
@@ -182,7 +190,7 @@ export default function AdminWallboardPage() {
           </CardContent>
         </Card>
         
-        <Card className="bg-emerald-50 border-emerald-200">
+        <Card className="bg-emerald-50 border-emerald-200 shadow-sm">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-emerald-600 font-medium">Ready (Waiting)</p>
@@ -192,7 +200,7 @@ export default function AdminWallboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-blue-50 border-blue-200">
+        <Card className="bg-blue-50 border-blue-200 shadow-sm">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-blue-600 font-medium">On Active Call</p>
@@ -202,7 +210,7 @@ export default function AdminWallboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-orange-50 border-orange-200">
+        <Card className="bg-orange-50 border-orange-200 shadow-sm">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-orange-600 font-medium">On Break</p>
