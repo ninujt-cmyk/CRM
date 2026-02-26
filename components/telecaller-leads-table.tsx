@@ -4,13 +4,12 @@ import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { 
   Building, ChevronDown, ChevronUp, ArrowUpRight, 
-  Copy, PhoneMissed, MessageSquare 
+  Copy, PhoneMissed, MessageSquare, PhoneCall 
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { LeadStatusDialog } from "@/components/lead-status-dialog" 
-import { QuickActions } from "@/components/quick-actions" 
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { useRouter, useSearchParams } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -83,10 +82,35 @@ export function TelecallerLeadsTable({
   }
 
   // --- 2. ACTIONS ---
-  const handleCallInitiated = (lead: Lead) => {
+  
+  // ✅ UPDATED: C2C Call Logic
+  const handleCallInitiated = async (lead: Lead) => {
+    // 1. Open the Status Updater Dialog immediately
     setSelectedLead(lead)
     setIsStatusDialogOpen(true)
     setIsCallInitiated(true)
+
+    // 2. Trigger the Click-to-Call (C2C) API
+    try {
+      toast.loading(`Initiating C2C to ${lead.phone}...`, { id: `c2c-${lead.id}` })
+      
+      // 🔴 Replace this URL with your actual backend C2C endpoint (e.g., Fonada webhook)
+      const response = await fetch('/api/click-to-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          customerPhone: lead.phone,
+          leadId: lead.id,
+        })
+      })
+
+      if (!response.ok) throw new Error("Dialer API Error")
+      
+      toast.success(`Connecting to ${lead.name}...`, { id: `c2c-${lead.id}` })
+    } catch (error) {
+      console.error("C2C Error:", error)
+      toast.error("Failed to connect C2C. Please check dialer configuration.", { id: `c2c-${lead.id}` })
+    }
   }
 
   const handleCallLogged = (callLogId: string) => {
@@ -98,30 +122,22 @@ export function TelecallerLeadsTable({
   const handleNextLead = () => {
     if (!selectedLead) return;
     
-    // Find where we are in the list
     const currentIndex = leads.findIndex(l => l.id === selectedLead.id);
-    
     let nextIndex = -1;
 
     if (currentIndex !== -1 && currentIndex < leads.length - 1) {
-        // Normal case: Move to the next person
         nextIndex = currentIndex + 1;
     } else if (currentIndex === -1 && leads.length > 0) {
-        // Edge Case: The current lead disappeared (e.g. status changed from "New" to "Interested" and filter is "New")
-        // In this case, the list shifted up, so the *next* person is now at the *top* (or same index).
-        // Let's default to the first one to be safe and keep the flow moving.
         nextIndex = 0;
     }
 
     if (nextIndex !== -1 && leads[nextIndex]) {
         const nextLead = leads[nextIndex];
         
-        // 2. Load Next
         setTimeout(() => {
-            setSelectedLead(nextLead);
-            setIsCallInitiated(true); // Ensure Dialer stays ON
-            setIsStatusDialogOpen(true);
-        }, 50); // Tiny delay to allow React to process
+            // ✅ Trigger the C2C process automatically for the next lead
+            handleCallInitiated(nextLead);
+        }, 50); 
     } else {
         setIsStatusDialogOpen(false);
         toast.success("List completed! No more leads to call.");
@@ -171,13 +187,6 @@ export function TelecallerLeadsTable({
     toast.success("Copied to clipboard")
   }
 
-  const isStale = (lastContacted: string | null, status: string) => {
-    if(!lastContacted) return true;
-    if(['Disbursed', 'Not_Interested', 'not_eligible'].includes(status)) return false;
-    const diff = new Date().getTime() - new Date(lastContacted).getTime();
-    return diff > (48 * 60 * 60 * 1000); 
-  }
-
   const formatCurrency = (amount: number | null) => {
     if (!amount) return '-'
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount)
@@ -223,12 +232,22 @@ export function TelecallerLeadsTable({
                   <TableRow key={lead.id} className={cn("group transition-colors hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
                     <TableCell>
                         <div className="flex items-center gap-1">
-                            <QuickActions 
-                                phone={lead.phone || ""} 
-                                email={lead.email || ""} 
-                                leadId={lead.id} 
-                                onCallInitiated={() => handleCallInitiated(lead)} 
-                            />
+                            
+                            {/* ✅ FIXED: Replaced QuickActions with dedicated C2C Call Button */}
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button 
+                                          onClick={() => handleCallInitiated(lead)} 
+                                          className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm"
+                                        >
+                                            <PhoneCall className="h-3.5 w-3.5" />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>C2C Call</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -239,6 +258,7 @@ export function TelecallerLeadsTable({
                                     <TooltipContent>Copy Number</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
+
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -334,7 +354,7 @@ export function TelecallerLeadsTable({
 
       {selectedLead && (
         <LeadStatusDialog
-          key={selectedLead.id} /* FIX: Forces fresh instance for every lead */
+          key={selectedLead.id}
           leadId={selectedLead.id}
           currentStatus={selectedLead.status}
           open={isStatusDialogOpen}
