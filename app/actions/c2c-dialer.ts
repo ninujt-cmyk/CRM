@@ -44,15 +44,18 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     if (safeAgentPhone.length > 10) safeAgentPhone = safeAgentPhone.slice(-10);
 
     // Build the exact JSON structure Fonada requested
+    // We are matching your successful Postman test perfectly!
     const payload = {
         secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
         clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
         agentNumber: safeAgentPhone,
         customerNumber: safeCustomerPhone,
-        agentName: agent.full_name || "BanksCart Agent",
-        customerName: lead?.name || "Customer",
-        calledId: leadId // 💡 We pass the leadId here so Fonada returns it in the webhook!
+        agentName: "", // Keeping this empty like Postman
+        customerName: "", // Keeping this empty like Postman
+        calledId: "" // 💡 Forcing this empty because the long UUID might be breaking Fonada
     };
+
+    console.log("📤 [C2C PAYLOAD SENDING]:", payload); // Added this so you can verify in the terminal!
 
     // 4. Trigger the Call WITH A TIMEOUT (Prevents UI Freezing)
     const controller = new AbortController();
