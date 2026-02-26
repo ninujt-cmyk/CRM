@@ -34,7 +34,6 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
     setDialing(true)
 
     try {
-      // 1. Check if the agent is actually 'Ready'
       const { data: agent } = await supabase.from('users').select('current_status').eq('id', userId).single()
       if (agent?.current_status !== 'ready') {
         toast({ title: "Action Blocked", description: "You must set your status to 'Ready for Calls' first.", variant: "destructive" })
@@ -42,13 +41,12 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
         return
       }
 
-      // 2. 💡 THE UPGRADE: Fetch top leads and sort by Priority!
       const { data: potentialLeads, error } = await supabase
         .from('leads')
         .select('id, name, phone, priority, created_at')
         .eq('assigned_to', userId)
         .in('status', ['New Lead', 'Follow Up', 'new']) 
-        .limit(50) // Grab a chunk to analyze priorities
+        .limit(50) 
 
       if (error || !potentialLeads || potentialLeads.length === 0) {
         toast({ title: "Queue Empty 🎉", description: "You have no pending leads to call right now!", className: "bg-emerald-500 text-white" })
@@ -56,36 +54,41 @@ export function AutoDialerWidget({ userId }: { userId: string }) {
         return
       }
 
-      // Priority Sorting Logic: Urgent > High > Medium > Low/None. 
-      // If tied, oldest `created_at` wins.
       const priorityWeights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
       
       const sortedLeads = potentialLeads.sort((a, b) => {
           const weightA = priorityWeights[a.priority || "none"] || 0;
           const weightB = priorityWeights[b.priority || "none"] || 0;
-          if (weightA !== weightB) return weightB - weightA; // Higher weight goes first
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); // Older goes first
+          if (weightA !== weightB) return weightB - weightA; 
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); 
       });
 
       const nextLead = sortedLeads[0];
 
       toast({ title: "Connecting...", description: `Dialing ${nextLead.name}... Please answer your phone.` })
 
-      // 3. Trigger the C2C API
-      const res = await initiateC2CCall(nextLead.id, nextLead.phone)
+      // 💡 THE DEBUGGING LOGS:
+      console.log("👉 [FRONTEND] Sending to Server Action:", { leadId: nextLead.id, phone: nextLead.phone });
+
+      // Trigger the C2C API
+      const res = await initiateC2CCall(nextLead.id, nextLead.phone);
+      
+      console.log("👈 [FRONTEND] Server Action Returned:", res);
 
       if (res.success) {
-        // 4. Instantly redirect
+        // Stop dialing spinner BEFORE redirecting
+        setDialing(false);
         router.push(`/telecaller/leads/${nextLead.id}`)
       } else {
         toast({ title: "Call Failed", description: res.error, variant: "destructive" })
+        setDialing(false)
       }
 
     } catch (err: any) {
-      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" })
+      console.error("🔥 [FRONTEND CRASH]:", err);
+      toast({ title: "Critical Error", description: err.message || "Failed to connect to the server.", variant: "destructive" })
+      setDialing(false)
     }
-    
-    setDialing(false)
   }
 
   return (
