@@ -4,111 +4,73 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function initiateC2CCall(leadId: string, customerPhone: string) {
   try {
+    console.log(`\n🚀 [C2C START] Initiating call to ${customerPhone}`);
+    
     const supabase = await createClient();
     
-    // 1. Authenticate the User
+    // 1. Authenticate
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // 2. Fetch the Agent's Details & Status
-    // Added 'full_name' to pass to the new Fonada API
+    // 2. Fetch Agent
     const { data: agent, error: agentError } = await supabase
       .from('users')
-      .select('full_name, phone, current_status')
+      .select('phone, current_status')
       .eq('id', user.id)
       .single();
 
-    if (agentError || !agent?.phone) {
-      throw new Error("Agent phone number not found in profile.");
-    }
-    
-    if (agent.current_status !== 'ready') {
-      throw new Error("You must be 'Ready' to make automated calls. Please change your status.");
-    }
+    if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
+    if (agent.current_status !== 'ready') throw new Error("You must be 'Ready' to dial.");
 
-    // Fetch Lead Name for the API
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('name')
-      .eq('id', leadId)
-      .single();
+    // 3. Clean Phone Numbers (Exactly 10 digits like Postman)
+    let safeCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
+    let safeAgentPhone = agent.phone.replace(/^\+?91/, '').slice(-10);
 
-    // 3. Prepare the New Fonada C2C JSON Payload
-    const apiUrl = "https://c2c.ivrobd.com/api/c2c/process"; 
-    
-    // Ensure 10-digit format for both legs
-    let safeCustomerPhone = customerPhone.replace(/^\+?91/, '');
-    if (safeCustomerPhone.length > 10) safeCustomerPhone = safeCustomerPhone.slice(-10);
-    
-    let safeAgentPhone = agent.phone.replace(/^\+?91/, '');
-    if (safeAgentPhone.length > 10) safeAgentPhone = safeAgentPhone.slice(-10);
-
-    // Build the exact JSON structure Fonada requested
-    // We are matching your successful Postman test perfectly!
+    // 4. Exact Postman Payload
     const payload = {
         secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
         clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
         agentNumber: safeAgentPhone,
         customerNumber: safeCustomerPhone,
-        agentName: "", // Keeping this empty like Postman
-        customerName: "", // Keeping this empty like Postman
-        calledId: "" // 💡 Forcing this empty because the long UUID might be breaking Fonada
+        agentName: "",
+        customerName: "",
+        calledId: "" 
     };
 
-    console.log("📤 [C2C PAYLOAD SENDING]:", payload); // Added this so you can verify in the terminal!
+    console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
 
-    // 4. Trigger the Call WITH A TIMEOUT (Prevents UI Freezing)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+    // 5. The Fetch Request (Removed timeout to prevent Next.js hanging bugs)
+    const res = await fetch("https://c2c.ivrobd.com/api/c2c/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: 'no-store' // Forces Next.js not to cache this API call
+    });
 
-    let res;
-    try {
-      res = await fetch(apiUrl, { 
-          method: "POST", 
-          headers: {
-              'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal // Attaches the timeout
-      });
-    } catch (fetchError: any) {
-      if (fetchError.name === 'AbortError') {
-          throw new Error("Call API timed out. The server took too long to respond.");
-      }
-      throw fetchError;
-    } finally {
-      clearTimeout(timeoutId); // Clean up the timer
-    }
-    
     const rawText = await res.text();
-    console.log("📞 [C2C API Response]:", rawText);
+    console.log("📞 [C2C RESPONSE]:", rawText);
 
-    // Parse response if it's JSON to check for Fonada-specific errors
+    // Parse response
     try {
         const jsonResponse = JSON.parse(rawText);
+        // If Fonada returns an error JSON, catch it
         if (jsonResponse.status === false || jsonResponse.status === "error") {
-             throw new Error(jsonResponse.message || "Fonada rejected the call request.");
+             return { success: false, error: jsonResponse.message || "Fonada rejected the call request." };
         }
     } catch (e) {
-        // If it's not JSON, we just continue
+        // Not JSON, ignore
     }
 
-    // 5. Log the call attempt in the CRM
-    await supabase.from("leads").update({ 
-        status: "Contacted",
-        last_contacted: new Date().toISOString() 
-    }).eq("id", leadId);
+    // 6. Update Database
+    console.log("💾 [C2C DB UPDATE] Updating Lead and Agent Status...");
+    await supabase.from("leads").update({ status: "Contacted", last_contacted: new Date().toISOString() }).eq("id", leadId);
+    await supabase.from("users").update({ current_status: 'on_call', status_updated_at: new Date().toISOString() }).eq("id", user.id);
 
-    // 6. Set agent state to 'on_call'
-    await supabase.from("users").update({
-        current_status: 'on_call',
-        status_updated_at: new Date().toISOString()
-    }).eq("id", user.id);
-
+    console.log("✅ [C2C SUCCESS] Call initiated successfully.\n");
     return { success: true, message: "Call Initiated! Your phone is ringing..." };
 
   } catch (error: any) {
-    console.error("🔥 C2C Error:", error);
-    return { success: false, error: error.message };
+    console.error("🔥 [C2C CATCH ERROR]:", error);
+    return { success: false, error: error.message || "Internal server error" };
   }
 }
