@@ -21,31 +21,44 @@ export async function POST(request: NextRequest) {
 
     console.log("📋 [C2C PAYLOAD]:", body);
 
-    // 1. Extract Fonada's typical C2C parameters
-    // Note: Adjust these keys if Fonada's API documentation uses different names for C2C
-    const customerPhone = body.customer_number || body.destination || body.mobile;
-    const agentPhone = body.agent_number || body.caller;
+    // 1. Extract Fonada's C2C parameters
+    const customerPhone = body.customerNumber || body.customer_number || body.destination || body.mobile;
+    const agentPhone = body.agentNumber || body.agent_number || body.caller;
     const duration = parseInt(body.billsec || body.duration || "0");
     const disposition = body.disposition || body.status || "UNKNOWN";
-    const recordingUrl = body.recording_url || body.voiceFileName || null;
+    const recordingUrl = body.recordingUrl || body.recording_url || body.voiceFileName || null;
+    
+    // 💡 THE UPGRADE: We catch the exact Lead ID we passed earlier
+    const calledId = body.calledId || body.called_id || body.referenceId || null;
 
     if (!customerPhone || !agentPhone) {
       return NextResponse.json({ status: "ignored", reason: "Missing phone numbers" });
     }
 
-    // Normalize phones for DB matching
+    // Normalize phones for DB matching (Fallback)
     let dbCustomerPhone = customerPhone.replace(/^\+?91/, '');
     if (dbCustomerPhone.length > 10) dbCustomerPhone = dbCustomerPhone.slice(-10);
 
     let dbAgentPhone = agentPhone.replace(/^\+?91/, '');
     if (dbAgentPhone.length > 10) dbAgentPhone = dbAgentPhone.slice(-10);
 
-    // 2. Find the Lead and the Agent
-    const { data: lead } = await supabase.from("leads").select("id").ilike("phone", `%${dbCustomerPhone}%`).limit(1).maybeSingle();
+    // 2. Find the Lead (By exact ID first, fallback to Phone) and the Agent
+    let lead = null;
+    if (calledId) {
+        const { data } = await supabase.from("leads").select("id").eq("id", calledId).maybeSingle();
+        lead = data;
+    } 
+    
+    if (!lead) {
+        // Fallback if Fonada dropped the calledId
+        const { data } = await supabase.from("leads").select("id").ilike("phone", `%${dbCustomerPhone}%`).limit(1).maybeSingle();
+        lead = data;
+    }
+
     const { data: agent } = await supabase.from("users").select("id").ilike("phone", `%${dbAgentPhone}%`).limit(1).maybeSingle();
 
     if (!lead || !agent) {
-      console.log("⚠️ [ORPHAN CALL] Could not match lead or agent phone numbers.");
+      console.log("⚠️ [ORPHAN CALL] Could not match lead or agent.");
       return NextResponse.json({ status: "ignored", reason: "no_db_match" });
     }
 
@@ -62,9 +75,7 @@ export async function POST(request: NextRequest) {
 
     if (logError) console.error("❌ [DB ERROR] Saving call log:", logError);
 
-    // 4. THE "WRAP-UP" PROTECTION (Crucial for Auto-Dialers)
-    // We instantly change the agent's status from 'on_call' to 'wrap_up'. 
-    // This stops the Auto-Dialer from instantly calling the next person before the agent types their notes!
+    // 4. THE "WRAP-UP" PROTECTION 
     await supabase.from("users").update({
         current_status: 'wrap_up',
         status_reason: 'Post-Call Notes',
