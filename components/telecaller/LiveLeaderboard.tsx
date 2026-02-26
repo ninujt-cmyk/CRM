@@ -13,18 +13,23 @@ export function LiveLeaderboard() {
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
 
-            // Fetch leads updated to "Login Done" today
-            const { data } = await supabase
-                .from('leads')
-                .select('assigned_to, users(full_name)')
-                .in('status', ['Login Done', 'Transferred to KYC'])
-                .gte('updated_at', startOfDay.toISOString());
+            // Fetch actual login records created today to match the Admin Logins page
+            const { data, error } = await supabase
+                .from('logins')
+                .select('assigned_to, users:assigned_to(full_name)')
+                .gte('created_at', startOfDay.toISOString());
+
+            if (error) {
+                console.error("Leaderboard fetch error:", error);
+                return;
+            }
 
             if (data) {
                 const counts: Record<string, {name: string, count: number}> = {};
-                data.forEach(lead => {
-                    const agentId = lead.assigned_to;
-                    const agentName = (lead.users as any)?.full_name || "Unknown Agent";
+                data.forEach((login: any) => {
+                    const agentId = login.assigned_to;
+                    const agentName = login.users?.full_name || "Unknown Agent";
+                    
                     if (agentId) {
                         if (!counts[agentId]) counts[agentId] = { name: agentName, count: 0 };
                         counts[agentId].count++;
@@ -37,17 +42,27 @@ export function LiveLeaderboard() {
         }
         
         fetchLeaders();
-        const channel = supabase.channel('leaderboard').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, fetchLeaders).subscribe();
+        
+        // Listen for realtime inserts/updates on the 'logins' table instead of 'leads'
+        const channel = supabase.channel('leaderboard')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'logins' }, fetchLeaders)
+            .subscribe();
+            
         return () => { supabase.removeChannel(channel) }
     }, [supabase])
 
     return (
         <Card className="border-2 border-yellow-400 bg-gradient-to-b from-yellow-50 to-white shadow-lg">
             <CardHeader className="border-b border-yellow-100 pb-3">
-                <CardTitle className="text-yellow-800 flex items-center gap-2"><Trophy className="h-5 w-5 text-yellow-500" /> Today's Top Performers</CardTitle>
+                <CardTitle className="text-yellow-800 flex items-center gap-2">
+                    <Trophy className="h-5 w-5 text-yellow-500" /> Today's Top Performers
+                </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-3">
-                {leaders.length === 0 ? <p className="text-sm text-slate-500 text-center">No logins yet today. Go get the first one!</p> : null}
+                {leaders.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center">No logins yet today. Go get the first one!</p>
+                ) : null}
+                
                 {leaders.map((leader, index) => (
                     <div key={index} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
                         <div className="flex items-center gap-3">
