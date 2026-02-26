@@ -450,7 +450,6 @@ export default function AdminWallboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredAgents.map(agent => (
-          {/* ✅ UPDATED CARD WITH ONCLICK */}
           <AgentCard key={agent.id} agent={agent} onClick={() => setSelectedAgent(agent)} />
         ))}
         {filteredAgents.length === 0 && (
