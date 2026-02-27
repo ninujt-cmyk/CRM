@@ -101,8 +101,8 @@ export function AppStatusBar() {
   const getSignalIcon = () => {
     if (!networkInfo.online) return <WifiOff className="h-3 w-3 text-red-500" />
     if (!networkInfo.effectiveType) return <SignalHigh className="h-3 w-3 text-slate-700" />
-    if (networkInfo.effectiveType === '4g') return <SignalHigh className="h-3 w-3 text-slate-700" />
-    if (networkInfo.effectiveType === '3g') return <SignalMedium className="h-3 w-3 text-slate-600" />
+    if (networkInfo.effectiveType === '5g') return <SignalHigh className="h-3 w-3 text-slate-700" />
+    if (networkInfo.effectiveType === '4g') return <SignalMedium className="h-3 w-3 text-slate-600" />
     return <SignalLow className="h-3 w-3 text-amber-600" />
   }
 
