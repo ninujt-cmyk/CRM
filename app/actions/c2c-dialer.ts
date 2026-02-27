@@ -1,129 +1,117 @@
-import { createClient } from "@supabase/supabase-js";
-import { NextRequest, NextResponse } from "next/server";
+"use server"
 
-export const dynamic = 'force-dynamic';
+import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function POST(request: NextRequest) {
-  console.log("🔔 [C2C WEBHOOK HIT] Call ended, analyzing CDR data.");
-
+export async function initiateC2CCall(leadId: string, customerPhone: string) {
   try {
-    const rawBody = await request.text();
-    let body: any = {};
-    if (rawBody) {
-      try { body = JSON.parse(rawBody); } 
-      catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
-    }
-
-    // 1. Extract standard variables
-    const customerPhone = body.customerNumber || body.customer_number || body.destination || body.mobile || null;
-    const agentPhone = body.agentNumber || body.agent_number || body.caller || body.src || null;
-    const duration = parseInt(body.duration || body.billsec || "0");
-    const recordingUrl = body.recordingUrl || body.recording_url || body.recordingLink || null;
+    console.log(`\n🚀 [C2C START] Dialing Lead ID: ${leadId}, Phone: ${customerPhone}`);
     
-    // 2. Extract CDR variables
-    const agentDisposition = (body.agentDisposition || "").toUpperCase();
-    const customerDisposition = (body.customerDisposition || body.disposition || body.status || "UNKNOWN").toUpperCase();
+    // Standard client for fetching the user
+    const supabase = await createClient();
+    
+    // 💡 THE FIX: Admin client to forcefully bypass Row Level Security (RLS) updates!
+    const supabaseAdmin = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    
+    // 1. Authenticate
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
 
-    if (!agentPhone) {
-      return NextResponse.json({ status: "ignored", reason: "Missing agent phone" });
+    // 2. Fetch Agent
+    const { data: agent, error: agentError } = await supabase
+      .from('users')
+      .select('phone, current_status, full_name')
+      .eq('id', user.id)
+      .single();
+
+    if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
+
+    // Allow both 'ready' and 'active' just in case
+    if (!['ready', 'active', 'wrap_up'].includes(agent.current_status)) {
+        throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
     }
 
-    let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
+    // Fetch Lead Name
+    const { data: lead } = await supabase.from('leads').select('name').eq('id', leadId).single();
 
-    const { data: agent } = await supabase
-        .from("users")
-        .select("id")
-        .ilike("phone", `%${dbAgentPhone}%`)
-        .limit(1)
-        .maybeSingle();
+    // 3. Clean Phone Numbers (Exactly 10 digits)
+    let safeCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
+    let safeAgentPhone = agent.phone.replace(/^\+?91/, '').slice(-10);
 
-    if (!agent) {
-      return NextResponse.json({ status: "ignored", reason: "agent_not_found" });
-    }
+    // 4. Exact Payload
+    const payload = {
+        secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
+        clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
+        agentNumber: safeAgentPhone,
+        customerNumber: safeCustomerPhone,
+        agentName: agent.full_name || "BanksCart Agent",
+        customerName: lead?.name || "Customer",
+        calledId: "" 
+    };
 
-    // Agent didn't pick up at all
-    if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition)) {
-        await supabase.from("users").update({
-            current_status: 'wrap_up',
-            status_reason: `Agent Leg: ${agentDisposition}`,
-            status_updated_at: new Date().toISOString()
-        }).eq("id", agent.id);
+    console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
 
-        return NextResponse.json({ status: "success", message: "Agent leg failed, loop continued." });
-    }
+    // 5. The Fetch Request (10-SECOND TIMEOUT)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    let dbCustomerPhone = customerPhone ? customerPhone.replace(/^\+?91/, '').slice(-10) : null;
-    let finalLeadId = null;
-
-    if (dbCustomerPhone) {
-        const { data: leads } = await supabase
-            .from("leads")
-            .select("id")
-            .ilike("phone", `%${dbCustomerPhone}%`)
-            .eq("assigned_to", agent.id) 
-            .order("last_contacted", { ascending: false }) 
-            .limit(1);
-
-        finalLeadId = leads?.[0]?.id;
-
-        if (!finalLeadId) {
-            const { data: fallbackLead } = await supabase
-                .from("leads")
-                .select("id")
-                .ilike("phone", `%${dbCustomerPhone}%`)
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-            finalLeadId = fallbackLead?.id;
-        }
-    }
-
-    // Save Call Log
-    if (finalLeadId) {
-        await supabase.from("call_logs").insert({
-            lead_id: finalLeadId,
-            user_id: agent.id,
-            call_type: "outbound_c2c",
-            duration_seconds: duration,
-            disposition: customerDisposition, 
-            recording_url: recordingUrl,
-            notes: `C2C Auto-Dial. Customer Status: ${customerDisposition}. Duration: ${duration}s.`
+    let res;
+    try {
+        res = await fetch("https://c2c.ivrobd.com/api/c2c/process", {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                "Accept": "*/*",
+                "User-Agent": "PostmanRuntime/7.36.3",
+                "Connection": "keep-alive"
+            },
+            body: JSON.stringify(payload),
+            cache: 'no-store',
+            signal: controller.signal 
         });
-
-        // 🔥 THE NEW LOGIC: If duration is < 5s OR Customer didn't answer
-        if (duration < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition)) {
-             console.log(`⚠️ Short call detected (${duration}s). Marking as NR and skipping wrap-up!`);
-             
-             // 1. Auto-update lead to 'nr'
-             await supabase.from('leads').update({ status: 'nr' }).eq('id', finalLeadId);
-             
-             // 2. Put agent straight back to 'active' to instantly trigger the next dial!
-             await supabase.from("users").update({
-                 current_status: 'active',
-                 status_reason: 'Auto-Skipped NR Call',
-                 status_updated_at: new Date().toISOString()
-             }).eq("id", agent.id);
-             
-             return NextResponse.json({ status: "success", message: "Short call auto-marked NR. Instant next dial triggered." });
+    } catch (fetchErr: any) {
+        if (fetchErr.name === 'AbortError') {
+            throw new Error("Fonada API timed out after 10 seconds.");
         }
+        throw fetchErr;
+    } finally {
+        clearTimeout(timeoutId); 
     }
 
-    // ⏳ NORMAL CALL LOGIC (> 5s): Push agent to wrap-up for the 10-second countdown
-    await supabase.from("users").update({
-        current_status: 'wrap_up',
-        status_reason: 'Call Completed',
-        status_updated_at: new Date().toISOString()
-    }).eq("id", agent.id);
+    const rawText = await res.text();
+    console.log("📞 [C2C RESPONSE]:", rawText);
 
-    return NextResponse.json({ status: "success", message: "C2C Call logged successfully" });
+    try {
+        const jsonResponse = JSON.parse(rawText);
+        if (jsonResponse.status === false || jsonResponse.status === "error") {
+             return { success: false, error: jsonResponse.message || "Fonada rejected the call request." };
+        }
+    } catch (e) {
+        // Not JSON, ignore
+    }
 
-  } catch (error) {
-    console.error("🔥 [CRITICAL ERROR] C2C Webhook failed:", error);
-    return NextResponse.json({ status: "error", message: "Internal Server Error" }, { status: 500 });
+    // 6. 🚀 FORCE UPDATE DATABASE (Using Admin Client to bypass RLS)
+    console.log("💾 [C2C DB UPDATE] Forcing Admin Update for Lead and Agent Status...");
+    
+    const { error: leadErr } = await supabaseAdmin.from("leads")
+        .update({ status: "Contacted", last_contacted: new Date().toISOString() })
+        .eq("id", leadId);
+    
+    if (leadErr) console.error("❌ Lead Update Failed:", leadErr);
+
+    const { error: userErr } = await supabaseAdmin.from("users")
+        .update({ current_status: 'on_call', status_updated_at: new Date().toISOString() })
+        .eq("id", user.id);
+        
+    if (userErr) console.error("❌ User Update Failed:", userErr);
+
+    return { success: true, message: "Call Initiated! Your phone is ringing..." };
+
+  } catch (error: any) {
+    console.error("🔥 [C2C CATCH ERROR]:", error);
+    return { success: false, error: error.message || "Internal server error" };
   }
 }
