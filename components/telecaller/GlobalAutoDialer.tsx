@@ -3,10 +3,9 @@
 import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { PhoneForwarded, Loader2, Timer, CheckCircle2, StopCircle, User, FastForward } from "lucide-react"
+import { PhoneForwarded, Loader2, Timer, CheckCircle2, User } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
-import { Button } from "@/components/ui/button"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
@@ -233,22 +232,6 @@ export function GlobalAutoDialer() {
         }
     }
 
-    const pauseDialer = async () => {
-        if (!userIdRef.current) return;
-        changeState('offline');
-        setIsVisible(false);
-        await supabase.from('users').update({ current_status: 'offline', status_reason: 'Manual Pause' }).eq('id', userIdRef.current);
-        toast({ title: "Dialer Paused", description: "You are now offline." });
-    }
-
-    const forceSkip = async () => {
-        if (!userIdRef.current) return;
-        toast({ title: "Skipping Call", description: "Moving to next lead..." });
-        changeState('wrap_up');
-        startWrapUpCountdown();
-        await supabase.from('users').update({ current_status: 'wrap_up', status_reason: 'Force Skipped' }).eq('id', userIdRef.current);
-    }
-
     if (!isVisible) return null;
 
     return (
@@ -283,24 +266,6 @@ export function GlobalAutoDialer() {
                         {dialState === 'empty' && "Auto-polling for leads."}
                     </p>
                 </div>
-            </div>
-
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t">
-                <Button 
-                    variant="outline" size="sm" onClick={pauseDialer}
-                    className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs h-8"
-                >
-                    <StopCircle className="h-3 w-3 mr-1" /> Stop
-                </Button>
-
-                {dialState === 'on_call' && (
-                    <Button 
-                        variant="outline" size="sm" onClick={forceSkip}
-                        className="flex-1 border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700 text-xs h-8"
-                    >
-                        <FastForward className="h-3 w-3 mr-1" /> Skip
-                    </Button>
-                )}
             </div>
         </div>
     )
