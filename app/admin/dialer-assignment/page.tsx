@@ -281,7 +281,6 @@ export default function DialerAssignmentPage() {
                 <div className="flex justify-between items-center">
                     <Label className="text-sm font-semibold text-slate-700">Select Agents</Label>
                     <div className="flex items-center gap-2">
-                        {/* ✅ ADDED: Select All / Deselect All Button */}
                         <button 
                             onClick={handleSelectAllAgents} 
                             className="text-[10px] text-indigo-600 hover:underline font-medium"
@@ -297,7 +296,6 @@ export default function DialerAssignmentPage() {
                         const isOverloaded = agent.pending_leads >= 50; 
                         
                         return (
-                            // ✅ FIXED: Changed <label> to <div onClick={...}> so selection works!
                             <div 
                                 key={agent.id} 
                                 onClick={() => toggleSelectAgent(agent.id)}
@@ -366,7 +364,7 @@ export default function DialerAssignmentPage() {
 
             {/* Advanced Filters */}
             {showFilters && (
-              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-b shadow-inner">
+              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 border-b shadow-inner">
                 
                 {/* Agent Sweeper */}
                 <div className="space-y-1">
@@ -381,12 +379,18 @@ export default function DialerAssignmentPage() {
                     </Select>
                 </div>
 
+                {/* Status Options Synchronized */}
                 <div className="space-y-1">
                     <Label className="text-xs text-slate-500">Lead Status</Label>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger><SelectValue placeholder="Lead Status" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Any Status</SelectItem>
+                        {/* Core Filter Options Synced from lead-filters.tsx */}
+                        {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','follow_up','not_eligible','self_employed','nr'].map(s => (
+                           <SelectItem key={s} value={s}>{s.replace('_',' ')}</SelectItem>
+                        ))}
+                        {/* Legacy Database Statuses Just in Case */}
                         <SelectItem value="New Lead">New Lead</SelectItem>
                         <SelectItem value="Contacted">Contacted</SelectItem>
                         <SelectItem value="Follow Up">Follow Up</SelectItem>
@@ -409,6 +413,21 @@ export default function DialerAssignmentPage() {
                     </Select>
                 </div>
 
+                {/* ✨ NEW: Source Dropdown Added */}
+                <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">Lead Source</Label>
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                    <SelectTrigger><SelectValue placeholder="Any Source" /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="website">Website</SelectItem>
+                        <SelectItem value="referral">Referral</SelectItem>
+                        <SelectItem value="campaign">Campaign</SelectItem>
+                        <SelectItem value="cold_call">Cold Call</SelectItem>
+                    </SelectContent>
+                    </Select>
+                </div>
+
                 <div className="space-y-1">
                     <Label className="text-xs text-slate-500">Date Added</Label>
                     <Select value={dateRange} onValueChange={setDateRange}>
@@ -424,13 +443,13 @@ export default function DialerAssignmentPage() {
                 </div>
 
                 {dateRange === "custom" && (
-                  <div className="lg:col-span-4 flex items-center gap-4 p-3 bg-slate-50 border rounded-md mt-2">
+                  <div className="lg:col-span-5 flex items-center gap-4 p-3 bg-slate-50 border rounded-md mt-2">
                     <div className="flex items-center gap-2"><Label>From:</Label><Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-auto"/></div>
                     <div className="flex items-center gap-2"><Label>To:</Label><Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-auto"/></div>
                   </div>
                 )}
 
-                <div className="lg:col-span-4 flex justify-end gap-2 mt-2 pt-2 border-t">
+                <div className="lg:col-span-5 flex justify-end gap-2 mt-2 pt-2 border-t">
                   <Button variant="ghost" size="sm" onClick={clearFilters}><X className="h-4 w-4 mr-2" /> Clear Filters</Button>
                 </div>
               </div>
