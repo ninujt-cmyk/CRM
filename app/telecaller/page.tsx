@@ -28,8 +28,6 @@ import { PerformanceMetrics } from "@/components/performance-metrics"
 import { DailyTargetProgress } from "@/components/daily-target-progress"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { EmptyState } from "@/components/empty-state"
-import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
-import { AutoDialerWidget } from "@/components/telecaller/AutoDialerWidget" // 🔴 NEW IMPORT ADDED HERE
 
 // --- TYPES ---
 interface DashboardStats {
@@ -244,8 +242,6 @@ export default function TelecallerDashboard() {
   // --- MAIN RENDER ---
   return (
     <NotificationProvider userId={data.user?.id}>
-      {/* Agent Status Bar explicitly integrated here */}
-      {data.user?.id && <AgentStatusBar userId={data.user.id} />}
       
       <div className="min-h-screen bg-slate-50/50 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto relative pb-24">
         
@@ -359,11 +355,6 @@ export default function TelecallerDashboard() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* 🔴 INJECT THE AUTO-DIALER WIDGET HERE */}
-            <div className="mb-2">
-               <AutoDialerWidget userId={data.user?.id || ""} />
-            </div>
 
             <DailyTargetProgress 
               userId={data.user?.id || ""} 
