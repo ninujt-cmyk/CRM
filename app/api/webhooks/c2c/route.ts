@@ -19,15 +19,13 @@ export async function POST(request: NextRequest) {
       catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
     }
 
-    console.log("📋 [C2C PAYLOAD]:", body);
-
     // 1. Extract standard variables
     const customerPhone = body.customerNumber || body.customer_number || body.destination || body.mobile || null;
     const agentPhone = body.agentNumber || body.agent_number || body.caller || body.src || null;
     const duration = parseInt(body.duration || body.billsec || "0");
     const recordingUrl = body.recordingUrl || body.recording_url || body.recordingLink || null;
     
-    // 💡 2. Extract our NEW Advanced CDR variables!
+    // 2. Extract CDR variables
     const agentDisposition = (body.agentDisposition || "").toUpperCase();
     const customerDisposition = (body.customerDisposition || body.disposition || body.status || "UNKNOWN").toUpperCase();
 
@@ -35,10 +33,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "ignored", reason: "Missing agent phone" });
     }
 
-    // Normalize Agent Phone
     let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
 
-    // Find the Agent
     const { data: agent } = await supabase
         .from("users")
         .select("id")
@@ -50,11 +46,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "ignored", reason: "agent_not_found" });
     }
 
-    // 🚀 THE MAGIC UN-STICKER: Did the Agent reject/miss the call?
-    // If agentDisposition is FAILED, BUSY, NO ANSWER, or CANCEL
+    // Agent didn't pick up at all
     if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition)) {
-        console.log(`⚠️ Agent did not connect (${agentDisposition}). Pushing straight to wrap_up to continue Auto-Dialer.`);
-        
         await supabase.from("users").update({
             current_status: 'wrap_up',
             status_reason: `Agent Leg: ${agentDisposition}`,
@@ -64,7 +57,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "success", message: "Agent leg failed, loop continued." });
     }
 
-    // If agent connected, let's find the lead they were talking to
     let dbCustomerPhone = customerPhone ? customerPhone.replace(/^\+?91/, '').slice(-10) : null;
     let finalLeadId = null;
 
@@ -98,20 +90,36 @@ export async function POST(request: NextRequest) {
             user_id: agent.id,
             call_type: "outbound_c2c",
             duration_seconds: duration,
-            disposition: customerDisposition, // Store what the customer did
+            disposition: customerDisposition, 
             recording_url: recordingUrl,
             notes: `C2C Auto-Dial. Customer Status: ${customerDisposition}. Duration: ${duration}s.`
         });
+
+        // 🔥 THE NEW LOGIC: If duration is < 5s OR Customer didn't answer
+        if (duration < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition)) {
+             console.log(`⚠️ Short call detected (${duration}s). Marking as NR and skipping wrap-up!`);
+             
+             // 1. Auto-update lead to 'nr'
+             await supabase.from('leads').update({ status: 'nr' }).eq('id', finalLeadId);
+             
+             // 2. Put agent straight back to 'active' to instantly trigger the next dial!
+             await supabase.from("users").update({
+                 current_status: 'active',
+                 status_reason: 'Auto-Skipped NR Call',
+                 status_updated_at: new Date().toISOString()
+             }).eq("id", agent.id);
+             
+             return NextResponse.json({ status: "success", message: "Short call auto-marked NR. Instant next dial triggered." });
+        }
     }
 
-    // Push agent to wrap-up so the UI timer starts for the next call
+    // ⏳ NORMAL CALL LOGIC (> 5s): Push agent to wrap-up for the 10-second countdown
     await supabase.from("users").update({
         current_status: 'wrap_up',
         status_reason: 'Call Completed',
         status_updated_at: new Date().toISOString()
     }).eq("id", agent.id);
 
-    console.log(`✅ [SUCCESS] Call mapped successfully. Agent moved to Wrap-Up.`);
     return NextResponse.json({ status: "success", message: "C2C Call logged successfully" });
 
   } catch (error) {
