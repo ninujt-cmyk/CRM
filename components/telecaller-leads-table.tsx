@@ -4,21 +4,19 @@ import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { 
   Building, ChevronDown, ChevronUp, ArrowUpRight, 
-  Copy, PhoneMissed, MessageSquare, PhoneCall 
+  Copy, PhoneMissed, MessageSquare 
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { LeadStatusDialog } from "@/components/lead-status-dialog" 
+import { QuickActions } from "@/components/quick-actions" 
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { useRouter, useSearchParams } from "next/navigation"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { toast } from "sonner"
-
-// ✅ IMPORT YOUR WORKING SERVER ACTION
-import { initiateC2CCall } from "@/app/actions/c2c-dialer" 
 
 interface Lead {
   id: string
@@ -58,10 +56,12 @@ export function TelecallerLeadsTable({
   const supabase = createClient()
   const [isPending, startTransition] = useTransition()
 
+  // State
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
 
+  // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
     const params = new URLSearchParams(searchParams.toString())
     if (sortBy === field) {
@@ -82,27 +82,11 @@ export function TelecallerLeadsTable({
       : <ChevronDown className="ml-1 h-3 w-3 text-blue-600" />
   }
 
-  // ✅ UPDATED TO USE YOUR SERVER ACTION
-  const handleCallInitiated = async (lead: Lead) => {
+  // --- 2. ACTIONS ---
+  const handleCallInitiated = (lead: Lead) => {
     setSelectedLead(lead)
     setIsStatusDialogOpen(true)
     setIsCallInitiated(true)
-
-    try {
-      toast.loading(`Initiating C2C to ${lead.phone}...`, { id: `c2c-${lead.id}` })
-      
-      // Call your actual working server action instead of the dummy API route!
-      const response = await initiateC2CCall(lead.id, lead.phone)
-
-      if (!response.success) {
-        throw new Error(response.error || "Dialer API Error")
-      }
-      
-      toast.success(`Connecting to ${lead.name}...`, { id: `c2c-${lead.id}` })
-    } catch (error: any) {
-      console.error("C2C Error:", error)
-      toast.error(error.message || "Failed to connect C2C. Please check dialer configuration.", { id: `c2c-${lead.id}` })
-    }
   }
 
   const handleCallLogged = (callLogId: string) => {
@@ -110,22 +94,34 @@ export function TelecallerLeadsTable({
     router.refresh()
   }
 
+  // AUTOMATION: ROBUST NEXT LEAD LOGIC
   const handleNextLead = () => {
     if (!selectedLead) return;
+    
+    // Find where we are in the list
     const currentIndex = leads.findIndex(l => l.id === selectedLead.id);
+    
     let nextIndex = -1;
 
     if (currentIndex !== -1 && currentIndex < leads.length - 1) {
+        // Normal case: Move to the next person
         nextIndex = currentIndex + 1;
     } else if (currentIndex === -1 && leads.length > 0) {
+        // Edge Case: The current lead disappeared (e.g. status changed from "New" to "Interested" and filter is "New")
+        // In this case, the list shifted up, so the *next* person is now at the *top* (or same index).
+        // Let's default to the first one to be safe and keep the flow moving.
         nextIndex = 0;
     }
 
     if (nextIndex !== -1 && leads[nextIndex]) {
         const nextLead = leads[nextIndex];
+        
+        // 2. Load Next
         setTimeout(() => {
-            handleCallInitiated(nextLead);
-        }, 50); 
+            setSelectedLead(nextLead);
+            setIsCallInitiated(true); // Ensure Dialer stays ON
+            setIsStatusDialogOpen(true);
+        }, 50); // Tiny delay to allow React to process
     } else {
         setIsStatusDialogOpen(false);
         toast.success("List completed! No more leads to call.");
@@ -142,11 +138,19 @@ export function TelecallerLeadsTable({
 
     try {
         await Promise.all([
-             supabase.from("leads").update({ status: 'nr', last_contacted: new Date().toISOString() }).eq('id', lead.id),
+             supabase.from("leads").update({ 
+                 status: 'nr', 
+                 last_contacted: new Date().toISOString() 
+             }).eq('id', lead.id),
              supabase.from("follow_ups").insert({
-                 lead_id: lead.id, scheduled_at: tomorrow.toISOString(), status: "pending", title: `Retry: ${lead.name}`, notes: "Auto-scheduled: No Response"
+                 lead_id: lead.id,
+                 scheduled_at: tomorrow.toISOString(),
+                 status: "pending",
+                 title: `Retry: ${lead.name}`,
+                 notes: "Auto-scheduled: No Response"
              })
         ]);
+        
         router.refresh();
         toast.success("Marked NR");
     } catch (error) {
@@ -165,6 +169,13 @@ export function TelecallerLeadsTable({
     if (!text) return
     navigator.clipboard.writeText(text)
     toast.success("Copied to clipboard")
+  }
+
+  const isStale = (lastContacted: string | null, status: string) => {
+    if(!lastContacted) return true;
+    if(['Disbursed', 'Not_Interested', 'not_eligible'].includes(status)) return false;
+    const diff = new Date().getTime() - new Date(lastContacted).getTime();
+    return diff > (48 * 60 * 60 * 1000); 
   }
 
   const formatCurrency = (amount: number | null) => {
@@ -190,7 +201,7 @@ export function TelecallerLeadsTable({
           <Table>
             <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <TableRow>
-                <TableHead className="w-[180px]">Contact</TableHead>
+                <TableHead className="w-[120px]">Contact</TableHead>
                 <TableHead className="w-[200px] md:w-[250px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('name')}>
                     <div className="flex items-center">Name <SortIcon field="name"/></div>
                 </TableHead>
@@ -210,29 +221,24 @@ export function TelecallerLeadsTable({
                 
                 return (
                   <TableRow key={lead.id} className={cn("group transition-colors hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
-                    
                     <TableCell>
-                      <div className="flex flex-col gap-2">
-                        <button 
-                          onClick={() => handleCallInitiated(lead)} 
-                          className="flex items-center gap-2 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors w-fit shadow-sm"
-                        >
-                          <PhoneCall className="h-3.5 w-3.5" />
-                          <span className="font-mono text-[13px] font-bold tracking-tight">{lead.phone}</span>
-                        </button>
-
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
+                            <QuickActions 
+                                phone={lead.phone || ""} 
+                                email={lead.email || ""} 
+                                leadId={lead.id} 
+                                onCallInitiated={() => handleCallInitiated(lead)} 
+                            />
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <button onClick={() => copyToClipboard(lead.phone || '')} className="p-1.5 rounded-full bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 transition-colors">
+                                        <button onClick={() => copyToClipboard(lead.phone || '')} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
                                             <Copy className="h-3.5 w-3.5" />
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent>Copy Number</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
-
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -244,9 +250,7 @@ export function TelecallerLeadsTable({
                                 </Tooltip>
                             </TooltipProvider>
                         </div>
-                      </div>
                     </TableCell>
-
                     <TableCell>
                       <div className="flex flex-col">
                         <Link href={`/telecaller/leads/${lead.id}`} className="font-semibold text-slate-900 hover:text-blue-600 flex items-center gap-2">
@@ -330,7 +334,7 @@ export function TelecallerLeadsTable({
 
       {selectedLead && (
         <LeadStatusDialog
-          key={selectedLead.id}
+          key={selectedLead.id} /* FIX: Forces fresh instance for every lead */
           leadId={selectedLead.id}
           currentStatus={selectedLead.status}
           open={isStatusDialogOpen}
