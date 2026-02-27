@@ -30,8 +30,8 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
 
     // Allow both 'ready' and 'active' just in case
-    if (agent.current_status !== 'ready' && agent.current_status !== 'active') {
-        throw new Error("You must be 'Active' to dial.");
+    if (!['ready', 'active', 'wrap_up'].includes(agent.current_status)) {
+        throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
     }
 
     // Fetch Lead Name
