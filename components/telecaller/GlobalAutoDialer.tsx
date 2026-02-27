@@ -61,24 +61,31 @@ export function GlobalAutoDialer() {
         return () => { if (pollInterval) clearInterval(pollInterval); }
     }, [dialState, supabase]);
 
-    // 💡 3. THE FIX: The Zero-Second Instant Trigger!
-    // We instantly dial the next lead locally without waiting for the database to reply.
+    // 💡 THE FIX: Safely await the database change to 'ready' before dialing!
     useEffect(() => {
-        if (dialState === 'wrap_up' && countdown === 0) {
-            console.log("🚀 Countdown hit 0! Bypassing wait time and starting next dial instantly.");
-            
-            // Unlock the state locally and fire the call!
-            changeState('idle');
-            executeAutoDial();
-            
-            // Still update the DB in the background so the rest of the CRM knows the agent is active
-            if (userIdRef.current) {
-                supabase.from('users').update({ current_status: 'active' }).eq('id', userIdRef.current).then();
+        const triggerNextCall = async () => {
+            if (dialState === 'wrap_up' && countdown === 0) {
+                console.log("🚀 Countdown hit 0! Pushing status to Ready and dialing...");
+                
+                if (userIdRef.current) {
+                    // 1. Force the database to 'ready' and WAIT for it to finish
+                    await supabase.from('users').update({ 
+                        current_status: 'ready', 
+                        status_reason: 'Auto-Dialer Ready' 
+                    }).eq('id', userIdRef.current);
+                }
+                
+                // 2. Now that the DB is definitely 'ready', unlock the local state and fire!
+                changeState('idle');
+                executeAutoDial();
             }
-        }
+        };
+
+        triggerNextCall();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [countdown, dialState]);
 
+    
     const handleDatabaseStatusChange = (dbStatus: string) => {
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
 
