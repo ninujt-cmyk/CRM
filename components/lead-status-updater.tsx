@@ -21,8 +21,9 @@ import { ScheduleFollowUpModal } from "./schedule-follow-up-modal"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-// --- IMPORT THE SERVER ACTIONS ---
 import { sendMissedCallMessage, sendKYCRequestTemplate, sendNotInterestedAudit } from "@/app/actions/whatsapp" 
+// ✅ IMPORT YOUR WORKING SERVER ACTION HERE TOO
+import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -126,7 +127,7 @@ export function LeadStatusUpdater({
     }
   }, [leadId, initialLoanAmount]);
 
-  // ✅ CRITICAL FIX: Replaced iframe logic with API call
+  // ✅ UPDATED AUTO-DIALER TO USE SERVER ACTION
   useEffect(() => {
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
         if (lastDialedIdRef.current !== leadId) {
@@ -140,22 +141,15 @@ export function LeadStatusUpdater({
                         clearInterval(interval);
                         setDialing(true);
                         
-                        // Execute C2C API instead of iframe tel injection
-                        fetch('/api/click-to-call', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                customerPhone: leadPhoneNumber,
-                                leadId: leadId 
-                            })
-                        })
+                        // Execute your real C2C Server Action!
+                        initiateC2CCall(leadId, leadPhoneNumber)
                         .then(res => {
-                            if (!res.ok) throw new Error("Dialer API Error");
+                            if (!res.success) throw new Error(res.error || "Dialer API Error");
                             toast.success(`Dialing ${customerName || leadPhoneNumber}...`, { id: `auto-dial-${leadId}`});
                         })
                         .catch(err => {
                             console.error("Auto-Dial C2C Error:", err);
-                            toast.error("Failed to connect C2C automatically.", { id: `auto-dial-${leadId}`});
+                            toast.error(err.message || "Failed to connect C2C automatically.", { id: `auto-dial-${leadId}`});
                         })
                         .finally(() => {
                             setTimeout(() => setDialing(false), 1000);
@@ -328,7 +322,7 @@ export function LeadStatusUpdater({
           else toast.error("Failed to send QA Audit. Check logs.");
       }
       
-      // 3. Trigger parent update
+      // 3. Trigger parent update safely after all fetches are complete
       onStatusUpdate?.(status, note) 
 
       setNote(""); setRemarks(""); setCallDurationOverride(null); setElapsedTime(0); setNotEligibleReason(""); setStatus("");
