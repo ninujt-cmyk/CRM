@@ -27,7 +27,7 @@ export function GlobalAutoDialer() {
         setDialState(newState);
     }
 
-    // 1. Initial Setup and WebSocket Listener
+    // 1. Initial Setup
     useEffect(() => {
         const initDialer = async () => {
             const { data: { user } } = await supabase.auth.getUser()
@@ -47,30 +47,37 @@ export function GlobalAutoDialer() {
         initDialer()
     }, [supabase])
 
-    // 💡 2. THE NEW SAFETY NET: Active Polling during calls
-    // If WebSockets fail, this guarantees we catch the Webhook's update!
+    // 2. Fallback Polling
     useEffect(() => {
         let pollInterval: NodeJS.Timeout;
-        
         if (dialState === 'on_call' && userIdRef.current) {
             pollInterval = setInterval(async () => {
-                const { data } = await supabase
-                    .from('users')
-                    .select('current_status')
-                    .eq('id', userIdRef.current!)
-                    .single();
-                
-                // If the webhook changed the DB to wrap_up, update the UI instantly!
+                const { data } = await supabase.from('users').select('current_status').eq('id', userIdRef.current!).single();
                 if (data && data.current_status !== 'on_call' && data.current_status !== 'dialing') {
                     handleDatabaseStatusChange(data.current_status);
                 }
-            }, 3000); // Check every 3 seconds
+            }, 3000);
         }
-
-        return () => {
-            if (pollInterval) clearInterval(pollInterval);
-        }
+        return () => { if (pollInterval) clearInterval(pollInterval); }
     }, [dialState, supabase]);
+
+    // 💡 3. THE FIX: The Zero-Second Instant Trigger!
+    // We instantly dial the next lead locally without waiting for the database to reply.
+    useEffect(() => {
+        if (dialState === 'wrap_up' && countdown === 0) {
+            console.log("🚀 Countdown hit 0! Bypassing wait time and starting next dial instantly.");
+            
+            // Unlock the state locally and fire the call!
+            changeState('idle');
+            executeAutoDial();
+            
+            // Still update the DB in the background so the rest of the CRM knows the agent is active
+            if (userIdRef.current) {
+                supabase.from('users').update({ current_status: 'active' }).eq('id', userIdRef.current).then();
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [countdown, dialState]);
 
     const handleDatabaseStatusChange = (dbStatus: string) => {
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
@@ -86,9 +93,12 @@ export function GlobalAutoDialer() {
             setIsVisible(true);
             if (timerRef.current) clearInterval(timerRef.current);
         } else if (normalizedStatus === 'wrap_up') {
-            changeState('wrap_up');
-            setIsVisible(true);
-            startWrapUpCountdown();
+            // Check prevents restarting the timer if they are already counting down
+            if (stateLock.current !== 'wrap_up') {
+                changeState('wrap_up');
+                setIsVisible(true);
+                startWrapUpCountdown();
+            }
         } else {
             changeState('offline');
             setIsVisible(false);
@@ -105,8 +115,7 @@ export function GlobalAutoDialer() {
             setCountdown((prev) => {
                 if (prev <= 1) {
                     clearInterval(timerRef.current!)
-                    if (userIdRef.current) supabase.from('users').update({ current_status: 'active' }).eq('id', userIdRef.current).then()
-                    return 0
+                    return 0 // The new useEffect catches this exactly at 0!
                 }
                 return prev - 1
             })
@@ -175,6 +184,11 @@ export function GlobalAutoDialer() {
     const forceSkip = async () => {
         if (!userIdRef.current) return;
         toast({ title: "Skipping Call", description: "Moving to next lead..." });
+        
+        // 💡 Make the UI feel snappy by instantly updating state locally!
+        changeState('wrap_up');
+        startWrapUpCountdown();
+        
         await supabase.from('users').update({ current_status: 'wrap_up', status_reason: 'Force Skipped' }).eq('id', userIdRef.current);
     }
 
