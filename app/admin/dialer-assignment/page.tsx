@@ -63,9 +63,13 @@ export default function DialerAssignmentPage() {
   const [assigning, setAssigning] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
-  // 1. FETCH LOGIC
-  const fetchLeadsAndAgents = useCallback(async () => {
-    setLoading(true)
+  // 1. FETCH LOGIC (Upgraded with Silent Background Mode)
+  const fetchLeadsAndAgents = useCallback(async (showLoadingSpinner = true) => {
+    // Only show loading spinner and clear selections if the user is changing filters
+    if (showLoadingSpinner) {
+        setLoading(true)
+        setSelectedLeadIds([]) 
+    }
     
     // A. Fetch Agents
     const { data: agentsData } = await supabase
@@ -109,12 +113,11 @@ export default function DialerAssignmentPage() {
       query = query.eq('status', statusFilter)
     }
 
-    // Agent Ownership Logic (The Sweeper)
+    // Agent Ownership Logic
     if (agentFilter === "unassigned") query = query.is('assigned_to', null)
     else if (agentFilter !== "all") query = query.eq('assigned_to', agentFilter)
 
     if (sourceFilter !== "all") query = query.eq('source', sourceFilter)
-    
     if (priorityFilter !== "all") query = query.eq('priority', priorityFilter)
 
     // Date Logic
@@ -137,11 +140,26 @@ export default function DialerAssignmentPage() {
     const { data: leadsData } = await query.order('created_at', { ascending: false }).limit(parseInt(fetchLimit))
 
     if (leadsData) setLeads(leadsData)
-    setSelectedLeadIds([]) 
     setLoading(false)
   }, [supabase, statusFilter, sourceFilter, agentFilter, priorityFilter, dateRange, customStart, customEnd, fetchLimit])
 
-  useEffect(() => { fetchLeadsAndAgents() }, [fetchLeadsAndAgents])
+  // Initial load and Filter changes (Shows Loading Spinner)
+  useEffect(() => { 
+      fetchLeadsAndAgents(true) 
+  }, [fetchLeadsAndAgents])
+
+  // 💡 REAL-TIME LISTENER (Silent updates in the background)
+  useEffect(() => {
+    const channel = supabase.channel('realtime_admin_leads')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+            console.log("Real-time table change detected. Refreshing data silently...");
+            // Pass 'false' so it doesn't trigger the UI spinner or erase checkboxes!
+            fetchLeadsAndAgents(false);
+        })
+        .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, fetchLeadsAndAgents])
 
   const clearFilters = () => {
     setStatusFilter("all"); setSourceFilter("all"); setAgentFilter("all"); setPriorityFilter("all"); setDateRange("all");
@@ -170,7 +188,7 @@ export default function DialerAssignmentPage() {
 
     setAssigning(true)
     
-    // 🔥 TRUE ROUND-ROBIN DISTRIBUTION ALGORITHM
+    // True Round-Robin Distribution
     const agentBatches: Record<string, string[]> = {};
     selectedAgentIds.forEach(id => agentBatches[id] = []);
     
@@ -182,7 +200,6 @@ export default function DialerAssignmentPage() {
     let successCount = 0;
     let failCount = 0;
 
-    // Send the batches
     for (const agentId of selectedAgentIds) {
         const assignedLeads = agentBatches[agentId];
         if (assignedLeads.length > 0) {
@@ -195,7 +212,7 @@ export default function DialerAssignmentPage() {
     if (successCount > 0) {
       toast({ title: "Distribution Complete 🚀", description: `Successfully distributed ${successCount} leads seamlessly.`, className: "bg-indigo-600 text-white" })
       setSelectedAgentIds([]); setAssignPriority("none");
-      fetchLeadsAndAgents();
+      fetchLeadsAndAgents(true); // Hard refresh on manual assign
     }
     if (failCount > 0) toast({ title: "Partial Failure", description: `Failed to assign ${failCount} leads.`, variant: "destructive" })
     
@@ -210,7 +227,7 @@ export default function DialerAssignmentPage() {
       const res = await unassignLeadsBulk(selectedLeadIds);
       if (res.success) {
           toast({ title: "Queues Cleared", description: `Unassigned ${res.count} leads successfully.` })
-          fetchLeadsAndAgents();
+          fetchLeadsAndAgents(true); // Hard refresh on unassign
       } else {
           toast({ title: "Error", description: res.error, variant: "destructive" })
       }
@@ -413,7 +430,7 @@ export default function DialerAssignmentPage() {
                     </Select>
                 </div>
 
-                {/* ✨ NEW: Source Dropdown Added */}
+                {/* Source Dropdown Added */}
                 <div className="space-y-1">
                     <Label className="text-xs text-slate-500">Lead Source</Label>
                     <Select value={sourceFilter} onValueChange={setSourceFilter}>
