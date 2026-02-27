@@ -17,6 +17,9 @@ import Link from "next/link"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { toast } from "sonner"
 
+// ✅ IMPORT YOUR WORKING SERVER ACTION
+import { initiateC2CCall } from "@/app/actions/c2c-dialer" 
+
 interface Lead {
   id: string
   name: string
@@ -79,6 +82,7 @@ export function TelecallerLeadsTable({
       : <ChevronDown className="ml-1 h-3 w-3 text-blue-600" />
   }
 
+  // ✅ UPDATED TO USE YOUR SERVER ACTION
   const handleCallInitiated = async (lead: Lead) => {
     setSelectedLead(lead)
     setIsStatusDialogOpen(true)
@@ -87,21 +91,17 @@ export function TelecallerLeadsTable({
     try {
       toast.loading(`Initiating C2C to ${lead.phone}...`, { id: `c2c-${lead.id}` })
       
-      const response = await fetch('/api/click-to-call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerPhone: lead.phone, leadId: lead.id })
-      })
+      // Call your actual working server action instead of the dummy API route!
+      const response = await initiateC2CCall(lead.id, lead.phone)
 
-      if (!response.ok) {
-        // Soft fail for now so the UI doesn't crash if the API isn't set up yet
-        console.warn("C2C endpoint missing. Mocking success for UI.")
+      if (!response.success) {
+        throw new Error(response.error || "Dialer API Error")
       }
       
       toast.success(`Connecting to ${lead.name}...`, { id: `c2c-${lead.id}` })
-    } catch (error) {
+    } catch (error: any) {
       console.error("C2C Error:", error)
-      toast.error("Failed to connect C2C. Please check dialer configuration.", { id: `c2c-${lead.id}` })
+      toast.error(error.message || "Failed to connect C2C. Please check dialer configuration.", { id: `c2c-${lead.id}` })
     }
   }
 
@@ -211,7 +211,6 @@ export function TelecallerLeadsTable({
                 return (
                   <TableRow key={lead.id} className={cn("group transition-colors hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
                     
-                    {/* ✅ RESTORED PHONE NUMBER DISPLAY */}
                     <TableCell>
                       <div className="flex flex-col gap-2">
                         <button 
