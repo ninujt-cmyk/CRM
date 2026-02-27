@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
-    const [countdown, setCountdown] = useState(5)
+    const [countdown, setCountdown] = useState(10)
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
@@ -116,7 +116,7 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(5) 
+        setCountdown(10) 
         
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
