@@ -4,16 +4,18 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+// ✅ ADDED SELECT IMPORTS
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { 
-  Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle, CalendarClock 
+  Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle, CalendarClock, Edit 
 } from "lucide-react"
-// ✅ ADDED DIALOG IMPORTS
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { toast } from "sonner" // ✅ ADDED TOAST FOR FEEDBACK
 
 // --- TYPES ---
 interface Agent {
@@ -39,6 +41,7 @@ const formatDuration = (seconds: number) => {
 // --- SUB-COMPONENT: Agent Stats Modal ---
 function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: boolean, onClose: () => void }) {
   const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false); // ✅ NEW STATE FOR OVERRIDE
   const [stats, setStats] = useState({ ready: 0, on_call: 0, wrap_up: 0, break: 0, offline: 0 });
   const supabase = createClient();
 
@@ -88,11 +91,35 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
 
     fetchStats();
     
-    // Optional: Refresh stats every 10 seconds while modal is open
     const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
 
   }, [agent, open, supabase]);
+
+  // ✅ NEW: FORCE STATUS UPDATE FUNCTION
+  const handleForceStatusChange = async (newStatus: string) => {
+    if (!agent) return;
+    setIsUpdating(true);
+    
+    const { error } = await supabase
+      .from('users')
+      .update({
+        current_status: newStatus,
+        status_reason: newStatus === 'break' ? 'Admin Forced Break' : 'Admin Override',
+        status_updated_at: new Date().toISOString()
+      })
+      .eq('id', agent.id);
+
+    setIsUpdating(false);
+
+    if (error) {
+      toast.error("Failed to override status");
+      console.error(error);
+    } else {
+      toast.success(`Agent forced to ${newStatus.replace('_', ' ')}`);
+      onClose(); // Close modal after successful override
+    }
+  }
 
   if (!agent) return null;
 
@@ -151,6 +178,33 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
               <span className="text-sm text-slate-500 flex items-center gap-1"><Power className="h-4 w-4"/> Offline Time Logged:</span>
               <span className="text-sm font-bold text-slate-700">{formatDuration(stats.offline)}</span>
             </div>
+
+            {/* ✅ NEW: ADMIN OVERRIDE SECTION */}
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Edit className="h-3 w-3" /> Admin Status Override
+              </label>
+              <div className="flex gap-2 items-center">
+                <Select 
+                  disabled={isUpdating} 
+                  onValueChange={handleForceStatusChange} 
+                  defaultValue={agent.current_status?.toLowerCase() || 'offline'}
+                >
+                  <SelectTrigger className="w-full bg-slate-50">
+                    <SelectValue placeholder="Force status change..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ready">Force Ready</SelectItem>
+                    <SelectItem value="on_call">Force On Call</SelectItem>
+                    <SelectItem value="wrap_up">Force Wrap-Up</SelectItem>
+                    <SelectItem value="break">Force Break</SelectItem>
+                    <SelectItem value="offline">Force Offline</SelectItem>
+                  </SelectContent>
+                </Select>
+                {isUpdating && <Loader2 className="h-5 w-5 animate-spin text-indigo-600 shrink-0" />}
+              </div>
+            </div>
+
           </div>
         )}
       </DialogContent>
@@ -223,7 +277,6 @@ function AgentCard({ agent, onClick }: { agent: Agent, onClick: () => void }) {
   }
 
   return (
-    // ✅ ADDED ONCLICK AND HOVER EFFECTS TO CARD
     <Card onClick={onClick} className={`transition-all duration-300 cursor-pointer hover:shadow-md hover:scale-[1.02] ${bgColor}`}>
       <CardContent className="p-5 flex flex-col justify-between h-full">
         <div className="flex justify-between items-start mb-4">
@@ -255,7 +308,7 @@ export default function AdminWallboardPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterState>('all')
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null) // ✅ ADDED SELECTED AGENT STATE
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -462,7 +515,6 @@ export default function AdminWallboardPage() {
         )}
       </div>
 
-      {/* ✅ ADDED THE MODAL TO THE PAGE */}
       <AgentStatsModal 
         agent={selectedAgent} 
         open={!!selectedAgent} 
