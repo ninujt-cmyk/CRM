@@ -23,8 +23,10 @@ import { LeadCallHistory } from "@/components/lead-call-history"
 import { FollowUpsList } from "@/components/follow-ups-list"
 import { WhatsAppChat } from "@/components/WhatsAppChat" 
 import { LiveScriptCard } from "@/components/telecaller/LiveScriptCard"
-// ✅ 1. IMPORT THE NEW ESCALATION BUTTON HERE
 import { ManagerEscalationButton } from "@/components/telecaller/ManagerEscalationButton"
+
+// ✅ IMPORT THE LEAD STATUS UPDATER
+import { LeadStatusUpdater } from "@/components/lead-status-updater"
 
 // --- CONSTANTS ---
 const STATUSES = {
@@ -73,7 +75,7 @@ const getStatusBadge = (status: string) => {
         case STATUSES.NOT_INTERESTED: return <Badge className="bg-red-500 hover:bg-red-600">Not Interested</Badge>;
         case STATUSES.LOGIN_DONE: return <Badge className="bg-purple-500 hover:bg-purple-600">Login Done</Badge>;
         case STATUSES.TRANSFERRED_TO_KYC: return <Badge className="bg-indigo-600 hover:bg-indigo-700">Transferred to KYC</Badge>;
-        default: return <Badge variant="secondary">Other</Badge>;
+        default: return <Badge variant="secondary">{status?.replace(/_/g, " ") || "Other"}</Badge>;
     }
 };
 
@@ -214,11 +216,10 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [isSavingDetails, setIsSavingDetails] = useState(false);
-    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     
     // Auth States
     const [agentName, setAgentName] = useState<string>("Agent");
-    const [agentId, setAgentId] = useState<string>(""); // ✅ ADDED THIS FOR ESCALATION BUTTON
+    const [agentId, setAgentId] = useState<string>(""); 
 
     const fetchLeadData = useCallback(async () => {
         const { data, error } = await supabase
@@ -241,7 +242,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         const fetchUserData = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                setAgentId(user.id); // ✅ SAVING THE ID FOR THE COMPONENT
+                setAgentId(user.id); 
                 
                 const { data: userProfile } = await supabase
                     .from('users')
@@ -262,6 +263,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         fetchLeadData();
     }, [fetchLeadData, supabase]);
 
+    // Realtime Listener
     useEffect(() => {
         const channel = supabase.channel(`lead-watch-${leadId}`)
             .on(
@@ -277,9 +279,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             )
             .subscribe();
 
-        return () => {
-            supabase.removeChannel(channel);
-        };
+        return () => { supabase.removeChannel(channel); };
     }, [leadId, supabase, isSavingDetails]);
 
     const handleInputChange = (field: keyof Lead, value: any) => {
@@ -307,22 +307,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         }
     };
 
-    const handleStatusUpdate = async (newStatus: string) => {
-        if (!lead || newStatus === lead.status) return;
-        setIsUpdatingStatus(true);
-        
-        const { error } = await supabase
-            .from('leads')
-            .update({ status: newStatus, updated_at: new Date().toISOString() })
-            .eq('id', lead.id);
-
-        setIsUpdatingStatus(false);
-
-        if (error) {
-            toast({ title: "Status Update Failed", description: error.message, variant: "destructive" });
-        }
-    };
-
     if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
     if (error || !lead) return <div className="p-8 text-center text-red-600">Error: {error || "Lead not found"}</div>;
 
@@ -333,11 +317,11 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             {/* HEADER AREA */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <Button onClick={() => router.back()} variant="outline" size="icon" className="h-9 w-9">
+                    <Button onClick={() => router.back()} variant="outline" size="icon" className="h-9 w-9 shrink-0">
                         <ArrowLeft className="h-5 w-5" />
                     </Button>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3 flex-wrap">
                             {lead.name}
                             {getStatusBadge(lead.status)}
                         </h1>
@@ -447,7 +431,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 {/* --- RIGHT COLUMN (1/3) --- */}
                 <div className="lg:col-span-1 space-y-6">
                     
-                    {/* ✅ 2. INJECTED ESCALATION BUTTON HERE ✅ */}
+                    {/* INJECTED ESCALATION BUTTON */}
                     {agentId && (
                         <ManagerEscalationButton
                             leadId={lead.id}
@@ -461,32 +445,17 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                        <WhatsAppChat leadId={lead.id} phone={lead.phone} />
                     </div>
 
-                    {/* STATUS CARD */}
-                    <Card className="shadow-lg border-2 border-purple-200">
-                        <CardHeader className="py-4 border-b bg-purple-50/50">
-                            <CardTitle className="text-lg text-purple-800 flex items-center gap-2">
-                                <Clock className="h-5 w-5" /> Update Status
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4 pt-4">
-                            <div className="space-y-2">
-                                <Label>Select New Status</Label>
-                                <Select value={lead.status} onValueChange={handleStatusUpdate} disabled={isUpdatingStatus}>
-                                    <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <Button 
-                                onClick={() => handleStatusUpdate(lead.status)} 
-                                disabled={isUpdatingStatus || isTransferred} 
-                                className="w-full bg-purple-600 hover:bg-purple-700"
-                            >
-                                {isUpdatingStatus ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : "Confirm Status Change"}
-                            </Button>
-                        </CardContent>
-                    </Card>
+                    {/* ✅ REPLACED THE OLD STATUS CARD WITH LeadStatusUpdater ✅ */}
+                    <LeadStatusUpdater
+                        leadId={lead.id}
+                        currentStatus={lead.status}
+                        leadPhoneNumber={lead.phone}
+                        telecallerName={agentName}
+                        customerName={lead.name}
+                        initialLoanAmount={lead.loan_amount}
+                        isCallInitiated={false}
+                        onNextLead={() => router.push("/telecaller/leads")} 
+                    />
 
                     {/* TRANSFER MODULE (Conditionally Rendered) */}
                     {(lead.status === STATUSES.LOGIN_DONE || lead.status === STATUSES.TRANSFERRED_TO_KYC) ? (
