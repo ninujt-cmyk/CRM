@@ -4,7 +4,6 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-// ✅ ADDED SELECT IMPORTS
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { 
   Users, PhoneCall, Coffee, Power, Clock, CheckCircle2, Loader2, AlertCircle, CalendarClock, Edit 
@@ -15,7 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { toast } from "sonner" // ✅ ADDED TOAST FOR FEEDBACK
+import { toast } from "sonner"
+
+// ✅ IMPORT THE NEW SERVER ACTION
+import { forceUpdateAgentStatus } from "@/app/actions/admin-actions"
 
 // --- TYPES ---
 interface Agent {
@@ -41,7 +43,7 @@ const formatDuration = (seconds: number) => {
 // --- SUB-COMPONENT: Agent Stats Modal ---
 function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: boolean, onClose: () => void }) {
   const [loading, setLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false); // ✅ NEW STATE FOR OVERRIDE
+  const [isUpdating, setIsUpdating] = useState(false);
   const [stats, setStats] = useState({ ready: 0, on_call: 0, wrap_up: 0, break: 0, offline: 0 });
   const supabase = createClient();
 
@@ -71,7 +73,6 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
         data.forEach(log => {
           let duration = log.duration_seconds || 0;
           
-          // If the log hasn't ended, calculate live duration up to this exact moment
           if (!log.ended_at) {
             duration = Math.floor((Date.now() - new Date(log.started_at).getTime()) / 1000);
           }
@@ -96,28 +97,21 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
 
   }, [agent, open, supabase]);
 
-  // ✅ NEW: FORCE STATUS UPDATE FUNCTION
+  // ✅ UPDATED TO USE SECURE SERVER ACTION
   const handleForceStatusChange = async (newStatus: string) => {
     if (!agent) return;
     setIsUpdating(true);
     
-    const { error } = await supabase
-      .from('users')
-      .update({
-        current_status: newStatus,
-        status_reason: newStatus === 'break' ? 'Admin Forced Break' : 'Admin Override',
-        status_updated_at: new Date().toISOString()
-      })
-      .eq('id', agent.id);
+    const reason = newStatus === 'break' ? 'Admin Forced Break' : 'Admin Override';
+    const res = await forceUpdateAgentStatus(agent.id, newStatus, reason);
 
     setIsUpdating(false);
 
-    if (error) {
-      toast.error("Failed to override status");
-      console.error(error);
+    if (!res.success) {
+      toast.error(res.error || "Failed to override status");
     } else {
       toast.success(`Agent forced to ${newStatus.replace('_', ' ')}`);
-      onClose(); // Close modal after successful override
+      onClose(); 
     }
   }
 
@@ -142,7 +136,6 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
           <div className="py-12 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>
         ) : (
           <div className="space-y-4 pt-4">
-            {/* Total Login Time Banner */}
             <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg flex items-center justify-between">
               <div className="flex items-center gap-2 text-indigo-700">
                 <CalendarClock className="h-5 w-5" />
@@ -151,7 +144,6 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
               <span className="text-xl font-black text-indigo-900">{formatDuration(totalLoginTime)}</span>
             </div>
 
-            {/* Detailed Grid */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex flex-col justify-center">
                 <span className="text-xs text-emerald-600 font-bold uppercase mb-1 flex items-center gap-1"><CheckCircle2 className="h-3 w-3"/> Ready / Waiting</span>
@@ -179,7 +171,6 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
               <span className="text-sm font-bold text-slate-700">{formatDuration(stats.offline)}</span>
             </div>
 
-            {/* ✅ NEW: ADMIN OVERRIDE SECTION */}
             <div className="mt-6 pt-4 border-t border-slate-100">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Edit className="h-3 w-3" /> Admin Status Override
@@ -212,11 +203,9 @@ function AgentStatsModal({ agent, open, onClose }: { agent: Agent | null, open: 
   )
 }
 
-// --- SUB-COMPONENT: Live Timer for Each Agent ---
 function AgentCard({ agent, onClick }: { agent: Agent, onClick: () => void }) {
   const [timer, setTimer] = useState(0)
 
-  // Calculate time spent in current status
   useEffect(() => {
     const startTime = agent.status_updated_at ? new Date(agent.status_updated_at).getTime() : Date.now()
     setTimer(Math.floor((Date.now() - startTime) / 1000))
@@ -235,7 +224,6 @@ function AgentCard({ agent, onClick }: { agent: Agent, onClick: () => void }) {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }
 
-  // Visuals based on current status
   let bgColor = "bg-slate-100 border-slate-200"
   let icon = <Power className="h-5 w-5 text-slate-500" />
   let statusText = "Offline"
@@ -303,7 +291,6 @@ function AgentCard({ agent, onClick }: { agent: Agent, onClick: () => void }) {
   )
 }
 
-// --- MAIN PAGE ---
 export default function AdminWallboardPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
@@ -343,7 +330,6 @@ export default function AdminWallboardPage() {
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
-  // --- METRIC COUNTS ---
   const onlineAgents = agents.filter(a => {
       const s = (a.current_status || '').toLowerCase();
       return s !== 'offline' && s !== '';
@@ -366,7 +352,6 @@ export default function AdminWallboardPage() {
       return s === 'offline' || s === '';
   }).length
 
-  // --- FILTER LOGIC ---
   const toggleFilter = (filterName: FilterState) => {
     setActiveFilter(prev => prev === filterName ? 'all' : filterName)
   }
@@ -403,87 +388,58 @@ export default function AdminWallboardPage() {
         </div>
       </div>
 
-      {/* METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        
-        <Card 
-          onClick={() => toggleFilter('online')}
-          className={`bg-white shadow-sm border-slate-200 cursor-pointer hover:shadow-md transition-all ${activeFilter === 'online' ? 'ring-2 ring-indigo-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}
-        >
+        <Card onClick={() => toggleFilter('online')} className={`bg-white shadow-sm border-slate-200 cursor-pointer hover:shadow-md transition-all ${activeFilter === 'online' ? 'ring-2 ring-indigo-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-500 font-medium">Total Online</p>
               <h2 className="text-3xl font-bold text-slate-800">{onlineAgents.length}</h2>
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'online' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600'}`}>
-              <Users />
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'online' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600'}`}><Users /></div>
           </CardContent>
         </Card>
         
-        <Card 
-          onClick={() => toggleFilter('ready')}
-          className={`bg-emerald-50 border-emerald-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'ready' ? 'ring-2 ring-emerald-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}
-        >
+        <Card onClick={() => toggleFilter('ready')} className={`bg-emerald-50 border-emerald-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'ready' ? 'ring-2 ring-emerald-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-emerald-600 font-medium">Ready (Waiting)</p>
               <h2 className="text-3xl font-bold text-emerald-700">{readyCount}</h2>
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'ready' ? 'bg-emerald-600 text-white' : 'bg-emerald-200 text-emerald-700'}`}>
-              <CheckCircle2 />
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'ready' ? 'bg-emerald-600 text-white' : 'bg-emerald-200 text-emerald-700'}`}><CheckCircle2 /></div>
           </CardContent>
         </Card>
 
-        <Card 
-          onClick={() => toggleFilter('on_call')}
-          className={`bg-blue-50 border-blue-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'on_call' ? 'ring-2 ring-blue-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}
-        >
+        <Card onClick={() => toggleFilter('on_call')} className={`bg-blue-50 border-blue-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'on_call' ? 'ring-2 ring-blue-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-blue-600 font-medium">On Active Call</p>
               <h2 className="text-3xl font-bold text-blue-700">{onCallCount}</h2>
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'on_call' ? 'bg-blue-600 text-white' : 'bg-blue-200 text-blue-700'}`}>
-              <PhoneCall />
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'on_call' ? 'bg-blue-600 text-white' : 'bg-blue-200 text-blue-700'}`}><PhoneCall /></div>
           </CardContent>
         </Card>
 
-        <Card 
-          onClick={() => toggleFilter('break')}
-          className={`bg-orange-50 border-orange-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'break' ? 'ring-2 ring-orange-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}
-        >
+        <Card onClick={() => toggleFilter('break')} className={`bg-orange-50 border-orange-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'break' ? 'ring-2 ring-orange-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-orange-600 font-medium">On Break</p>
               <h2 className="text-3xl font-bold text-orange-700">{breakCount}</h2>
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'break' ? 'bg-orange-600 text-white' : 'bg-orange-200 text-orange-700'}`}>
-              <Coffee />
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'break' ? 'bg-orange-600 text-white' : 'bg-orange-200 text-orange-700'}`}><Coffee /></div>
           </CardContent>
         </Card>
 
-        <Card 
-          onClick={() => toggleFilter('offline')}
-          className={`bg-slate-50 border-slate-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'offline' ? 'ring-2 ring-slate-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}
-        >
+        <Card onClick={() => toggleFilter('offline')} className={`bg-slate-50 border-slate-200 shadow-sm cursor-pointer hover:shadow-md transition-all ${activeFilter === 'offline' ? 'ring-2 ring-slate-500 scale-[1.02]' : 'hover:scale-[1.02]'}`}>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-500 font-medium">Offline</p>
               <h2 className="text-3xl font-bold text-slate-700">{offlineCount}</h2>
             </div>
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'offline' ? 'bg-slate-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-              <Power />
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${activeFilter === 'offline' ? 'bg-slate-600 text-white' : 'bg-slate-200 text-slate-600'}`}><Power /></div>
           </CardContent>
         </Card>
-
       </div>
 
-      {/* AGENT GRID */}
       <div className="flex items-end justify-between mt-8 mb-4 border-b pb-2">
         <h3 className="text-lg font-bold text-slate-700">
           Agent Status Grid 
@@ -492,12 +448,7 @@ export default function AdminWallboardPage() {
           </span>
         </h3>
         {activeFilter !== 'all' && (
-          <button 
-            onClick={() => setActiveFilter('all')} 
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-          >
-            Clear Filter
-          </button>
+          <button onClick={() => setActiveFilter('all')} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">Clear Filter</button>
         )}
       </div>
 
@@ -507,10 +458,7 @@ export default function AdminWallboardPage() {
         ))}
         {filteredAgents.length === 0 && (
           <div className="col-span-full text-center p-10 text-slate-500 bg-slate-50 rounded-lg border border-dashed">
-            {activeFilter === 'all' 
-              ? "No telecallers found in the database." 
-              : `No agents currently matching: ${filterLabels[activeFilter]}`
-            }
+            {activeFilter === 'all' ? "No telecallers found in the database." : `No agents currently matching: ${filterLabels[activeFilter]}`}
           </div>
         )}
       </div>
@@ -520,7 +468,6 @@ export default function AdminWallboardPage() {
         open={!!selectedAgent} 
         onClose={() => setSelectedAgent(null)} 
       />
-
     </div>
   )
 }
