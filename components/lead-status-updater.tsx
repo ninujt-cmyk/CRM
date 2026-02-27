@@ -21,9 +21,8 @@ import { ScheduleFollowUpModal } from "./schedule-follow-up-modal"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-import { sendMissedCallMessage, sendKYCRequestTemplate, sendNotInterestedAudit } from "@/app/actions/whatsapp" 
-// ✅ IMPORT YOUR WORKING SERVER ACTION HERE TOO
-import { initiateC2CCall } from "@/app/actions/c2c-dialer"
+// --- IMPORT THE SERVER ACTIONS ---
+import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" // 👈 Added sendKYCRequestTemplate
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -34,7 +33,6 @@ interface LeadStatusUpdaterProps {
   initialLoanAmount?: number | null 
   leadPhoneNumber: string | null | undefined
   telecallerName: string | null | undefined
-  customerName?: string
   onNextLead?: () => void 
 }
 
@@ -68,12 +66,12 @@ export function LeadStatusUpdater({
   initialLoanAmount = null,
   leadPhoneNumber = "",
   telecallerName = "Telecaller",
-  customerName = "Customer", 
   onNextLead
 }: LeadStatusUpdaterProps) {
   const supabase = createClient()
   const { activeCall, endCall, updateCallDuration } = useCallTracking()
 
+  // STATE
   const [status, setStatus] = useState("")
   const [isUpdating, setIsUpdating] = useState(false)
   const [note, setNote] = useState("") 
@@ -81,8 +79,10 @@ export function LeadStatusUpdater({
   const [loanAmount, setLoanAmount] = useState<number | null>(initialLoanAmount)
   const [isModalOpen, setIsModalOpen] = useState(false) 
   
+  // PERSISTENCE STATE
   const [autoNext, setAutoNext] = useState(true)
   
+  // DIALER STATE
   const [elapsedTime, setElapsedTime] = useState(0)
   const [callDurationOverride, setCallDurationOverride] = useState<number | null>(null) 
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -91,8 +91,10 @@ export function LeadStatusUpdater({
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
   const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) 
   
+  // REF to track duplication
   const lastDialedIdRef = useRef<string | null>(null)
 
+  // DERIVED STATE
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
@@ -108,6 +110,9 @@ export function LeadStatusUpdater({
   const isRevenueStatus = status === "Login" || status === "Disbursed";
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
+  // --- EFFECTS ---
+
+  // 1. LocalStorage for Auto Next
   useEffect(() => {
     const saved = localStorage.getItem("crm_auto_next");
     if (saved !== null) setAutoNext(saved === "true");
@@ -118,6 +123,7 @@ export function LeadStatusUpdater({
     localStorage.setItem("crm_auto_next", String(checked));
   }
   
+  // 2. Reset on Lead Change
   useEffect(() => { 
     setLoanAmount(initialLoanAmount);
     handleReset();
@@ -127,7 +133,7 @@ export function LeadStatusUpdater({
     }
   }, [leadId, initialLoanAmount]);
 
-  // ✅ UPDATED AUTO-DIALER TO USE SERVER ACTION
+  // AUTOMATION: ROBUST VISUAL AUTO-DIALER
   useEffect(() => {
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
         if (lastDialedIdRef.current !== leadId) {
@@ -141,19 +147,16 @@ export function LeadStatusUpdater({
                         clearInterval(interval);
                         setDialing(true);
                         
-                        // Execute your real C2C Server Action!
-                        initiateC2CCall(leadId, leadPhoneNumber)
-                        .then(res => {
-                            if (!res.success) throw new Error(res.error || "Dialer API Error");
-                            toast.success(`Dialing ${customerName || leadPhoneNumber}...`, { id: `auto-dial-${leadId}`});
-                        })
-                        .catch(err => {
-                            console.error("Auto-Dial C2C Error:", err);
-                            toast.error(err.message || "Failed to connect C2C automatically.", { id: `auto-dial-${leadId}`});
-                        })
-                        .finally(() => {
-                            setTimeout(() => setDialing(false), 1000);
-                        });
+                        const cleanNumber = leadPhoneNumber.replace(/\D/g, '');
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        document.body.appendChild(iframe);
+                        iframe.src = `tel:${cleanNumber}`;
+                        
+                        setTimeout(() => {
+                            if(document.body.contains(iframe)) document.body.removeChild(iframe);
+                            setDialing(false);
+                        }, 1000);
                         
                         return null;
                     }
@@ -164,8 +167,10 @@ export function LeadStatusUpdater({
             return () => clearInterval(interval);
         }
     }
-  }, [leadId, isCallInitiated, leadPhoneNumber, autoNext, customerName]);
+  }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
 
+
+  // 4. Short Call Detection
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isCallInitiated && !callDurationOverride && !countdown && !dialing) {
@@ -181,6 +186,7 @@ export function LeadStatusUpdater({
     return () => clearInterval(interval);
   }, [isCallInitiated, activeCall, callDurationOverride, countdown, dialing]);
 
+  // 5. Cleanup Reset
   useEffect(() => {
     if (status !== 'not_eligible') {
       setNotEligibleReason("")
@@ -188,11 +194,13 @@ export function LeadStatusUpdater({
     }
   }, [status, isUpdating]);
 
+  // --- HANDLERS ---
+
   const handleMissedCallWA = async () => {
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
     try {
-      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); 
+      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); // Pass leadId for tracking
       if (result.success) {
         toast.success("Missed call WhatsApp sent!");
         if(!status) setStatus('nr'); 
@@ -288,10 +296,8 @@ export function LeadStatusUpdater({
 
     setIsUpdating(true)
     try {
-      const updateData: any = { 
-        status: status, 
-        last_contacted: new Date().toISOString() 
-      }
+      let finalStatus = status; 
+      const updateData: any = { last_contacted: new Date().toISOString() }
       
       if (loanAmount !== null && !isNaN(loanAmount)) updateData.loan_amount = loanAmount
       if (remarks.trim()) updateData.notes = remarks
@@ -299,32 +305,57 @@ export function LeadStatusUpdater({
         updateData.notes = updateData.notes ? `${updateData.notes}\n\nNot Eligible: ${note}` : `Not Eligible: ${note}`
       }
 
+      if (status === "Not_Interested") {
+        const { data: leadData } = await supabase.from("leads").select("tags").eq("id", leadId).single()
+        let currentTags: string[] = [];
+        try { currentTags = Array.isArray(leadData?.tags) ? leadData.tags : JSON.parse(leadData?.tags || '[]'); } catch(e){}
+        
+        if (currentTags.includes("NI_STRIKE_1")) {
+            finalStatus = "dead_bucket" 
+        } else {
+            finalStatus = "recycle_pool" 
+            updateData.tags = [...currentTags, "NI_STRIKE_1"]
+        }
+      }
+      
+      updateData.status = finalStatus;
+
       // 1. UPDATE SUPABASE DATABASE
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
+      onStatusUpdate?.(finalStatus, note) 
+      
+      // 2. LOG ACTIONS
+      if (finalStatus !== status) {
+          const logContent = finalStatus === "recycle_pool" 
+            ? "System: Strike 1 (Not Interested). Lead Recycled." 
+            : "System: Strike 2 (Not Interested). Lead moved to Dead Bucket.";
+          const { data: { user } } = await supabase.auth.getUser()
+          if(user) await supabase.from("notes").insert({ lead_id: leadId, user_id: user.id, content: logContent, note_type: "status_change" })
+      }
+
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 2. WHATSAPP AUTOMATION
-      if (status === "Documents_Sent" && leadPhoneNumber) {
-          toast.info("Sending KYC Request via WhatsApp...");
+      // 3. WHATSAPP AUTOMATION (KYC Request vs Interested)
+      if (finalStatus === "Documents_Sent" && leadPhoneNumber) {
+          // 🔴 AUTOMATED KYC PIPELINE TRIGGER
+          toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
-          if (kycResult.success) toast.success("KYC WhatsApp Template sent securely!");
-          else toast.error("Failed to send automated KYC template.");
-      } else if (status === "Interested" && leadPhoneNumber) {
+          
+          if (kycResult.success) {
+              toast.success("KYC WhatsApp Template sent securely!");
+          } else {
+              toast.error("Failed to send automated KYC template.");
+          }
+      } else if (finalStatus === "Interested" && leadPhoneNumber) {
+          // Standard manual redirect for Interest
           const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
           const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
           window.open(wUrl, '_blank');
-      } else if (status === "Not_Interested" && leadPhoneNumber) {
-          toast.info("Sending QA Audit via WhatsApp...");
-          const auditResult = await sendNotInterestedAudit(leadId, leadPhoneNumber, customerName);
-          if (auditResult.success) toast.success("QA Audit sent to customer.");
-          else toast.error("Failed to send QA Audit. Check logs.");
       }
       
-      // 3. Trigger parent update safely after all fetches are complete
-      onStatusUpdate?.(status, note) 
-
+      // Reset UI state
       setNote(""); setRemarks(""); setCallDurationOverride(null); setElapsedTime(0); setNotEligibleReason(""); setStatus("");
       toast.success("Updated successfully!")
 
