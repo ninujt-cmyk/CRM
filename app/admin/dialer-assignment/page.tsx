@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 import { 
-  Users, Search, Filter, Loader2, Send, CheckSquare, Square, X, SplitSquareHorizontal, UserCheck, AlertOctagon, Zap
+  Users, Search, Filter, Loader2, Send, CheckSquare, Square, X, SplitSquareHorizontal, UserCheck, AlertOctagon, Link2
 } from "lucide-react"
 import { assignLeadsBulk, unassignLeadsBulk } from "@/app/actions/dialer-campaigns"
 
@@ -31,6 +32,28 @@ interface Agent {
   id: string;
   full_name: string;
   pending_leads: number; 
+}
+
+// --- UI HELPERS ---
+const formatStatus = (status: string) => {
+    if (!status) return "Unknown";
+    if (status.toLowerCase() === 'nr') return "No Response (NR)";
+    return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+const getStatusStyle = (status: string) => {
+    const s = (status || '').toLowerCase();
+    if (s.includes('new')) return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (s.includes('interested') && !s.includes('not')) return 'bg-green-50 text-green-700 border-green-200';
+    if (s.includes('document')) return 'bg-purple-50 text-purple-700 border-purple-200';
+    if (s.includes('login')) return 'bg-orange-50 text-orange-700 border-orange-200';
+    if (s.includes('disbursed')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (s.includes('not_interested') || s.includes('not interested')) return 'bg-red-50 text-red-700 border-red-200';
+    if (s.includes('follow')) return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    if (s.includes('not_eligible')) return 'bg-rose-50 text-rose-700 border-rose-200';
+    if (s === 'nr') return 'bg-gray-100 text-gray-700 border-gray-300';
+    if (s.includes('self_employed')) return 'bg-amber-50 text-amber-700 border-amber-200';
+    return 'bg-slate-100 text-slate-600 border-slate-200';
 }
 
 export default function DialerAssignmentPage() {
@@ -65,7 +88,6 @@ export default function DialerAssignmentPage() {
 
   // 1. FETCH LOGIC (Upgraded with Silent Background Mode)
   const fetchLeadsAndAgents = useCallback(async (showLoadingSpinner = true) => {
-    // Only show loading spinner and clear selections if the user is changing filters
     if (showLoadingSpinner) {
         setLoading(true)
         setSelectedLeadIds([]) 
@@ -106,21 +128,18 @@ export default function DialerAssignmentPage() {
       .from('leads')
       .select('id, name, phone, source, status, created_at, priority, assigned_to')
       
-    // Status Logic
     if (statusFilter === "all" && agentFilter === "all") {
       query = query.or('assigned_to.is.null,status.in.(Not Interested,Dead Bucket,nr,not_eligible,self_employed)')
     } else if (statusFilter !== "all") {
       query = query.eq('status', statusFilter)
     }
 
-    // Agent Ownership Logic
     if (agentFilter === "unassigned") query = query.is('assigned_to', null)
     else if (agentFilter !== "all") query = query.eq('assigned_to', agentFilter)
 
     if (sourceFilter !== "all") query = query.eq('source', sourceFilter)
     if (priorityFilter !== "all") query = query.eq('priority', priorityFilter)
 
-    // Date Logic
     if (dateRange !== "all") {
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -143,17 +162,14 @@ export default function DialerAssignmentPage() {
     setLoading(false)
   }, [supabase, statusFilter, sourceFilter, agentFilter, priorityFilter, dateRange, customStart, customEnd, fetchLimit])
 
-  // Initial load and Filter changes (Shows Loading Spinner)
   useEffect(() => { 
       fetchLeadsAndAgents(true) 
   }, [fetchLeadsAndAgents])
 
-  // 💡 REAL-TIME LISTENER (Silent updates in the background)
+  // REAL-TIME LISTENER
   useEffect(() => {
     const channel = supabase.channel('realtime_admin_leads')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-            console.log("Real-time table change detected. Refreshing data silently...");
-            // Pass 'false' so it doesn't trigger the UI spinner or erase checkboxes!
             fetchLeadsAndAgents(false);
         })
         .subscribe()
@@ -166,20 +182,14 @@ export default function DialerAssignmentPage() {
     setCustomStart(""); setCustomEnd(""); setSearchQuery("");
   }
 
-  // --- SELECTION LOGIC ---
   const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone.includes(searchQuery))
 
   const toggleSelectAll = () => setSelectedLeadIds(selectedLeadIds.length === filteredLeads.length ? [] : filteredLeads.map(l => l.id))
   const toggleSelectLead = (id: string) => setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(lId => lId !== id) : [...prev, id])
   const toggleSelectAgent = (id: string) => setSelectedAgentIds(prev => prev.includes(id) ? prev.filter(aId => aId !== id) : [...prev, id])
   const handleSelectAllAgents = () => setSelectedAgentIds(selectedAgentIds.length === agents.length ? [] : agents.map(a => a.id))
+  const selectTopN = (n: number) => setSelectedLeadIds(filteredLeads.slice(0, n).map(l => l.id));
 
-  // Quick Select Tools
-  const selectTopN = (n: number) => {
-    setSelectedLeadIds(filteredLeads.slice(0, n).map(l => l.id));
-  }
-
-  // --- ACTIONS ---
   const handleAssign = async () => {
     if (selectedAgentIds.length === 0 || selectedLeadIds.length === 0) {
       toast({ title: "Error", description: "Select at least one lead and one agent.", variant: "destructive" })
@@ -188,7 +198,6 @@ export default function DialerAssignmentPage() {
 
     setAssigning(true)
     
-    // True Round-Robin Distribution
     const agentBatches: Record<string, string[]> = {};
     selectedAgentIds.forEach(id => agentBatches[id] = []);
     
@@ -212,7 +221,7 @@ export default function DialerAssignmentPage() {
     if (successCount > 0) {
       toast({ title: "Distribution Complete 🚀", description: `Successfully distributed ${successCount} leads seamlessly.`, className: "bg-indigo-600 text-white" })
       setSelectedAgentIds([]); setAssignPriority("none");
-      fetchLeadsAndAgents(true); // Hard refresh on manual assign
+      fetchLeadsAndAgents(true); 
     }
     if (failCount > 0) toast({ title: "Partial Failure", description: `Failed to assign ${failCount} leads.`, variant: "destructive" })
     
@@ -227,7 +236,7 @@ export default function DialerAssignmentPage() {
       const res = await unassignLeadsBulk(selectedLeadIds);
       if (res.success) {
           toast({ title: "Queues Cleared", description: `Unassigned ${res.count} leads successfully.` })
-          fetchLeadsAndAgents(true); // Hard refresh on unassign
+          fetchLeadsAndAgents(true); 
       } else {
           toast({ title: "Error", description: res.error, variant: "destructive" })
       }
@@ -310,21 +319,28 @@ export default function DialerAssignmentPage() {
                 <div className="max-h-[250px] overflow-y-auto space-y-2 border border-slate-200 rounded-md p-2 bg-slate-50">
                     {agents.map(agent => {
                         const isSelected = selectedAgentIds.includes(agent.id)
-                        const isOverloaded = agent.pending_leads >= 50; 
+                        const isOverloaded = agent.pending_leads >= 30; // Reduced threshold for tighter warnings
                         
                         return (
                             <div 
                                 key={agent.id} 
                                 onClick={() => toggleSelectAgent(agent.id)}
-                                className={`flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
+                                className={cn(
+                                    "flex items-center justify-between p-2 rounded-md cursor-pointer border transition-colors",
+                                    isSelected ? "bg-indigo-50 border-indigo-300 shadow-sm" : "bg-white border-slate-200 hover:border-indigo-200"
+                                )}
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                                    <div className={cn("h-4 w-4 rounded border flex items-center justify-center", isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300')}>
                                         {isSelected && <CheckSquare className="h-3 w-3 text-white" />}
                                     </div>
-                                    <span className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{agent.full_name}</span>
+                                    <span className={cn("text-sm font-medium", isSelected ? 'text-indigo-900' : 'text-slate-700')}>{agent.full_name}</span>
                                 </div>
-                                <Badge variant="secondary" className={`${isOverloaded ? 'bg-red-100 text-red-700 font-bold' : 'bg-slate-100 text-slate-600'}`}>
+                                {/* 🔴 IMPROVED BADGE WARNING COLOR */}
+                                <Badge variant="secondary" className={cn(
+                                    "font-mono", 
+                                    isOverloaded ? "bg-red-100 text-red-700 border border-red-200" : "bg-slate-100 text-slate-600 border border-slate-200"
+                                )}>
                                     {agent.pending_leads}
                                 </Badge>
                             </div>
@@ -353,18 +369,17 @@ export default function DialerAssignmentPage() {
                <div className="flex items-center gap-4 flex-1 min-w-[250px]">
                   <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input placeholder="Quick search name or phone..." className="pl-9 bg-white" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                    <Input placeholder="Quick search name or phone..." className="pl-9 bg-white shadow-sm" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                   </div>
                </div>
                <div className="flex items-center gap-2">
-                   {/* QUICK SELECT BADGES */}
                    <div className="hidden md:flex gap-1 mr-4 border-r pr-4">
-                       <Button variant="ghost" size="sm" onClick={() => selectTopN(50)} className="text-xs text-indigo-600 hover:bg-indigo-50">Select 50</Button>
-                       <Button variant="ghost" size="sm" onClick={() => selectTopN(100)} className="text-xs text-indigo-600 hover:bg-indigo-50">Select 100</Button>
+                       <Button variant="ghost" size="sm" onClick={() => selectTopN(50)} className="text-xs font-semibold text-indigo-600 hover:bg-indigo-50">Select 50</Button>
+                       <Button variant="ghost" size="sm" onClick={() => selectTopN(100)} className="text-xs font-semibold text-indigo-600 hover:bg-indigo-50">Select 100</Button>
                    </div>
                    
                    <Select value={fetchLimit} onValueChange={setFetchLimit}>
-                      <SelectTrigger className="w-[120px] bg-white text-xs"><SelectValue placeholder="Limit" /></SelectTrigger>
+                      <SelectTrigger className="w-[120px] bg-white text-xs font-semibold shadow-sm"><SelectValue placeholder="Limit" /></SelectTrigger>
                       <SelectContent>
                           <SelectItem value="100">Fetch 100</SelectItem>
                           <SelectItem value="500">Fetch 500</SelectItem>
@@ -373,7 +388,7 @@ export default function DialerAssignmentPage() {
                           <SelectItem value="3000">Fetch 3000</SelectItem>
                       </SelectContent>
                    </Select>
-                   <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2">
+                   <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-2 bg-white shadow-sm font-semibold">
                      <Filter className="h-4 w-4" /> {showFilters ? 'Hide Filters' : 'Advanced Filters'}
                    </Button>
                </div>
@@ -381,13 +396,11 @@ export default function DialerAssignmentPage() {
 
             {/* Advanced Filters */}
             {showFilters && (
-              <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 border-b shadow-inner">
-                
-                {/* Agent Sweeper */}
+              <div className="p-4 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 border-b shadow-inner">
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Current Assignee</Label>
+                    <Label className="text-xs text-slate-600 font-bold uppercase">Assignee</Label>
                     <Select value={agentFilter} onValueChange={setAgentFilter}>
-                        <SelectTrigger><SelectValue placeholder="All Agents" /></SelectTrigger>
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="All Agents" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Any / Default</SelectItem>
                             <SelectItem value="unassigned">Unassigned Only</SelectItem>
@@ -396,30 +409,23 @@ export default function DialerAssignmentPage() {
                     </Select>
                 </div>
 
-                {/* Status Options Synchronized */}
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Lead Status</Label>
+                    <Label className="text-xs text-slate-600 font-bold uppercase">Status</Label>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger><SelectValue placeholder="Lead Status" /></SelectTrigger>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Lead Status" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Any Status</SelectItem>
-                        {/* Core Filter Options Synced from lead-filters.tsx */}
                         {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','follow_up','not_eligible','self_employed','nr'].map(s => (
-                           <SelectItem key={s} value={s}>{s.replace('_',' ')}</SelectItem>
+                           <SelectItem key={s} value={s}>{formatStatus(s)}</SelectItem>
                         ))}
-                        {/* Legacy Database Statuses Just in Case */}
-                        <SelectItem value="New Lead">New Lead</SelectItem>
-                        <SelectItem value="Contacted">Contacted</SelectItem>
-                        <SelectItem value="Follow Up">Follow Up</SelectItem>
-                        <SelectItem value="Dead Bucket">Dead Bucket</SelectItem>
                     </SelectContent>
                     </Select>
                 </div>
 
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Priority Level</Label>
+                    <Label className="text-xs text-slate-600 font-bold uppercase">Priority</Label>
                     <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                    <SelectTrigger><SelectValue placeholder="Any Priority" /></SelectTrigger>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Any Priority" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Any Priority</SelectItem>
                         <SelectItem value="urgent">Urgent</SelectItem>
@@ -430,11 +436,10 @@ export default function DialerAssignmentPage() {
                     </Select>
                 </div>
 
-                {/* Source Dropdown Added */}
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Lead Source</Label>
+                    <Label className="text-xs text-slate-600 font-bold uppercase">Source</Label>
                     <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                    <SelectTrigger><SelectValue placeholder="Any Source" /></SelectTrigger>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Any Source" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">All Sources</SelectItem>
                         <SelectItem value="website">Website</SelectItem>
@@ -446,9 +451,9 @@ export default function DialerAssignmentPage() {
                 </div>
 
                 <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Date Added</Label>
+                    <Label className="text-xs text-slate-600 font-bold uppercase">Date</Label>
                     <Select value={dateRange} onValueChange={setDateRange}>
-                    <SelectTrigger><SelectValue placeholder="Date Added" /></SelectTrigger>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Date Added" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">All Time</SelectItem>
                         <SelectItem value="today">Today</SelectItem>
@@ -460,14 +465,14 @@ export default function DialerAssignmentPage() {
                 </div>
 
                 {dateRange === "custom" && (
-                  <div className="lg:col-span-5 flex items-center gap-4 p-3 bg-slate-50 border rounded-md mt-2">
+                  <div className="lg:col-span-5 flex items-center gap-4 p-3 bg-white border border-slate-200 rounded-md mt-2 shadow-sm">
                     <div className="flex items-center gap-2"><Label>From:</Label><Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-auto"/></div>
                     <div className="flex items-center gap-2"><Label>To:</Label><Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-auto"/></div>
                   </div>
                 )}
 
-                <div className="lg:col-span-5 flex justify-end gap-2 mt-2 pt-2 border-t">
-                  <Button variant="ghost" size="sm" onClick={clearFilters}><X className="h-4 w-4 mr-2" /> Clear Filters</Button>
+                <div className="lg:col-span-5 flex justify-end gap-2 mt-2 pt-2 border-t border-slate-200">
+                  <Button variant="ghost" size="sm" onClick={clearFilters} className="text-slate-500 hover:text-slate-800"><X className="h-4 w-4 mr-2" /> Clear Filters</Button>
                 </div>
               </div>
             )}
@@ -475,10 +480,10 @@ export default function DialerAssignmentPage() {
             {/* THE DATA TABLE */}
             <div className="overflow-x-auto max-h-[600px]">
               <table className="w-full text-sm text-left relative">
-                <thead className="text-xs text-slate-500 bg-slate-100 uppercase font-semibold sticky top-0 z-10 shadow-sm">
+                <thead className="text-xs text-slate-500 bg-white uppercase font-bold tracking-wider sticky top-0 z-10 shadow-sm ring-1 ring-slate-200">
                   <tr>
-                    <th className="p-4 w-12 text-center">
-                      <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600">
+                    <th className="p-4 w-12 text-center bg-white">
+                      <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600 transition-colors">
                         {selectedLeadIds.length === filteredLeads.length && filteredLeads.length > 0 ? (
                           <CheckSquare className="h-5 w-5 text-indigo-600" />
                         ) : (
@@ -486,43 +491,60 @@ export default function DialerAssignmentPage() {
                         )}
                       </button>
                     </th>
-                    <th className="py-3 px-4">Customer Details</th>
-                    <th className="py-3 px-4">Assignee</th>
-                    <th className="py-3 px-4">Current Status</th>
-                    <th className="py-3 px-4">Date Added</th>
+                    <th className="py-3 px-4 bg-white">Customer Details</th>
+                    <th className="py-3 px-4 bg-white">Assignee</th>
+                    <th className="py-3 px-4 bg-white">Current Status</th>
+                    <th className="py-3 px-4 bg-white text-right">Date Added</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100">
                   {loading ? (
-                    <tr><td colSpan={5} className="text-center p-12"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" /></td></tr>
+                    <tr><td colSpan={5} className="text-center p-16"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" /></td></tr>
                   ) : filteredLeads.length === 0 ? (
-                    <tr><td colSpan={5} className="text-center p-12 text-slate-500">No leads found matching your filters.</td></tr>
+                    <tr><td colSpan={5} className="text-center p-16 text-slate-500 font-medium">No leads found matching your criteria.</td></tr>
                   ) : (
                     filteredLeads.map(lead => {
                       const isSelected = selectedLeadIds.includes(lead.id)
                       const owner = agents.find(a => a.id === lead.assigned_to)?.full_name || "Unassigned";
 
                       return (
-                        <tr key={lead.id} className={`border-b transition-colors hover:bg-slate-50 cursor-pointer ${isSelected ? 'bg-indigo-50/50' : ''}`} onClick={() => toggleSelectLead(lead.id)}>
+                        <tr key={lead.id} className={cn("transition-colors hover:bg-slate-50 cursor-pointer", isSelected ? 'bg-indigo-50/50' : '')} onClick={() => toggleSelectLead(lead.id)}>
                           <td className="p-4 text-center">
                             {isSelected ? <CheckSquare className="h-5 w-5 text-indigo-600 mx-auto" /> : <Square className="h-5 w-5 text-slate-300 mx-auto" />}
                           </td>
-                          <td className="py-3 px-4 flex items-center gap-2">
-                             <div>
-                                <p className="font-semibold text-slate-800">{lead.name}</p>
-                                <p className="text-xs text-slate-500">{lead.phone}</p>
+                          <td className="py-3 px-4">
+                             <div className="flex flex-col">
+                                <p className="font-bold text-slate-800 flex items-center gap-2">
+                                    {lead.name}
+                                    {['urgent', 'high'].includes(lead.priority || "") && <span className="h-2 w-2 rounded-full bg-red-500 shadow-sm" title="High Priority" />}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-xs text-slate-500 font-mono tracking-tight">{lead.phone}</span>
+                                    {/* 🔴 NEW: Lead Source Badge */}
+                                    {lead.source && (
+                                        <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 uppercase tracking-wider font-semibold border border-slate-200">
+                                            <Link2 className="h-3 w-3" /> {lead.source}
+                                        </span>
+                                    )}
+                                </div>
                              </div>
-                             {['urgent', 'high'].includes(lead.priority || "") && <Badge className="bg-red-100 text-red-700 ml-2 uppercase text-[10px]">{lead.priority}</Badge>}
-                          </td>
-                          <td className="py-3 px-4 text-slate-600 font-medium">
-                            {owner}
                           </td>
                           <td className="py-3 px-4">
-                            <Badge variant="outline" className={['New Lead', 'new'].includes(lead.status) ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600'}>
-                              {lead.status || "Unknown"}
+                            <span className={cn("text-sm font-semibold", owner === "Unassigned" ? "text-slate-400 italic" : "text-slate-700")}>
+                                {owner}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {/* 🔴 NEW: Beautiful formatted Status Badges */}
+                            <Badge variant="outline" className={cn("font-semibold text-[11px] px-2.5 py-0.5", getStatusStyle(lead.status))}>
+                              {formatStatus(lead.status)}
                             </Badge>
                           </td>
-                          <td className="py-3 px-4 text-slate-500">{new Date(lead.created_at).toLocaleDateString()}</td>
+                          <td className="py-3 px-4 text-right">
+                              {/* 🔴 NEW: Date and Time cleanly split */}
+                              <div className="text-sm font-semibold text-slate-700">{new Date(lead.created_at).toLocaleDateString()}</div>
+                              <div className="text-[10px] text-slate-400 font-medium tracking-wider">{new Date(lead.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                          </td>
                         </tr>
                       )
                     })
@@ -531,7 +553,7 @@ export default function DialerAssignmentPage() {
               </table>
             </div>
             
-            <div className="p-4 bg-slate-50 border-t flex items-center justify-between text-xs text-slate-500">
+            <div className="p-4 bg-slate-50 border-t flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <span>Showing {filteredLeads.length} leads</span>
                 <span>Database Limit: {fetchLimit} rows</span>
             </div>
