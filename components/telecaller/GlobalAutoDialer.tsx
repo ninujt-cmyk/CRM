@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
-    const [countdown, setCountdown] = useState(10)
+    const [countdown, setCountdown] = useState(5)
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
@@ -61,31 +61,22 @@ export function GlobalAutoDialer() {
         return () => { if (pollInterval) clearInterval(pollInterval); }
     }, [dialState, supabase]);
 
-    // 💡 THE FIX: Safely await the database change to 'ready' before dialing!
+    // 3. The Zero-Second Trigger
     useEffect(() => {
         const triggerNextCall = async () => {
             if (dialState === 'wrap_up' && countdown === 0) {
                 console.log("🚀 Countdown hit 0! Pushing status to Ready and dialing...");
-                
                 if (userIdRef.current) {
-                    // 1. Force the database to 'ready' and WAIT for it to finish
-                    await supabase.from('users').update({ 
-                        current_status: 'ready', 
-                        status_reason: 'Auto-Dialer Ready' 
-                    }).eq('id', userIdRef.current);
+                    await supabase.from('users').update({ current_status: 'ready', status_reason: 'Auto-Dialer Ready' }).eq('id', userIdRef.current);
                 }
-                
-                // 2. Now that the DB is definitely 'ready', unlock the local state and fire!
                 changeState('idle');
                 executeAutoDial();
             }
         };
-
         triggerNextCall();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [countdown, dialState]);
 
-    
     const handleDatabaseStatusChange = (dbStatus: string) => {
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
 
@@ -100,7 +91,6 @@ export function GlobalAutoDialer() {
             setIsVisible(true);
             if (timerRef.current) clearInterval(timerRef.current);
         } else if (normalizedStatus === 'wrap_up') {
-            // Check prevents restarting the timer if they are already counting down
             if (stateLock.current !== 'wrap_up') {
                 changeState('wrap_up');
                 setIsVisible(true);
@@ -116,19 +106,16 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(10) 
-        
+        setCountdown(5) 
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
-                if (prev <= 1) {
-                    clearInterval(timerRef.current!)
-                    return 0 // The new useEffect catches this exactly at 0!
-                }
+                if (prev <= 1) { clearInterval(timerRef.current!); return 0 }
                 return prev - 1
             })
         }, 1000)
     }
 
+    // 🔥 THE WATERFALL ROUTING ALGORITHM
     const executeAutoDial = async () => {
         const uid = userIdRef.current
         if (!uid || stateLock.current === 'dialing' || stateLock.current === 'on_call') return;
@@ -136,14 +123,89 @@ export function GlobalAutoDialer() {
         changeState('dialing');
 
         try {
-            const { data: potentialLeads } = await supabase
-                .from('leads')
-                .select('id, name, phone, priority, created_at')
-                .eq('assigned_to', uid)
-                .in('status', ['New Lead', 'Follow Up', 'new'])
-                .limit(50)
+            let nextLead = null;
 
-            if (!potentialLeads || potentialLeads.length === 0) {
+            // Sorting Helper: Sorts by priority first, then date (oldest first)
+            const sortLeads = (leads: any[], dateField: string = 'created_at') => {
+                const weights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
+                return leads.sort((a, b) => {
+                    const wA = weights[a.priority || "none"] || 0;
+                    const wB = weights[b.priority || "none"] || 0;
+                    if (wA !== wB) return wB - wA; 
+                    return new Date(a[dateField] || 0).getTime() - new Date(b[dateField] || 0).getTime(); 
+                });
+            };
+
+            // 🪣 BUCKET 1: Own New Leads
+            console.log("Checking Bucket 1: Own Fresh Leads...");
+            const { data: ownNew } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['New Lead', 'new']).limit(50);
+            if (ownNew && ownNew.length > 0) nextLead = sortLeads(ownNew, 'created_at')[0];
+
+            // 🪣 BUCKET 2: Steal Leads (Unassigned OR Agents with > 5 leads)
+            if (!nextLead) {
+                console.log("Checking Bucket 2: Stealable Leads...");
+                
+                // 2A: Check completely unassigned new leads first
+                const { data: unassignedNew } = await supabase.from('leads').select('*').is('assigned_to', null).in('status', ['New Lead', 'new']).limit(50);
+                if (unassignedNew && unassignedNew.length > 0) {
+                    nextLead = sortLeads(unassignedNew, 'created_at')[0];
+                    await supabase.from('leads').update({ assigned_to: uid }).eq('id', nextLead.id); // Assign to self
+                } 
+                // 2B: Check other agents if they have > 5
+                else {
+                    const { data: otherAgentsLeads } = await supabase.from('leads').select('*').in('status', ['New Lead', 'new']).neq('assigned_to', uid).not('assigned_to', 'is', null).limit(1000);
+                    if (otherAgentsLeads && otherAgentsLeads.length > 0) {
+                        const counts: Record<string, number> = {};
+                        otherAgentsLeads.forEach(l => { counts[l.assigned_to] = (counts[l.assigned_to] || 0) + 1; });
+                        
+                        // Find an agent who has more than 5
+                        const overloadedAgent = Object.keys(counts).find(aId => counts[aId] > 5);
+                        if (overloadedAgent) {
+                            const stealableLeads = otherAgentsLeads.filter(l => l.assigned_to === overloadedAgent);
+                            nextLead = sortLeads(stealableLeads, 'created_at')[0];
+                            await supabase.from('leads').update({ assigned_to: uid }).eq('id', nextLead.id); // Steal it!
+                        }
+                    }
+                }
+            }
+
+            // 🪣 BUCKET 3: Standard Active Queue
+            if (!nextLead) {
+                console.log("Checking Bucket 3: Active Queue...");
+                const { data: queueLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Follow Up', 'Contacted', 'follow_up']).limit(50);
+                if (queueLeads && queueLeads.length > 0) nextLead = sortLeads(queueLeads, 'last_contacted')[0];
+            }
+
+            // 🪣 BUCKET 4: Not Reachable (NR) Leads
+            if (!nextLead) {
+                console.log("Checking Bucket 4: NR Leads...");
+                const { data: nrLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['nr', 'Not Reachable']).limit(50);
+                if (nrLeads && nrLeads.length > 0) nextLead = sortLeads(nrLeads, 'last_contacted')[0];
+            }
+
+            // 🪣 BUCKET 5: Interested (> 24 Hrs old)
+            if (!nextLead) {
+                console.log("Checking Bucket 5: Old Interested Leads...");
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                const { data: intLeads } = await supabase.from('leads')
+                    .select('*')
+                    .eq('assigned_to', uid)
+                    .in('status', ['Interested', 'interested'])
+                    .lt('last_contacted', twentyFourHoursAgo) // strict check for > 24 hrs
+                    .limit(50);
+                if (intLeads && intLeads.length > 0) nextLead = sortLeads(intLeads, 'last_contacted')[0];
+            }
+
+            // 🪣 BUCKET 6: Not Interested
+            if (!nextLead) {
+                console.log("Checking Bucket 6: Not Interested Leads...");
+                const { data: notIntLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Not Interested', 'Not_Interested', 'not_interested']).limit(50);
+                if (notIntLeads && notIntLeads.length > 0) nextLead = sortLeads(notIntLeads, 'last_contacted')[0];
+            }
+
+            // 🚨 IF ALL BUCKETS ARE EMPTY
+            if (!nextLead) {
+                console.log("All buckets empty. Waiting...");
                 changeState('empty');
                 setCurrentCustomer(null);
                 setTimeout(async () => {
@@ -153,17 +215,8 @@ export function GlobalAutoDialer() {
                 return
             }
 
-            const priorityWeights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
-            const sortedLeads = potentialLeads.sort((a, b) => {
-                const weightA = priorityWeights[a.priority || "none"] || 0;
-                const weightB = priorityWeights[b.priority || "none"] || 0;
-                if (weightA !== weightB) return weightB - weightA; 
-                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); 
-            });
-
-            const nextLead = sortedLeads[0];
+            // 🚀 TRIGGER THE CALL
             setCurrentCustomer(nextLead.name);
-
             const res = await initiateC2CCall(nextLead.id, nextLead.phone);
 
             if (res.success) {
@@ -191,11 +244,8 @@ export function GlobalAutoDialer() {
     const forceSkip = async () => {
         if (!userIdRef.current) return;
         toast({ title: "Skipping Call", description: "Moving to next lead..." });
-        
-        // 💡 Make the UI feel snappy by instantly updating state locally!
         changeState('wrap_up');
         startWrapUpCountdown();
-        
         await supabase.from('users').update({ current_status: 'wrap_up', status_reason: 'Force Skipped' }).eq('id', userIdRef.current);
     }
 
