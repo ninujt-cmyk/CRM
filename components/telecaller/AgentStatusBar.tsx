@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { updateAgentStatus } from "@/app/actions/agent-state"
+// ✅ IMPORT THE NEW SECURE SERVER ACTION
+import { updateTelecallerStatus } from "@/app/actions/user-status" 
 import { 
   PhoneCall, Coffee, Power, Clock, CheckCircle2, AlertCircle, Loader2
 } from "lucide-react"
-// ✅ CHANGED: Imported Select components exactly like LeadFilters
 import { 
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator 
 } from "@/components/ui/select"
@@ -62,7 +62,8 @@ export function AgentStatusBar({ userId }: { userId: string }) {
     setLoading(true);
     
     try {
-      const res = await updateAgentStatus(userId, newStatus, newReason);
+      // ✅ USE THE NEW RLS-BYPASSING SERVER ACTION
+      const res = await updateTelecallerStatus(newStatus, newReason || "Manual Update");
       
       if (res?.success) {
         setStatus(newStatus);
@@ -84,6 +85,7 @@ export function AgentStatusBar({ userId }: { userId: string }) {
   const getStatusColor = () => {
     switch(status) {
       case 'ready': return 'bg-emerald-500 hover:bg-emerald-600 text-white';
+      case 'active': return 'bg-emerald-500 hover:bg-emerald-600 text-white'; // Added active fallback
       case 'on_call': return 'bg-blue-500 hover:bg-blue-600 text-white';
       case 'wrap_up': return 'bg-amber-500 hover:bg-amber-600 text-white';
       case 'break': return 'bg-orange-500 hover:bg-orange-600 text-white';
@@ -93,7 +95,8 @@ export function AgentStatusBar({ userId }: { userId: string }) {
 
   const getStatusIcon = () => {
     switch(status) {
-      case 'ready': return <CheckCircle2 className="h-4 w-4 mr-2" />;
+      case 'ready': 
+      case 'active': return <CheckCircle2 className="h-4 w-4 mr-2" />;
       case 'on_call': return <PhoneCall className="h-4 w-4 mr-2 animate-pulse" />;
       case 'wrap_up': return <Clock className="h-4 w-4 mr-2" />;
       case 'break': return <Coffee className="h-4 w-4 mr-2" />;
@@ -101,7 +104,7 @@ export function AgentStatusBar({ userId }: { userId: string }) {
     }
   }
 
-  // ✅ NEW: Map the current dual-state into a single string for the Select component
+  // Map the current dual-state into a single string for the Select component
   let selectValue = status;
   if (status === 'break' && reason) {
     if (reason === 'Tea Break') selectValue = 'break_tea';
@@ -109,7 +112,7 @@ export function AgentStatusBar({ userId }: { userId: string }) {
     if (reason === 'Meeting') selectValue = 'break_meeting';
   }
 
-  // ✅ NEW: Decode the Select value back into status & reason
+  // Decode the Select value back into status & reason
   const onSelectChange = (val: string) => {
     if (val === 'ready') handleStatusChange('ready', null);
     else if (val === 'break_tea') handleStatusChange('break', 'Tea Break');
@@ -123,7 +126,6 @@ export function AgentStatusBar({ userId }: { userId: string }) {
       <div className="flex items-center gap-4">
         <span className="font-semibold text-slate-700 hidden sm:inline-block">Dialer State:</span>
         
-        {/* ✅ CHANGED: Implemented Select Pattern */}
         <Select value={selectValue} onValueChange={onSelectChange} disabled={loading}>
           <SelectTrigger className={`${getStatusColor()} w-56 shadow-sm border-0 focus:ring-0`}>
             <div className="flex items-center">
