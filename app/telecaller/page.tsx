@@ -29,7 +29,6 @@ import { DailyTargetProgress } from "@/components/daily-target-progress"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { EmptyState } from "@/components/empty-state"
 
-// --- TYPES ---
 interface DashboardStats {
   title: string
   value: number | string
@@ -136,7 +135,9 @@ export default function TelecallerDashboard() {
       console.error("Dashboard Load Error:", err)
       setData(prev => ({ ...prev, isLoading: false, error: err.message || "Failed to load dashboard." }))
     }
-  }, [router, supabase])
+  // 🔴 BUG FIX: Removed `supabase` from this array to stop infinite loop!
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router])
 
   useEffect(() => {
     loadDashboardData()
@@ -167,7 +168,6 @@ export default function TelecallerDashboard() {
       return Math.floor(data.targets.achieved * INCENTIVE_RATE)
   }, [data.targets.achieved])
 
-  // --- HELPERS ---
   const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return "Good morning"
@@ -221,10 +221,7 @@ export default function TelecallerDashboard() {
     }
   ]
 
-  // --- CONDITIONAL RENDERS ---
-  if (data.isLoading) {
-    return <DashboardSkeleton />
-  }
+  if (data.isLoading) return <DashboardSkeleton />
 
   if (data.error) {
     return (
@@ -239,13 +236,9 @@ export default function TelecallerDashboard() {
     )
   }
 
-  // --- MAIN RENDER ---
   return (
     <NotificationProvider userId={data.user?.id}>
-      
       <div className="min-h-screen bg-slate-50/50 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto relative pb-24">
-        
-        {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
@@ -260,7 +253,6 @@ export default function TelecallerDashboard() {
           
           <div className="flex items-center gap-3">
             <NotificationBell />
-            
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -271,14 +263,12 @@ export default function TelecallerDashboard() {
                     <TooltipContent>Refresh Data</TooltipContent>
                 </Tooltip>
             </TooltipProvider>
-            
             <Button onClick={() => router.push("/leads/new")} className="bg-indigo-600 hover:bg-indigo-700 shadow-sm hidden md:flex">
               <Plus className="h-4 w-4 mr-2" /> Add Lead
             </Button>
           </div>
         </header>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {statsConfig.map((stat, i) => (
             <Card key={i} className={`shadow-sm border transition-all hover:shadow-md ${stat.borderColor}`}>
@@ -305,10 +295,7 @@ export default function TelecallerDashboard() {
           ))}
         </div>
 
-        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* Main Column */}
           <div className="lg:col-span-8 space-y-8">
             <Card className="border-none shadow-lg bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white overflow-hidden relative group">
               <div className="absolute right-0 top-0 h-full w-1/3 bg-white/5 skew-x-12 -mr-10 transition-transform group-hover:-translate-x-2 duration-700" />
@@ -380,7 +367,6 @@ export default function TelecallerDashboard() {
             </div>
           </div>
 
-          {/* Sidebar */}
           <div className="lg:col-span-4 space-y-8">
             <ErrorBoundary fallback={null}>
               <AttendanceWidget />
@@ -413,7 +399,6 @@ export default function TelecallerDashboard() {
           </div>
         </div>
 
-        {/* Mobile FAB */}
         <div className="md:hidden fixed bottom-6 right-6 z-50">
             <Button 
                 className="rounded-full h-14 w-14 shadow-2xl bg-indigo-600 hover:bg-indigo-700"
@@ -430,73 +415,27 @@ export default function TelecallerDashboard() {
 function DashboardSkeleton() {
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto">
-      {/* Header Skeleton */}
       <div className="flex flex-col md:flex-row justify-between gap-4">
-        <div className="space-y-3">
-          <Skeleton className="h-8 w-64 rounded-md" /> {/* Greeting */}
-          <Skeleton className="h-4 w-40 rounded-md" /> {/* Date */}
-        </div>
-        <div className="flex gap-3">
-          <Skeleton className="h-10 w-10 rounded-full" /> {/* Bell */}
-          <Skeleton className="h-10 w-10 rounded-md" /> {/* Refresh */}
-          <Skeleton className="h-10 w-32 rounded-md hidden md:block" /> {/* Add Lead */}
-        </div>
+        <div className="space-y-3"><Skeleton className="h-8 w-64 rounded-md" /><Skeleton className="h-4 w-40 rounded-md" /></div>
+        <div className="flex gap-3"><Skeleton className="h-10 w-10 rounded-full" /><Skeleton className="h-10 w-10 rounded-md" /><Skeleton className="h-10 w-32 rounded-md hidden md:block" /></div>
       </div>
-
-      {/* Stats Grid Skeleton */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 h-[120px] flex justify-between">
-            <div className="space-y-3 w-2/3">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="h-3 w-24" />
-            </div>
+            <div className="space-y-3 w-2/3"><Skeleton className="h-3 w-20" /><Skeleton className="h-8 w-16" /><Skeleton className="h-3 w-24" /></div>
             <Skeleton className="h-10 w-10 rounded-xl" />
           </div>
         ))}
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Main Col Skeleton */}
         <div className="lg:col-span-8 space-y-8">
-          {/* Hero Card */}
-          <div className="h-[220px] w-full rounded-xl bg-slate-200 animate-pulse relative overflow-hidden">
-             <div className="absolute inset-0 bg-gradient-to-r from-slate-200 to-slate-300" />
-          </div>
-
-          {/* Daily Progress */}
-          <div className="h-[300px] bg-white rounded-xl border border-slate-200 p-6 space-y-6">
-             <div className="flex justify-between">
-                 <Skeleton className="h-6 w-32" />
-                 <Skeleton className="h-6 w-24 rounded-full" />
-             </div>
-             <div className="space-y-4">
-                 <Skeleton className="h-20 w-full rounded-lg" />
-                 <Skeleton className="h-20 w-full rounded-lg" />
-             </div>
-          </div>
-
-          {/* Task List */}
-          <div className="space-y-4">
-            <Skeleton className="h-7 w-40" />
-            <div className="space-y-3">
-              {[1, 2, 3].map(i => <Skeleton key={i} className="h-24 w-full rounded-lg border border-slate-200" />)}
-            </div>
-          </div>
+          <div className="h-[220px] w-full rounded-xl bg-slate-200 animate-pulse relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-slate-200 to-slate-300" /></div>
+          <div className="h-[300px] bg-white rounded-xl border border-slate-200 p-6 space-y-6"><div className="flex justify-between"><Skeleton className="h-6 w-32" /><Skeleton className="h-6 w-24 rounded-full" /></div><div className="space-y-4"><Skeleton className="h-20 w-full rounded-lg" /><Skeleton className="h-20 w-full rounded-lg" /></div></div>
+          <div className="space-y-4"><Skeleton className="h-7 w-40" /><div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24 w-full rounded-lg border border-slate-200" />)}</div></div>
         </div>
-
-        {/* Sidebar Skeleton */}
         <div className="lg:col-span-4 space-y-8">
-          <Skeleton className="h-[250px] w-full rounded-xl" /> {/* Attendance */}
-          <div className="h-[350px] bg-white rounded-xl border border-slate-200 p-6 flex flex-col justify-between">
-             <Skeleton className="h-6 w-40 mb-4" />
-             <div className="grid grid-cols-2 gap-4">
-                <Skeleton className="h-24 w-full rounded-full" />
-                <Skeleton className="h-24 w-full rounded-full" />
-             </div>
-             <Skeleton className="h-12 w-full rounded-md mt-4" />
-          </div>
+          <Skeleton className="h-[250px] w-full rounded-xl" /> 
+          <div className="h-[350px] bg-white rounded-xl border border-slate-200 p-6 flex flex-col justify-between"><Skeleton className="h-6 w-40 mb-4" /><div className="grid grid-cols-2 gap-4"><Skeleton className="h-24 w-full rounded-full" /><Skeleton className="h-24 w-full rounded-full" /></div><Skeleton className="h-12 w-full rounded-md mt-4" /></div>
         </div>
       </div>
     </div>
