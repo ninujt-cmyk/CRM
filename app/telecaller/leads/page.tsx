@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, Filter, TrendingUp, Clock, LogIn, CheckCircle2 } from "lucide-react"
 import { TelecallerLeadsTable } from "@/components/telecaller-leads-table"
 import { TelecallerLeadFilters } from "@/components/telecaller-lead-filters"
-import { TelecallerCreateLeadDialog } from "@/components/telecaller-create-lead-dialog" // New Import
+import { TelecallerCreateLeadDialog } from "@/components/telecaller-create-lead-dialog" 
 import { redirect } from "next/navigation"
 import { Progress } from "@/components/ui/progress"
 
@@ -36,23 +36,27 @@ export default async function TelecallerLeadsPage({
   const sortOrder = searchParams.sort_order === 'asc'
 
   // Parallel Stats Fetching
-  const baseQuery = supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id)
-   
   const [
-    { count: totalCount },
-    { count: newCount },
-    { count: contactedCount },
-    { count: loginCount },
-    { count: disbursedCount }
+    totalRes,
+    newRes,
+    contactedRes,
+    loginRes,
+    disbursedRes
   ] = await Promise.all([
-    baseQuery,
+    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id),
     supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['new', 'New Lead']),
     supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['contacted', 'Interested']),
     supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['Login', 'Login Done']),
     supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['Disbursed', 'converted'])
   ])
 
-  const contactRate = totalCount ? Math.round(((contactedCount || 0) / totalCount) * 100) : 0;
+  const totalCount = totalRes.count || 0;
+  const newCount = newRes.count || 0;
+  const contactedCount = contactedRes.count || 0;
+  const loginCount = loginRes.count || 0;
+  const disbursedCount = disbursedRes.count || 0;
+
+  const contactRate = totalCount ? Math.round((contactedCount / totalCount) * 100) : 0;
 
   let query = supabase
     .from("leads")
@@ -77,7 +81,6 @@ export default async function TelecallerLeadsPage({
           <p className="text-slate-500 mt-1">Manage assignments and track conversions</p>
         </div>
         
-        {/* Create Lead Button Added Here */}
         <div className="flex items-center gap-2">
            <TelecallerCreateLeadDialog currentUserId={user.id} />
         </div>
@@ -90,7 +93,7 @@ export default async function TelecallerLeadsPage({
             <Users className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{totalCount || 0}</div>
+            <div className="text-2xl font-bold text-slate-900">{totalCount}</div>
             <Progress value={100} className="h-1 mt-2 bg-blue-100" />
           </CardContent>
         </Card>
@@ -101,7 +104,7 @@ export default async function TelecallerLeadsPage({
             <Clock className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{newCount || 0}</div>
+            <div className="text-2xl font-bold text-slate-900">{newCount}</div>
             <p className="text-xs text-slate-400 mt-2">Requires Action</p>
           </CardContent>
         </Card>
@@ -112,7 +115,7 @@ export default async function TelecallerLeadsPage({
             <TrendingUp className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{contactedCount || 0}</div>
+            <div className="text-2xl font-bold text-slate-900">{contactedCount}</div>
             <Progress value={contactRate} className="h-1 mt-2 bg-purple-100" />
             <p className="text-[10px] text-purple-600 mt-1">{contactRate}% coverage</p>
           </CardContent>
@@ -124,7 +127,7 @@ export default async function TelecallerLeadsPage({
             <LogIn className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{loginCount || 0}</div>
+            <div className="text-2xl font-bold text-slate-900">{loginCount}</div>
             <p className="text-xs text-slate-400 mt-2">Files Processed</p>
           </CardContent>
         </Card>
@@ -135,7 +138,7 @@ export default async function TelecallerLeadsPage({
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{disbursedCount || 0}</div>
+            <div className="text-2xl font-bold text-slate-900">{disbursedCount}</div>
             <p className="text-xs text-green-600 mt-2 font-medium">Revenue Generated</p>
           </CardContent>
         </Card>
