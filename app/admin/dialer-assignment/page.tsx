@@ -161,7 +161,10 @@ export default function DialerAssignmentPage() {
 
     if (leadsData) setLeads(leadsData)
     setLoading(false)
-  }, [supabase, statusFilter, sourceFilter, agentFilter, priorityFilter, dateRange, customStart, customEnd, fetchLimit])
+
+  // 🔴 BUG FIX: Removed `supabase` from the dependency array to kill the infinite loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, sourceFilter, agentFilter, priorityFilter, dateRange, customStart, customEnd, fetchLimit])
 
   useEffect(() => { 
       fetchLeadsAndAgents(true) 
@@ -176,7 +179,10 @@ export default function DialerAssignmentPage() {
         .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [supabase, fetchLeadsAndAgents])
+  
+  // 🔴 BUG FIX: Removed `supabase` from the dependency array here as well
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchLeadsAndAgents])
 
   const clearFilters = () => {
     setStatusFilter("all"); setSourceFilter("all"); setAgentFilter("all"); setPriorityFilter("all"); setDateRange("all");
@@ -337,7 +343,6 @@ export default function DialerAssignmentPage() {
                                     </div>
                                     <span className={cn("text-sm font-medium", isSelected ? 'text-indigo-900' : 'text-slate-700')}>{agent.full_name}</span>
                                 </div>
-                                {/* 🔴 IMPROVED BADGE WARNING COLOR */}
                                 <Badge variant="secondary" className={cn(
                                     "font-mono", 
                                     isOverloaded ? "bg-red-100 text-red-700 border border-red-200" : "bg-slate-100 text-slate-600 border border-slate-200"
@@ -536,13 +541,11 @@ export default function DialerAssignmentPage() {
                             </span>
                           </td>
                           <td className="py-3 px-4">
-                            {/* 🔴 NEW: Beautiful formatted Status Badges */}
                             <Badge variant="outline" className={cn("font-semibold text-[11px] px-2.5 py-0.5", getStatusStyle(lead.status))}>
                               {formatStatus(lead.status)}
                             </Badge>
                           </td>
                           <td className="py-3 px-4 text-right">
-                              {/* 🔴 NEW: Date and Time cleanly split */}
                               <div className="text-sm font-semibold text-slate-700">{new Date(lead.created_at).toLocaleDateString()}</div>
                               <div className="text-[10px] text-slate-400 font-medium tracking-wider">{new Date(lead.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                           </td>
