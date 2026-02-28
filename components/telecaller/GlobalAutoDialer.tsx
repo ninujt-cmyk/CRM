@@ -9,7 +9,7 @@ import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
-    const [countdown, setCountdown] = useState(20) // 💡 Default changed to 10
+    const [countdown, setCountdown] = useState(20) 
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
@@ -76,8 +76,6 @@ export function GlobalAutoDialer() {
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
 
         if (normalizedStatus === 'active') {
-            // 💡 THE FIX: We added 'on_call' to this array. If the webhook skips wrap_up because 
-            // the call was < 5 seconds, this safely allows the instant transition to the next dial!
             if (['offline', 'wrap_up', 'empty', 'idle', 'on_call'].includes(stateLock.current)) {
                 changeState('idle');
                 setIsVisible(true);
@@ -103,7 +101,7 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(20) // 💡 Timer strictly set to 10 Seconds
+        setCountdown(20) 
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
                 if (prev <= 1) { clearInterval(timerRef.current!); return 0 }
@@ -164,10 +162,41 @@ export function GlobalAutoDialer() {
                 if (queueLeads && queueLeads.length > 0) nextLead = sortLeads(queueLeads, 'last_contacted')[0];
             }
 
-            // 🪣 BUCKET 4: Not Reachable (NR) Leads
+            // 🪣 BUCKET 4: Not Reachable (NR) Leads - MAX 4 ATTEMPTS PER DAY
             if (!nextLead) {
                 const { data: nrLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['nr', 'Not Reachable']).limit(50);
-                if (nrLeads && nrLeads.length > 0) nextLead = sortLeads(nrLeads, 'last_contacted')[0];
+                
+                if (nrLeads && nrLeads.length > 0) {
+                    // Get the timestamp for midnight today
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0, 0, 0, 0);
+
+                    const leadIds = nrLeads.map(l => l.id);
+
+                    // Fetch today's call logs for these specific leads
+                    const { data: todayLogs } = await supabase
+                        .from('call_logs')
+                        .select('lead_id')
+                        .in('lead_id', leadIds)
+                        .gte('created_at', startOfToday.toISOString());
+
+                    // Count how many times each lead was dialed today
+                    const attemptCounts: Record<string, number> = {};
+                    if (todayLogs) {
+                        todayLogs.forEach(log => {
+                            attemptCounts[log.lead_id] = (attemptCounts[log.lead_id] || 0) + 1;
+                        });
+                    }
+
+                    // 💡 THE FILTER: Keep only leads with strictly less than 4 attempts today
+                    const callableNrLeads = nrLeads.filter(l => (attemptCounts[l.id] || 0) < 4);
+
+                    if (callableNrLeads.length > 0) {
+                        nextLead = sortLeads(callableNrLeads, 'last_contacted')[0];
+                    } else {
+                        console.log("All NR leads have hit max attempts for today. Skipping to next bucket.");
+                    }
+                }
             }
 
             // 🪣 BUCKET 5: Interested (> 24 Hrs old)
