@@ -9,7 +9,7 @@ import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
-    const [countdown, setCountdown] = useState(10) // 💡 Default changed to 10
+    const [countdown, setCountdown] = useState(15) // 💡 Default changed to 10
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
@@ -103,7 +103,7 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(10) // 💡 Timer strictly set to 10 Seconds
+        setCountdown(15) // 💡 Timer strictly set to 10 Seconds
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
                 if (prev <= 1) { clearInterval(timerRef.current!); return 0 }
