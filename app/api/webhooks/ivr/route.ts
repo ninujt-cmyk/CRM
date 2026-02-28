@@ -64,29 +64,43 @@ async function getFairAssigneeId() {
     const eligibleTelecallers = activeTelecallers.filter(t => leadCounts[t.id] === minLeads);
     const winner = eligibleTelecallers[Math.floor(Math.random() * eligibleTelecallers.length)];
     
-    console.log(`⚖️ [FAIR DISTRIBUTION] Assigned to ${winner.full_name} (Everyone has at least ${minLeads} leads)`);
     return winner.id;
 }
 // ------------------------------------------
 
 export async function POST(request: NextRequest) {
-  console.log("🔔 [IVR WEBHOOK HIT] Received data from Fonada IVR");
-
   try {
     const rawBody = await request.text();
     let body: any = {};
+    
+    // 💡 ROBUST PARSING ENGINE
+    // Just in case Fonada is ACTUALLY sending tildes over the network instead of commas
     if (rawBody) {
-      try { body = JSON.parse(rawBody); } 
-      catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
+      try { 
+        const cleanedBody = rawBody.replace(/~/g, ','); // Convert ~ to ,
+        body = JSON.parse(cleanedBody); 
+      } catch(e) { 
+        try {
+            body = Object.fromEntries(new URLSearchParams(rawBody)); 
+        } catch (fallbackErr) {
+            console.error("Total parse failure:", rawBody);
+            return NextResponse.json({ status: "error", message: "Invalid payload format" }, { status: 400 });
+        }
+      }
     }
 
+    // 💡 SECURE VARIABLE EXTRACTION
+    // Account for Fonada's weird "digitsPressed=CDR.digitpressed" key
     const customerPhone = body.mobileNumber || body.mobile_number || body.phone;
-    const digitsPressed = body.digitsPressed || body.digits_pressed;
-    const callDuration = body.callDuration;
-    const campaignName = body.campaignName;
-    const disposition = body.disposition;
+    const digitsPressed = body.digitsPressed || body['digitsPressed=CDR.digitpressed'] || body.digits_pressed;
+    const callDuration = body.callDuration || 0;
+    const campaignName = body.campaignName || 'Auto-IVR';
+    const disposition = body.disposition || 'UNKNOWN';
 
-    if (!customerPhone) return NextResponse.json({ status: "ignored", reason: "no_mobile_number" });
+    if (!customerPhone) {
+        console.warn("⚠️ Ignored: No mobile number provided.");
+        return NextResponse.json({ status: "ignored", reason: "no_mobile_number" });
+    }
 
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
@@ -100,31 +114,25 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     const digitText = digitsPressed ? `Digit Pressed: **${digitsPressed}**` : "No digit pressed";
-    const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName || 'Unknown'}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration || 0}s.`;
+    const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration}s.`;
 
     // -------------------------------------------------------------
-    // LOGIC ENGINE: SMART DUPLICATES & RE-ENGAGEMENT
+    // LOGIC ENGINE
     // -------------------------------------------------------------
     if (lead) {
-        // Convert status to lowercase to ensure perfect matching
         const statusLower = (lead.status || "").toLowerCase();
 
-        // 1. SUCCESS CONDITION
         if (statusLower === "disbursed") {
-            console.log(`⏭️ [SKIPPED] Lead ${dbPhone} is already Disbursed. Ignoring.`);
             return NextResponse.json({ status: "success", message: "Ignored disbursed lead" });
         }
 
-        // 2. DEAD / RECYCLE CONDITION
         const deadStatuses = ["dead_bucket", "not_interested", "nr", "recycle_pool", "not_eligible", "self_employed"];
         
         if (deadStatuses.includes(statusLower)) {
-            console.log(`♻️ [RECYCLE] Lead ${dbPhone} was Dead (${lead.status}). Adding as FRESH NEW LEAD.`);
-            
             const assignedToId = await getFairAssigneeId();
             const fakeName = getRandomIndianName();
             
-            const { error: insertError } = await supabase.from("leads").insert({
+            await supabase.from("leads").insert({
                 name: fakeName, 
                 phone: dbPhone,
                 status: "new",
@@ -132,55 +140,40 @@ export async function POST(request: NextRequest) {
                 assigned_to: assignedToId,
             });
 
-            if (insertError) console.error("❌ [DB ERROR] Failed to insert recycled lead:", insertError);
             return NextResponse.json({ status: "success", message: "Recycled as new lead" });
         }
 
-        // 3. WARM / RE-ENGAGEMENT CONDITION
         const warmStatuses = ["interested", "documents_sent", "follow_up"];
         
         if (warmStatuses.includes(statusLower)) {
-            console.log(`🔥 [RE-ENGAGE] Lead ${dbPhone} was Warm (${lead.status}). Bumping to New.`);
-            
             const istDate = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
             const bumpNote = `\n\n🚨 Customer called IVR again on ${istDate}!`;
             const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}${bumpNote}` : `${ivrNote}${bumpNote}`;
 
-            const { error: updateError } = await supabase.from("leads").update({ 
-                status: "new",           // Move back to new
-                notes: existingNotes,    // Add the special note
-                last_contacted: new Date().toISOString() // Bump to top of queue
+            await supabase.from("leads").update({ 
+                status: "new",           
+                notes: existingNotes,    
+                last_contacted: new Date().toISOString() 
             }).eq("id", lead.id);
 
-            if (updateError) console.error("❌ [DB ERROR] Failed to bump warm lead:", updateError);
             return NextResponse.json({ status: "success", message: "Warm lead bumped to New" });
         }
 
-        // 4. DEFAULT EXISTING (e.g., already 'new' or 'Login')
-        console.log(`📝 [UPDATE] Lead ${dbPhone} is currently ${lead.status}. Just updating notes.`);
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
         await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
 
     } 
-    // -------------------------------------------------------------
-    // COMPLETELY NEW NUMBER -> CREATE AND ASSIGN
-    // -------------------------------------------------------------
     else {
-        console.log(`✨ [NEW LEAD] Phone ${dbPhone} not found. Creating and distributing...`);
-        
         const assignedToId = await getFairAssigneeId();
         const fakeName = getRandomIndianName();
 
-        const { data: newLead, error: insertError } = await supabase.from("leads").insert({
+        await supabase.from("leads").insert({
             name: fakeName, 
             phone: dbPhone,
             status: "new",
             notes: ivrNote,
             assigned_to: assignedToId,
-        }).select("id").single();
-
-        if (insertError) console.error("❌ [DB ERROR] Failed to insert new IVR lead:", insertError);
-        else console.log(`✅ [SUCCESS] Created Lead ID: ${newLead.id} (Name: ${fakeName})`);
+        });
     }
 
     return NextResponse.json({ status: "success", message: "IVR data processed successfully" });
@@ -192,5 +185,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ status: "success", message: "IVR Webhook is ready to receive POST requests!" });
+  return NextResponse.json({ status: "success", message: "IVR Webhook is ready!" });
 }
