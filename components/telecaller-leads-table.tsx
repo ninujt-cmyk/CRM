@@ -63,14 +63,15 @@ export function TelecallerLeadsTable({
 
   // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
-    const params = new URLSearchParams(searchParams.toString())
-    if (sortBy === field) {
-      params.set('sort_order', sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      params.set('sort_by', field)
-      params.set('sort_order', 'desc')
-    }
+    // BUG FIX: Wrapped router.push in startTransition safely
     startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (sortBy === field) {
+        params.set('sort_order', sortOrder === 'asc' ? 'desc' : 'asc')
+      } else {
+        params.set('sort_by', field)
+        params.set('sort_order', 'desc')
+      }
       router.push(`?${params.toString()}`)
     })
   }
@@ -94,34 +95,26 @@ export function TelecallerLeadsTable({
     router.refresh()
   }
 
-  // AUTOMATION: ROBUST NEXT LEAD LOGIC
   const handleNextLead = () => {
     if (!selectedLead) return;
     
-    // Find where we are in the list
     const currentIndex = leads.findIndex(l => l.id === selectedLead.id);
-    
     let nextIndex = -1;
 
     if (currentIndex !== -1 && currentIndex < leads.length - 1) {
-        // Normal case: Move to the next person
         nextIndex = currentIndex + 1;
     } else if (currentIndex === -1 && leads.length > 0) {
-        // Edge Case: The current lead disappeared (e.g. status changed from "New" to "Interested" and filter is "New")
-        // In this case, the list shifted up, so the *next* person is now at the *top* (or same index).
-        // Let's default to the first one to be safe and keep the flow moving.
         nextIndex = 0;
     }
 
     if (nextIndex !== -1 && leads[nextIndex]) {
         const nextLead = leads[nextIndex];
         
-        // 2. Load Next
         setTimeout(() => {
             setSelectedLead(nextLead);
-            setIsCallInitiated(true); // Ensure Dialer stays ON
+            setIsCallInitiated(true); 
             setIsStatusDialogOpen(true);
-        }, 50); // Tiny delay to allow React to process
+        }, 50); 
     } else {
         setIsStatusDialogOpen(false);
         toast.success("List completed! No more leads to call.");
@@ -169,13 +162,6 @@ export function TelecallerLeadsTable({
     if (!text) return
     navigator.clipboard.writeText(text)
     toast.success("Copied to clipboard")
-  }
-
-  const isStale = (lastContacted: string | null, status: string) => {
-    if(!lastContacted) return true;
-    if(['Disbursed', 'Not_Interested', 'not_eligible'].includes(status)) return false;
-    const diff = new Date().getTime() - new Date(lastContacted).getTime();
-    return diff > (48 * 60 * 60 * 1000); 
   }
 
   const formatCurrency = (amount: number | null) => {
@@ -334,7 +320,7 @@ export function TelecallerLeadsTable({
 
       {selectedLead && (
         <LeadStatusDialog
-          key={selectedLead.id} /* FIX: Forces fresh instance for every lead */
+          key={selectedLead.id} 
           leadId={selectedLead.id}
           currentStatus={selectedLead.status}
           open={isStatusDialogOpen}
