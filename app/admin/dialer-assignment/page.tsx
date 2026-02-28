@@ -53,6 +53,7 @@ const getStatusStyle = (status: string) => {
     if (s.includes('not_eligible')) return 'bg-rose-50 text-rose-700 border-rose-200';
     if (s === 'nr') return 'bg-gray-100 text-gray-700 border-gray-300';
     if (s.includes('self_employed')) return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (s.includes('recycle_pool')) return 'bg-amber-50 text-amber-700 border-amber-200';
     return 'bg-slate-100 text-slate-600 border-slate-200';
 }
 
@@ -129,7 +130,7 @@ export default function DialerAssignmentPage() {
       .select('id, name, phone, source, status, created_at, priority, assigned_to')
       
     if (statusFilter === "all" && agentFilter === "all") {
-      query = query.or('assigned_to.is.null,status.in.(Not Interested,Dead Bucket,nr,not_eligible,self_employed)')
+      query = query.or('assigned_to.is.null,status.in.(Not Interested,Dead Bucket,recycle_pool,nr,not_eligible,self_employed)')
     } else if (statusFilter !== "all") {
       query = query.eq('status', statusFilter)
     }
@@ -415,7 +416,7 @@ export default function DialerAssignmentPage() {
                     <SelectTrigger className="bg-white"><SelectValue placeholder="Lead Status" /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Any Status</SelectItem>
-                        {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','follow_up','not_eligible','self_employed','nr'].map(s => (
+                        {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','recycle_pool','follow_up','not_eligible','self_employed','nr'].map(s => (
                            <SelectItem key={s} value={s}>{formatStatus(s)}</SelectItem>
                         ))}
                     </SelectContent>
