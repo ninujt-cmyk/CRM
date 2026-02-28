@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 // --- IMPORT THE SERVER ACTIONS ---
-import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" // 👈 Added sendKYCRequestTemplate
+import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" 
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -98,9 +98,16 @@ export function LeadStatusUpdater({
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
+  // ✅ UPDATED WHATSAPP LINK GENERATOR WITH +91 LOGIC
   const whatsappLink = useMemo(() => {
-      const cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
+      let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
       if (!cleaned) return "#"; 
+      
+      // If it's exactly 10 digits, it's missing the country code, so add 91
+      if (cleaned.length === 10) {
+          cleaned = `91${cleaned}`;
+      }
+      
       const message = `Hi, this is ${telecallerName} from ICICI Bank. Regarding your loan application...`;
       return `https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`;
   }, [leadPhoneNumber, telecallerName]);
@@ -200,7 +207,7 @@ export function LeadStatusUpdater({
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
     try {
-      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); // Pass leadId for tracking
+      const result = await sendMissedCallMessage(leadId, leadPhoneNumber); 
       if (result.success) {
         toast.success("Missed call WhatsApp sent!");
         if(!status) setStatus('nr'); 
@@ -337,9 +344,8 @@ export function LeadStatusUpdater({
 
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION (KYC Request vs Interested)
+      // 3. WHATSAPP AUTOMATION
       if (finalStatus === "Documents_Sent" && leadPhoneNumber) {
-          // 🔴 AUTOMATED KYC PIPELINE TRIGGER
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
@@ -349,9 +355,12 @@ export function LeadStatusUpdater({
               toast.error("Failed to send automated KYC template.");
           }
       } else if (finalStatus === "Interested" && leadPhoneNumber) {
-          // Standard manual redirect for Interest
+          // ✅ ALSO UPDATED THIS REDIRECT LINK TO ENSURE +91
+          let manualClean = leadPhoneNumber.replace(/\D/g, '');
+          if (manualClean.length === 10) manualClean = `91${manualClean}`;
+          
           const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
-          const wUrl = `https://wa.me/${leadPhoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+          const wUrl = `https://wa.me/${manualClean}?text=${encodeURIComponent(msg)}`;
           window.open(wUrl, '_blank');
       }
       
