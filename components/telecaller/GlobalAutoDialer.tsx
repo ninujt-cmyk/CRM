@@ -9,7 +9,7 @@ import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
-    const [countdown, setCountdown] = useState(20) 
+    const [countdown, setCountdown] = useState(10) 
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
@@ -101,7 +101,7 @@ export function GlobalAutoDialer() {
 
     const startWrapUpCountdown = () => {
         if (timerRef.current) clearInterval(timerRef.current)
-        setCountdown(20) 
+        setCountdown(10) 
         timerRef.current = setInterval(() => {
             setCountdown((prev) => {
                 if (prev <= 1) { clearInterval(timerRef.current!); return 0 }
@@ -118,6 +118,11 @@ export function GlobalAutoDialer() {
 
         try {
             let nextLead = null;
+
+            // 💡 Helper: The "Midnight" timestamp to prevent same-day repeat calls
+            const startOfToday = new Date();
+            startOfToday.setHours(0, 0, 0, 0);
+            const todayISO = startOfToday.toISOString();
 
             const sortLeads = (leads: any[], dateField: string = 'created_at') => {
                 const weights: Record<string, number> = { "urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0 };
@@ -156,9 +161,14 @@ export function GlobalAutoDialer() {
                 }
             }
 
-            // 🪣 BUCKET 3: Standard Active Queue
+            // 🪣 BUCKET 3: Standard Active Queue (Follow Ups) - 🔥 NO SAME DAY CALLS
             if (!nextLead) {
-                const { data: queueLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Follow Up', 'Contacted', 'follow_up']).limit(50);
+                const { data: queueLeads } = await supabase.from('leads')
+                    .select('*')
+                    .eq('assigned_to', uid)
+                    .in('status', ['Follow Up', 'Contacted', 'follow_up'])
+                    .lt('last_contacted', todayISO) // Only grab leads contacted BEFORE today
+                    .limit(50);
                 if (queueLeads && queueLeads.length > 0) nextLead = sortLeads(queueLeads, 'last_contacted')[0];
             }
 
@@ -167,20 +177,14 @@ export function GlobalAutoDialer() {
                 const { data: nrLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['nr', 'Not Reachable']).limit(50);
                 
                 if (nrLeads && nrLeads.length > 0) {
-                    // Get the timestamp for midnight today
-                    const startOfToday = new Date();
-                    startOfToday.setHours(0, 0, 0, 0);
-
                     const leadIds = nrLeads.map(l => l.id);
 
-                    // Fetch today's call logs for these specific leads
                     const { data: todayLogs } = await supabase
                         .from('call_logs')
                         .select('lead_id')
                         .in('lead_id', leadIds)
-                        .gte('created_at', startOfToday.toISOString());
+                        .gte('created_at', todayISO);
 
-                    // Count how many times each lead was dialed today
                     const attemptCounts: Record<string, number> = {};
                     if (todayLogs) {
                         todayLogs.forEach(log => {
@@ -188,13 +192,10 @@ export function GlobalAutoDialer() {
                         });
                     }
 
-                    // 💡 THE FILTER: Keep only leads with strictly less than 4 attempts today
                     const callableNrLeads = nrLeads.filter(l => (attemptCounts[l.id] || 0) < 4);
 
                     if (callableNrLeads.length > 0) {
                         nextLead = sortLeads(callableNrLeads, 'last_contacted')[0];
-                    } else {
-                        console.log("All NR leads have hit max attempts for today. Skipping to next bucket.");
                     }
                 }
             }
@@ -211,9 +212,14 @@ export function GlobalAutoDialer() {
                 if (intLeads && intLeads.length > 0) nextLead = sortLeads(intLeads, 'last_contacted')[0];
             }
 
-            // 🪣 BUCKET 6: Not Interested
+            // 🪣 BUCKET 6: Not Interested - 🔥 NO SAME DAY CALLS
             if (!nextLead) {
-                const { data: notIntLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Not Interested', 'Not_Interested', 'recycle_pool']).limit(50);
+                const { data: notIntLeads } = await supabase.from('leads')
+                    .select('*')
+                    .eq('assigned_to', uid)
+                    .in('status', ['Not Interested', 'Not_Interested', 'recycle_pool'])
+                    .lt('last_contacted', todayISO) // Only grab leads contacted BEFORE today
+                    .limit(50);
                 if (notIntLeads && notIntLeads.length > 0) nextLead = sortLeads(notIntLeads, 'last_contacted')[0];
             }
 
