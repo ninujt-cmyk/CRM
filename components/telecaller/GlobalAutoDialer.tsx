@@ -184,7 +184,7 @@ export function GlobalAutoDialer() {
 
             // 🪣 BUCKET 6: Not Interested
             if (!nextLead) {
-                const { data: notIntLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Not Interested', 'Not_Interested', 'not_interested']).limit(50);
+                const { data: notIntLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Not Interested', 'Not_Interested', 'recycle_pool']).limit(50);
                 if (notIntLeads && notIntLeads.length > 0) nextLead = sortLeads(notIntLeads, 'last_contacted')[0];
             }
 
