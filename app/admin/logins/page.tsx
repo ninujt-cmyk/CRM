@@ -26,7 +26,7 @@ import {
   Loader2, FileCheck, Download, Search, Trophy, 
   ArrowRightLeft, Edit, Plus, X, Trash2, 
   TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
-  Building2, Wallet, BarChart3
+  Building2, Wallet, BarChart3, CalendarDays
 } from "lucide-react"
 import { toast } from "sonner"
 import { format, startOfMonth, endOfMonth, subMonths, isSameDay, isWithinInterval } from "date-fns" 
@@ -75,11 +75,9 @@ export default function AdminLoginsPage() {
                 `)
                 .order('created_at', { ascending: false })
 
-            // STRATEGY: 
-            // If "Today" or "This Month" is selected, we fetch ALL data from Start of Month.
-            // This allows the Reports Tab to calculate MTD metrics correctly even if user views "Today" in the table.
-            // We will filter "Today" on the client-side for the Manage Table.
-            
+            // Strategy: Always fetch enough data for the reports to work.
+            // If viewing Today/This Month, fetch from start of this month.
+            // If viewing Last Month, fetch from start of last month.
             if (dateFilter === 'today' || dateFilter === 'this_month') {
                 const start = startOfMonth(new Date()).toISOString()
                 loginsQuery = loginsQuery.gte('created_at', start)
@@ -201,9 +199,10 @@ export default function AdminLoginsPage() {
             </div>
 
             <Tabs defaultValue="manage" className="w-full">
-                <TabsList className="grid w-full max-w-[400px] grid-cols-2 mb-6">
+                <TabsList className="grid w-full max-w-[500px] grid-cols-3 mb-6">
                     <TabsTrigger value="manage">Manage Logins</TabsTrigger>
-                    <TabsTrigger value="reports">Daily Reports</TabsTrigger>
+                    <TabsTrigger value="daily_reports">Daily Reports</TabsTrigger>
+                    <TabsTrigger value="monthly_reports">Monthly Reports</TabsTrigger>
                 </TabsList>
 
                 {/* --- TAB 1: MANAGE LIST --- */}
@@ -336,9 +335,14 @@ export default function AdminLoginsPage() {
                     </div>
                 </TabsContent>
 
-                {/* --- TAB 2: REPORTS --- */}
-                <TabsContent value="reports">
-                    <ReportsView logins={logins} />
+                {/* --- TAB 2: DAILY REPORTS --- */}
+                <TabsContent value="daily_reports">
+                    <DailyReportsView logins={logins} />
+                </TabsContent>
+
+                {/* --- TAB 3: MONTHLY REPORTS --- */}
+                <TabsContent value="monthly_reports">
+                    <MonthlyReportsView logins={logins} />
                 </TabsContent>
             </Tabs>
 
@@ -368,35 +372,26 @@ export default function AdminLoginsPage() {
     )
 }
 
-// --- REPORT VIEW COMPONENT ---
-function ReportsView({ logins }: { logins: any[] }) {
+// --- DAILY REPORT VIEW COMPONENT ---
+function DailyReportsView({ logins }: { logins: any[] }) {
     const today = new Date();
     const startOfCurrentMonth = startOfMonth(today);
 
-    // 1. Telecaller Detailed Stats (MTD + Today + Splits)
     const detailedStats = useMemo(() => {
         const stats: Record<string, { name: string, mtd: number, today: number, todayBank: number, todayNbfc: number }> = {};
 
-        // Iterate through all logins passed (which are at least MTD)
         logins.forEach(l => {
             const createdAt = new Date(l.created_at);
             
-            // Only process if within this month (Double check in case parent passed larger range)
             if (createdAt >= startOfCurrentMonth) {
                 const name = l.users?.full_name || 'Unknown';
-                
-                if (!stats[name]) {
-                    stats[name] = { name, mtd: 0, today: 0, todayBank: 0, todayNbfc: 0 };
-                }
+                if (!stats[name]) stats[name] = { name, mtd: 0, today: 0, todayBank: 0, todayNbfc: 0 };
 
-                // Increment MTD
                 stats[name].mtd += 1;
 
-                // Check if Today
                 if (isSameDay(createdAt, today)) {
                     stats[name].today += 1;
 
-                    // Determine Bank vs NBFC
                     let bankName = l.bank_name || '';
                     if (!bankName && Array.isArray(l.bank_attempts) && l.bank_attempts.length > 0) {
                         bankName = l.bank_attempts[0].bank;
@@ -406,19 +401,13 @@ function ReportsView({ logins }: { logins: any[] }) {
                     const isTargetBank = TARGET_BANKS.some(tb => bankName.includes(tb));
                     const isTargetNBFC = TARGET_NBFCS.some(tn => bankName.includes(tn));
 
-                    if (isTargetBank) {
-                        stats[name].todayBank += 1;
-                    } else if (isTargetNBFC) {
-                        stats[name].todayNbfc += 1;
-                    } else {
-                        // Fallback: If not explicit bank, count as NBFC for now (or separate 'Other')
-                        stats[name].todayNbfc += 1; 
-                    }
+                    if (isTargetBank) stats[name].todayBank += 1;
+                    else if (isTargetNBFC) stats[name].todayNbfc += 1;
+                    else stats[name].todayNbfc += 1; 
                 }
             }
         });
 
-        // Sort by Today's Login count descending, then MTD
         return Object.values(stats).sort((a, b) => {
             if (b.today !== a.today) return b.today - a.today;
             return b.mtd - a.mtd;
@@ -456,7 +445,7 @@ function ReportsView({ logins }: { logins: any[] }) {
                 <CardHeader className="bg-slate-50 border-b pb-4">
                     <div className="flex items-center gap-2">
                         <Trophy className="h-5 w-5 text-amber-500" />
-                        <CardTitle className="text-base text-slate-800">Telecaller Performance Leaderboard</CardTitle>
+                        <CardTitle className="text-base text-slate-800">Telecaller Daily Leaderboard</CardTitle>
                     </div>
                     <CardDescription>Breakdown of today's logins by Banks and NBFCs, plus Month-to-Date totals.</CardDescription>
                 </CardHeader>
@@ -478,31 +467,140 @@ function ReportsView({ logins }: { logins: any[] }) {
                         </TableHeader>
                         <TableBody>
                             {detailedStats.length === 0 ? (
-                                <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">No data found for this month.</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">No data found for today.</TableCell></TableRow>
                             ) : (
                                 detailedStats.map((stat, index) => (
                                     <TableRow key={stat.name} className="hover:bg-slate-50 transition-colors">
                                         <TableCell className="text-center font-medium text-slate-500">#{index + 1}</TableCell>
                                         <TableCell className="font-semibold text-slate-700">{stat.name}</TableCell>
-                                        
-                                        {/* Today's Total */}
                                         <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-x border-indigo-50">
                                             {stat.today > 0 ? stat.today : <span className="text-slate-300 text-sm font-normal">-</span>}
                                         </TableCell>
-                                        
-                                        {/* Banks */}
                                         <TableCell className="text-center font-medium text-blue-600">
                                             {stat.todayBank > 0 ? stat.todayBank : <span className="text-slate-300 font-normal">-</span>}
                                         </TableCell>
-                                        
-                                        {/* NBFCs */}
                                         <TableCell className="text-center font-medium text-orange-600">
                                             {stat.todayNbfc > 0 ? stat.todayNbfc : <span className="text-slate-300 font-normal">-</span>}
                                         </TableCell>
-                                        
-                                        {/* MTD Total */}
-                                        <TableCell className="text-center bg-slate-50 font-bold text-slate-800">
-                                            {stat.mtd}
+                                        <TableCell className="text-center bg-slate-50 font-bold text-slate-800">{stat.mtd}</TableCell>
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
+// --- MONTHLY REPORT VIEW COMPONENT ---
+function MonthlyReportsView({ logins }: { logins: any[] }) {
+    const [monthOffset, setMonthOffset] = useState(0); // 0 = This Month, 1 = Last Month
+
+    const targetDate = subMonths(new Date(), monthOffset);
+    const startOfTargetMonth = startOfMonth(targetDate);
+    const endOfTargetMonth = endOfMonth(targetDate);
+
+    const detailedStats = useMemo(() => {
+        const stats: Record<string, { name: string, total: number, bank: number, nbfc: number }> = {};
+
+        logins.forEach(l => {
+            const createdAt = new Date(l.created_at);
+            
+            if (isWithinInterval(createdAt, { start: startOfTargetMonth, end: endOfTargetMonth })) {
+                const name = l.users?.full_name || 'Unknown';
+                if (!stats[name]) stats[name] = { name, total: 0, bank: 0, nbfc: 0 };
+
+                stats[name].total += 1;
+
+                let bankName = l.bank_name || '';
+                if (!bankName && Array.isArray(l.bank_attempts) && l.bank_attempts.length > 0) {
+                    bankName = l.bank_attempts[0].bank;
+                }
+                bankName = bankName.toLowerCase().trim();
+
+                const isTargetBank = TARGET_BANKS.some(tb => bankName.includes(tb));
+                const isTargetNBFC = TARGET_NBFCS.some(tn => bankName.includes(tn));
+
+                if (isTargetBank) stats[name].bank += 1;
+                else if (isTargetNBFC) stats[name].nbfc += 1;
+                else stats[name].nbfc += 1; // Fallback
+            }
+        });
+
+        // Sort by Total Login count descending
+        return Object.values(stats).sort((a, b) => b.total - a.total);
+    }, [logins, startOfTargetMonth, endOfTargetMonth]);
+
+    const grandTotal = detailedStats.reduce((acc, curr) => acc + curr.total, 0);
+
+    return (
+        <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Month Selector & Summary */}
+            <div className="flex flex-col sm:flex-row justify-between gap-4 items-center bg-white p-4 rounded-xl border shadow-sm">
+                <div className="flex gap-2">
+                    <Button 
+                        variant={monthOffset === 0 ? "default" : "outline"} 
+                        onClick={() => setMonthOffset(0)}
+                    >
+                        This Month ({format(new Date(), "MMM yyyy")})
+                    </Button>
+                    <Button 
+                        variant={monthOffset === 1 ? "default" : "outline"} 
+                        onClick={() => setMonthOffset(1)}
+                    >
+                        Last Month ({format(subMonths(new Date(), 1), "MMM yyyy")})
+                    </Button>
+                </div>
+                <div className="flex items-center gap-4 border-l pl-4">
+                    <div>
+                        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Total Logins</p>
+                        <p className="text-2xl font-black text-indigo-600">{grandTotal}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Monthly Leaderboard */}
+            <Card className="shadow-lg border-0 ring-1 ring-slate-200">
+                <CardHeader className="bg-slate-50 border-b pb-4">
+                    <div className="flex items-center gap-2">
+                        <CalendarDays className="h-5 w-5 text-indigo-500" />
+                        <CardTitle className="text-base text-slate-800">Monthly Telecaller Performance</CardTitle>
+                    </div>
+                    <CardDescription>Breakdown of logins by Banks and NBFCs for the selected month.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-slate-50/50">
+                                <TableHead className="w-[50px] text-center">Rank</TableHead>
+                                <TableHead>Telecaller Name</TableHead>
+                                <TableHead className="text-center w-[150px] bg-indigo-50 text-indigo-900 border-x border-indigo-100 font-bold">Monthly Total</TableHead>
+                                <TableHead className="text-center w-[150px]">
+                                    <div className="flex items-center justify-center gap-1 text-blue-600"><Building2 className="h-3 w-3"/> Banks</div>
+                                </TableHead>
+                                <TableHead className="text-center w-[150px]">
+                                    <div className="flex items-center justify-center gap-1 text-orange-600"><Wallet className="h-3 w-3"/> NBFCs</div>
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {detailedStats.length === 0 ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-12 text-slate-400">No data found for this month.</TableCell></TableRow>
+                            ) : (
+                                detailedStats.map((stat, index) => (
+                                    <TableRow key={stat.name} className="hover:bg-slate-50 transition-colors">
+                                        <TableCell className="text-center font-medium text-slate-500">#{index + 1}</TableCell>
+                                        <TableCell className="font-semibold text-slate-700">{stat.name}</TableCell>
+                                        <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-x border-indigo-50">
+                                            {stat.total > 0 ? stat.total : <span className="text-slate-300 text-sm font-normal">-</span>}
+                                        </TableCell>
+                                        <TableCell className="text-center font-medium text-blue-600">
+                                            {stat.bank > 0 ? stat.bank : <span className="text-slate-300 font-normal">-</span>}
+                                        </TableCell>
+                                        <TableCell className="text-center font-medium text-orange-600">
+                                            {stat.nbfc > 0 ? stat.nbfc : <span className="text-slate-300 font-normal">-</span>}
                                         </TableCell>
                                     </TableRow>
                                 ))
