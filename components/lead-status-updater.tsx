@@ -98,7 +98,6 @@ export function LeadStatusUpdater({
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
-  // WHATSAPP LINK GENERATOR
   const whatsappLink = useMemo(() => {
       let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
       if (!cleaned) return "#"; 
@@ -117,6 +116,7 @@ export function LeadStatusUpdater({
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
   // --- EFFECTS ---
+
   useEffect(() => {
     const saved = localStorage.getItem("crm_auto_next");
     if (saved !== null) setAutoNext(saved === "true");
@@ -171,6 +171,7 @@ export function LeadStatusUpdater({
     }
   }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
 
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isCallInitiated && !callDurationOverride && !countdown && !dialing) {
@@ -194,6 +195,7 @@ export function LeadStatusUpdater({
   }, [status, isUpdating]);
 
   // --- HANDLERS ---
+
   const handleMissedCallWA = async () => {
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
@@ -335,16 +337,28 @@ export function LeadStatusUpdater({
 
       if (isCallInitiated) await logCall(finalDuration)
 
-      // ✅ 3. WHATSAPP AUTOMATION (Updated Logic)
-      // Now fires the automated KYC template if the status is Documents_Sent OR Interested
+      // 3. WHATSAPP AUTOMATION
+      // ✅ TRIGGER KYC TEMPLATE FOR BOTH "DOCUMENTS SENT" AND "INTERESTED"
       if ((finalStatus === "Documents_Sent" || finalStatus === "Interested") && leadPhoneNumber) {
-          toast.info("Sending Document Request via WhatsApp...");
+          toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
           if (kycResult.success) {
-              toast.success("WhatsApp Template sent securely!");
+              toast.success("KYC WhatsApp Template sent securely!");
+              
+              // Optional: Ask if they also want to open manual WhatsApp for a custom message
+              if (finalStatus === "Interested") {
+                  if(window.confirm("Automated KYC list sent. Open WhatsApp web to send a personal message too?")) {
+                      let manualClean = leadPhoneNumber.replace(/\D/g, '');
+                      if (manualClean.length === 10) manualClean = `91${manualClean}`;
+                      const msg = `Hi ${telecallerName ? telecallerName : "there"}, glad you're interested in the loan! I just sent over the required documents list.`;
+                      const wUrl = `https://wa.me/${manualClean}?text=${encodeURIComponent(msg)}`;
+                      window.open(wUrl, '_blank');
+                  }
+              }
+
           } else {
-              toast.error("Failed to send automated WhatsApp template.");
+              toast.error("Failed to send automated KYC template.");
           }
       }
       
