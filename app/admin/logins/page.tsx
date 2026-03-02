@@ -26,7 +26,7 @@ import {
   Loader2, FileCheck, Download, Search, Trophy, 
   ArrowRightLeft, Edit, Plus, X, Trash2, 
   TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
-  Building2, Wallet, BarChart3, CalendarDays, UserCheck
+  Building2, Wallet, BarChart3, CalendarDays, Fingerprint
 } from "lucide-react"
 import { toast } from "sonner"
 import { format, startOfMonth, endOfMonth, subMonths, isSameDay, isWithinInterval } from "date-fns" 
@@ -49,7 +49,7 @@ export default function AdminLoginsPage() {
     const [loading, setLoading] = useState(true)
     const [logins, setLogins] = useState<any[]>([])
     const [transfers, setTransfers] = useState<any[]>([])
-    const [attendanceData, setAttendanceData] = useState<Record<string, number>>({}) // ✅ ADDED ATTENDANCE STATE
+    const [attendanceData, setAttendanceData] = useState<any[]>([]) // ✅ Added state for attendance
     
     // Filters & Pagination
     const [dateFilter, setDateFilter] = useState("today") 
@@ -67,6 +67,17 @@ export default function AdminLoginsPage() {
     const fetchData = useCallback(async () => {
         setLoading(true)
         try {
+            // Determine global start/end dates based on filter to fetch ALL relevant data
+            let startDate = startOfMonth(new Date());
+            let endDate = endOfMonth(new Date());
+
+            if (dateFilter === 'last_month') {
+                const lastMonth = subMonths(new Date(), 1);
+                startDate = startOfMonth(lastMonth);
+                endDate = endOfMonth(lastMonth);
+            }
+
+            // Fetch Logins
             let loginsQuery = supabase
                 .from('logins') 
                 .select(`
@@ -74,21 +85,11 @@ export default function AdminLoginsPage() {
                     assigned_to,
                     users:assigned_to ( full_name, email )
                 `)
+                .gte('created_at', startDate.toISOString())
+                .lte('created_at', endDate.toISOString())
                 .order('created_at', { ascending: false })
 
-            let startRange = startOfMonth(new Date()).toISOString()
-            let endRange = endOfMonth(new Date()).toISOString()
-
-            if (dateFilter === 'today' || dateFilter === 'this_month') {
-                startRange = startOfMonth(new Date()).toISOString()
-                loginsQuery = loginsQuery.gte('created_at', startRange)
-            } else if (dateFilter === 'last_month') {
-                const lastMonth = subMonths(new Date(), 1)
-                startRange = startOfMonth(lastMonth).toISOString()
-                endRange = endOfMonth(lastMonth).toISOString()
-                loginsQuery = loginsQuery.gte('created_at', startRange).lte('created_at', endRange)
-            }
-
+            // Fetch Transfers (Live today only)
             const transfersQuery = supabase
                 .from('leads')
                 .select(`id, name, updated_at, users:assigned_to ( full_name )`)
@@ -96,28 +97,19 @@ export default function AdminLoginsPage() {
                 .gte('updated_at', new Date(new Date().setHours(0,0,0,0)).toISOString()) 
                 .order('updated_at', { ascending: false })
 
-            // ✅ NEW: Fetch Attendance Data for the Selected Month Range
+            // ✅ Fetch Attendance Data for the target period
             const attendanceQuery = supabase
-                .from('user_sessions')
-                .select('user_id')
-                .gte('check_in', startRange)
-                .lte('check_in', endRange)
+                .from('attendance')
+                .select('user_id, date, users:user_id ( full_name )')
+                .gte('date', startDate.toISOString().split('T')[0])
+                .lte('date', endDate.toISOString().split('T')[0])
+                .not('check_in', 'is', null) // Must have checked in
 
             const [loginsRes, transfersRes, attendanceRes] = await Promise.all([loginsQuery, transfersQuery, attendanceQuery])
             
             if (loginsRes.data) setLogins(loginsRes.data)
             if (transfersRes.data) setTransfers(transfersRes.data)
-            
-            // ✅ Group attendance by user ID
-            if (attendanceRes.data) {
-                const attendanceCounts: Record<string, number> = {}
-                attendanceRes.data.forEach((session: any) => {
-                    if (session.user_id) {
-                        attendanceCounts[session.user_id] = (attendanceCounts[session.user_id] || 0) + 1
-                    }
-                })
-                setAttendanceData(attendanceCounts)
-            }
+            if (attendanceRes.data) setAttendanceData(attendanceRes.data) // ✅ Store attendance
 
         } catch (e) {
             console.error(e)
@@ -220,8 +212,6 @@ export default function AdminLoginsPage() {
 
                 {/* --- TAB 1: MANAGE LIST --- */}
                 <TabsContent value="manage" className="space-y-6">
-                    
-                    {/* Controls */}
                     <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white p-4 rounded-lg border">
                         <div className="flex gap-2">
                             <Button variant={dateFilter === 'today' ? 'default' : 'outline'} size="sm" onClick={() => setDateFilter('today')}>Today</Button>
@@ -301,7 +291,6 @@ export default function AdminLoginsPage() {
                                     </TableBody>
                                 </Table>
                                 
-                                {/* Pagination */}
                                 <div className="p-4 border-t bg-slate-50/50 flex items-center justify-between">
                                     <span className="text-xs text-slate-500">
                                         Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredLogins.length)} of {filteredLogins.length}
@@ -314,7 +303,7 @@ export default function AdminLoginsPage() {
                             </Card>
                         </div>
 
-                        {/* Sidebar (3 cols) */}
+                        {/* Sidebar */}
                         <div className="lg:col-span-3 space-y-6">
                             <Card className="shadow-md border-0 ring-1 ring-slate-200">
                                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 pb-3 border-b border-indigo-100">
@@ -359,7 +348,6 @@ export default function AdminLoginsPage() {
                 </TabsContent>
             </Tabs>
 
-            {/* EDIT SHEET */}
             <EditLoginSheet 
                 login={editingLogin} 
                 open={!!editingLogin} 
@@ -368,7 +356,6 @@ export default function AdminLoginsPage() {
                 onDelete={(id) => setDeleteConfirmation(id)}
             />
 
-            {/* DELETE CONFIRMATION */}
             <Dialog open={!!deleteConfirmation} onOpenChange={() => setDeleteConfirmation(null)}>
                 <DialogContent>
                     <DialogHeader>
@@ -385,7 +372,6 @@ export default function AdminLoginsPage() {
     )
 }
 
-// --- DAILY REPORT VIEW COMPONENT ---
 function DailyReportsView({ logins }: { logins: any[] }) {
     const today = new Date();
     const startOfCurrentMonth = startOfMonth(today);
@@ -432,7 +418,6 @@ function DailyReportsView({ logins }: { logins: any[] }) {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="bg-indigo-600 text-white shadow-md border-0">
                     <CardHeader className="pb-2">
@@ -453,14 +438,13 @@ function DailyReportsView({ logins }: { logins: any[] }) {
                 </Card>
             </div>
 
-            {/* Detailed Leaderboard */}
             <Card className="shadow-lg border-0 ring-1 ring-slate-200">
                 <CardHeader className="bg-slate-50 border-b pb-4">
                     <div className="flex items-center gap-2">
                         <Trophy className="h-5 w-5 text-amber-500" />
                         <CardTitle className="text-base text-slate-800">Telecaller Daily Leaderboard</CardTitle>
                     </div>
-                    <CardDescription>Breakdown of today's logins by Banks and NBFCs, plus Month-to-Date totals.</CardDescription>
+                    <CardDescription>Breakdown of today's logins by Banks and NBFCs.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
@@ -507,8 +491,8 @@ function DailyReportsView({ logins }: { logins: any[] }) {
     )
 }
 
-// --- MONTHLY REPORT VIEW COMPONENT ---
-function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attendanceData: Record<string, number> }) {
+// --- MONTHLY REPORT VIEW COMPONENT (UPDATED WITH ATTENDANCE) ---
+function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attendanceData: any[] }) {
     const [monthOffset, setMonthOffset] = useState(0); 
 
     const targetDate = subMonths(new Date(), monthOffset);
@@ -516,25 +500,26 @@ function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attenda
     const endOfTargetMonth = endOfMonth(targetDate);
 
     const detailedStats = useMemo(() => {
-        const stats: Record<string, { id: string, name: string, total: number, bank: number, nbfc: number, daysWorked: number }> = {};
+        const stats: Record<string, { name: string, total: number, bank: number, nbfc: number, workingDays: number }> = {};
 
+        // 1. Calculate working days first (to ensure agents with 0 logins still appear)
+        attendanceData.forEach(record => {
+            const date = new Date(record.date);
+            if (isWithinInterval(date, { start: startOfTargetMonth, end: endOfTargetMonth })) {
+                const name = record.users?.full_name || 'Unknown';
+                if (!stats[name]) stats[name] = { name, total: 0, bank: 0, nbfc: 0, workingDays: 0 };
+                
+                stats[name].workingDays += 1;
+            }
+        });
+
+        // 2. Add Login Stats
         logins.forEach(l => {
             const createdAt = new Date(l.created_at);
             
             if (isWithinInterval(createdAt, { start: startOfTargetMonth, end: endOfTargetMonth })) {
-                const userId = l.assigned_to;
                 const name = l.users?.full_name || 'Unknown';
-                
-                if (!stats[name]) {
-                    stats[name] = { 
-                        id: userId, 
-                        name, 
-                        total: 0, 
-                        bank: 0, 
-                        nbfc: 0, 
-                        daysWorked: attendanceData[userId] || 0 // ✅ Inject Attendance Data
-                    };
-                }
+                if (!stats[name]) stats[name] = { name, total: 0, bank: 0, nbfc: 0, workingDays: 0 };
 
                 stats[name].total += 1;
 
@@ -553,8 +538,9 @@ function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attenda
             }
         });
 
+        // Sort by Total Login count descending
         return Object.values(stats).sort((a, b) => b.total - a.total);
-    }, [logins, startOfTargetMonth, endOfTargetMonth, attendanceData]);
+    }, [logins, attendanceData, startOfTargetMonth, endOfTargetMonth]);
 
     const grandTotal = detailedStats.reduce((acc, curr) => acc + curr.total, 0);
 
@@ -591,7 +577,7 @@ function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attenda
                         <CalendarDays className="h-5 w-5 text-indigo-500" />
                         <CardTitle className="text-base text-slate-800">Monthly Telecaller Performance</CardTitle>
                     </div>
-                    <CardDescription>Breakdown of logins by Banks and NBFCs for the selected month.</CardDescription>
+                    <CardDescription>Breakdown of attendance and logins for the selected month.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
@@ -599,11 +585,11 @@ function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attenda
                             <TableRow className="bg-slate-50/50">
                                 <TableHead className="w-[50px] text-center">Rank</TableHead>
                                 <TableHead>Telecaller Name</TableHead>
-                                {/* ✅ ADDED DAYS WORKED COLUMN HERE */}
-                                <TableHead className="text-center w-[120px]">
-                                    <div className="flex items-center justify-center gap-1 text-slate-500"><UserCheck className="h-3 w-3"/> Working Days</div>
+                                {/* ✅ ADDED WORKING DAYS COLUMN HERE */}
+                                <TableHead className="text-center w-[120px] bg-slate-100 text-slate-700 font-bold border-x border-slate-200">
+                                    <div className="flex items-center justify-center gap-1"><Fingerprint className="h-3 w-3"/> Working Days</div>
                                 </TableHead>
-                                <TableHead className="text-center w-[150px] bg-indigo-50 text-indigo-900 border-x border-indigo-100 font-bold">Monthly Total</TableHead>
+                                <TableHead className="text-center w-[150px] bg-indigo-50 text-indigo-900 border-r border-indigo-100 font-bold">Monthly Total</TableHead>
                                 <TableHead className="text-center w-[150px]">
                                     <div className="flex items-center justify-center gap-1 text-blue-600"><Building2 className="h-3 w-3"/> Banks</div>
                                 </TableHead>
@@ -621,16 +607,12 @@ function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attenda
                                         <TableCell className="text-center font-medium text-slate-500">#{index + 1}</TableCell>
                                         <TableCell className="font-semibold text-slate-700">{stat.name}</TableCell>
                                         
-                                        {/* ✅ POPULATED DAYS WORKED DATA */}
-                                        <TableCell className="text-center font-medium text-slate-600">
-                                            {stat.daysWorked > 0 ? (
-                                                <Badge variant="outline" className="bg-slate-100">{stat.daysWorked} Days</Badge>
-                                            ) : (
-                                                <span className="text-slate-300 font-normal">-</span>
-                                            )}
+                                        {/* ✅ RENDER WORKING DAYS */}
+                                        <TableCell className="text-center bg-slate-50/50 font-bold text-slate-600 border-x border-slate-100">
+                                            {stat.workingDays} <span className="text-[10px] font-normal text-slate-400">days</span>
                                         </TableCell>
 
-                                        <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-x border-indigo-50">
+                                        <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-r border-indigo-50">
                                             {stat.total > 0 ? stat.total : <span className="text-slate-300 text-sm font-normal">-</span>}
                                         </TableCell>
                                         <TableCell className="text-center font-medium text-blue-600">
