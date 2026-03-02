@@ -26,7 +26,7 @@ import {
   Loader2, FileCheck, Download, Search, Trophy, 
   ArrowRightLeft, Edit, Plus, X, Trash2, 
   TrendingUp, Clock, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
-  Building2, Wallet, BarChart3, CalendarDays
+  Building2, Wallet, BarChart3, CalendarDays, UserCheck
 } from "lucide-react"
 import { toast } from "sonner"
 import { format, startOfMonth, endOfMonth, subMonths, isSameDay, isWithinInterval } from "date-fns" 
@@ -49,9 +49,10 @@ export default function AdminLoginsPage() {
     const [loading, setLoading] = useState(true)
     const [logins, setLogins] = useState<any[]>([])
     const [transfers, setTransfers] = useState<any[]>([])
+    const [attendanceData, setAttendanceData] = useState<Record<string, number>>({}) // ✅ ADDED ATTENDANCE STATE
     
     // Filters & Pagination
-    const [dateFilter, setDateFilter] = useState("today") // 'today' | 'this_month' | 'last_month'
+    const [dateFilter, setDateFilter] = useState("today") 
     const [searchQuery, setSearchQuery] = useState("")
     const [selectedBank, setSelectedBank] = useState("all")
     const [statusFilter, setStatusFilter] = useState("all")
@@ -75,17 +76,17 @@ export default function AdminLoginsPage() {
                 `)
                 .order('created_at', { ascending: false })
 
-            // Strategy: Always fetch enough data for the reports to work.
-            // If viewing Today/This Month, fetch from start of this month.
-            // If viewing Last Month, fetch from start of last month.
+            let startRange = startOfMonth(new Date()).toISOString()
+            let endRange = endOfMonth(new Date()).toISOString()
+
             if (dateFilter === 'today' || dateFilter === 'this_month') {
-                const start = startOfMonth(new Date()).toISOString()
-                loginsQuery = loginsQuery.gte('created_at', start)
+                startRange = startOfMonth(new Date()).toISOString()
+                loginsQuery = loginsQuery.gte('created_at', startRange)
             } else if (dateFilter === 'last_month') {
                 const lastMonth = subMonths(new Date(), 1)
-                const start = startOfMonth(lastMonth).toISOString()
-                const end = endOfMonth(lastMonth).toISOString()
-                loginsQuery = loginsQuery.gte('created_at', start).lte('created_at', end)
+                startRange = startOfMonth(lastMonth).toISOString()
+                endRange = endOfMonth(lastMonth).toISOString()
+                loginsQuery = loginsQuery.gte('created_at', startRange).lte('created_at', endRange)
             }
 
             const transfersQuery = supabase
@@ -95,10 +96,29 @@ export default function AdminLoginsPage() {
                 .gte('updated_at', new Date(new Date().setHours(0,0,0,0)).toISOString()) 
                 .order('updated_at', { ascending: false })
 
-            const [loginsRes, transfersRes] = await Promise.all([loginsQuery, transfersQuery])
+            // ✅ NEW: Fetch Attendance Data for the Selected Month Range
+            const attendanceQuery = supabase
+                .from('user_sessions')
+                .select('user_id')
+                .gte('check_in', startRange)
+                .lte('check_in', endRange)
+
+            const [loginsRes, transfersRes, attendanceRes] = await Promise.all([loginsQuery, transfersQuery, attendanceQuery])
             
             if (loginsRes.data) setLogins(loginsRes.data)
             if (transfersRes.data) setTransfers(transfersRes.data)
+            
+            // ✅ Group attendance by user ID
+            if (attendanceRes.data) {
+                const attendanceCounts: Record<string, number> = {}
+                attendanceRes.data.forEach((session: any) => {
+                    if (session.user_id) {
+                        attendanceCounts[session.user_id] = (attendanceCounts[session.user_id] || 0) + 1
+                    }
+                })
+                setAttendanceData(attendanceCounts)
+            }
+
         } catch (e) {
             console.error(e)
             toast.error("Failed to load data")
@@ -112,22 +132,18 @@ export default function AdminLoginsPage() {
     // 2. COMPUTED STATS & FILTERING (For Manage Tab)
     const filteredLogins = useMemo(() => {
         return logins.filter(l => {
-            // 1. Date Filter (Client Side Logic for Today)
             if (dateFilter === 'today') {
                 if (!isSameDay(new Date(l.created_at), new Date())) return false;
             }
 
-            // 2. Search
             const matchesSearch = 
                 (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
                 (l.phone && l.phone.includes(searchQuery)) ||
                 (l.users?.full_name && l.users.full_name.toLowerCase().includes(searchQuery.toLowerCase()));
             
-            // 3. Bank Filter
             const matchesBank = selectedBank === 'all' || 
                 (Array.isArray(l.bank_attempts) ? l.bank_attempts.some((a:any) => a.bank === selectedBank) : l.bank_name === selectedBank);
             
-            // 4. Status Filter
             const matchesStatus = statusFilter === 'all' || 
                 (Array.isArray(l.bank_attempts) ? l.bank_attempts.some((a:any) => a.status === statusFilter) : l.status === statusFilter);
 
@@ -142,9 +158,6 @@ export default function AdminLoginsPage() {
 
     const totalPages = Math.ceil(filteredLogins.length / itemsPerPage)
 
-    const uniqueBanks = Array.from(new Set(logins.flatMap(l => Array.isArray(l.bank_attempts) ? l.bank_attempts.map((a:any) => a.bank) : [l.bank_name]))).filter(Boolean)
-
-    // 3. ACTIONS
     const handleSave = (updatedLogin: any) => {
         setLogins(logins.map(l => l.id === updatedLogin.id ? updatedLogin : l))
         setEditingLogin(null)
@@ -342,7 +355,7 @@ export default function AdminLoginsPage() {
 
                 {/* --- TAB 3: MONTHLY REPORTS --- */}
                 <TabsContent value="monthly_reports">
-                    <MonthlyReportsView logins={logins} />
+                    <MonthlyReportsView logins={logins} attendanceData={attendanceData} />
                 </TabsContent>
             </Tabs>
 
@@ -495,22 +508,33 @@ function DailyReportsView({ logins }: { logins: any[] }) {
 }
 
 // --- MONTHLY REPORT VIEW COMPONENT ---
-function MonthlyReportsView({ logins }: { logins: any[] }) {
-    const [monthOffset, setMonthOffset] = useState(0); // 0 = This Month, 1 = Last Month
+function MonthlyReportsView({ logins, attendanceData }: { logins: any[], attendanceData: Record<string, number> }) {
+    const [monthOffset, setMonthOffset] = useState(0); 
 
     const targetDate = subMonths(new Date(), monthOffset);
     const startOfTargetMonth = startOfMonth(targetDate);
     const endOfTargetMonth = endOfMonth(targetDate);
 
     const detailedStats = useMemo(() => {
-        const stats: Record<string, { name: string, total: number, bank: number, nbfc: number }> = {};
+        const stats: Record<string, { id: string, name: string, total: number, bank: number, nbfc: number, daysWorked: number }> = {};
 
         logins.forEach(l => {
             const createdAt = new Date(l.created_at);
             
             if (isWithinInterval(createdAt, { start: startOfTargetMonth, end: endOfTargetMonth })) {
+                const userId = l.assigned_to;
                 const name = l.users?.full_name || 'Unknown';
-                if (!stats[name]) stats[name] = { name, total: 0, bank: 0, nbfc: 0 };
+                
+                if (!stats[name]) {
+                    stats[name] = { 
+                        id: userId, 
+                        name, 
+                        total: 0, 
+                        bank: 0, 
+                        nbfc: 0, 
+                        daysWorked: attendanceData[userId] || 0 // ✅ Inject Attendance Data
+                    };
+                }
 
                 stats[name].total += 1;
 
@@ -525,13 +549,12 @@ function MonthlyReportsView({ logins }: { logins: any[] }) {
 
                 if (isTargetBank) stats[name].bank += 1;
                 else if (isTargetNBFC) stats[name].nbfc += 1;
-                else stats[name].nbfc += 1; // Fallback
+                else stats[name].nbfc += 1; 
             }
         });
 
-        // Sort by Total Login count descending
         return Object.values(stats).sort((a, b) => b.total - a.total);
-    }, [logins, startOfTargetMonth, endOfTargetMonth]);
+    }, [logins, startOfTargetMonth, endOfTargetMonth, attendanceData]);
 
     const grandTotal = detailedStats.reduce((acc, curr) => acc + curr.total, 0);
 
@@ -576,6 +599,10 @@ function MonthlyReportsView({ logins }: { logins: any[] }) {
                             <TableRow className="bg-slate-50/50">
                                 <TableHead className="w-[50px] text-center">Rank</TableHead>
                                 <TableHead>Telecaller Name</TableHead>
+                                {/* ✅ ADDED DAYS WORKED COLUMN HERE */}
+                                <TableHead className="text-center w-[120px]">
+                                    <div className="flex items-center justify-center gap-1 text-slate-500"><UserCheck className="h-3 w-3"/> Working Days</div>
+                                </TableHead>
                                 <TableHead className="text-center w-[150px] bg-indigo-50 text-indigo-900 border-x border-indigo-100 font-bold">Monthly Total</TableHead>
                                 <TableHead className="text-center w-[150px]">
                                     <div className="flex items-center justify-center gap-1 text-blue-600"><Building2 className="h-3 w-3"/> Banks</div>
@@ -587,12 +614,22 @@ function MonthlyReportsView({ logins }: { logins: any[] }) {
                         </TableHeader>
                         <TableBody>
                             {detailedStats.length === 0 ? (
-                                <TableRow><TableCell colSpan={5} className="text-center py-12 text-slate-400">No data found for this month.</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">No data found for this month.</TableCell></TableRow>
                             ) : (
                                 detailedStats.map((stat, index) => (
                                     <TableRow key={stat.name} className="hover:bg-slate-50 transition-colors">
                                         <TableCell className="text-center font-medium text-slate-500">#{index + 1}</TableCell>
                                         <TableCell className="font-semibold text-slate-700">{stat.name}</TableCell>
+                                        
+                                        {/* ✅ POPULATED DAYS WORKED DATA */}
+                                        <TableCell className="text-center font-medium text-slate-600">
+                                            {stat.daysWorked > 0 ? (
+                                                <Badge variant="outline" className="bg-slate-100">{stat.daysWorked} Days</Badge>
+                                            ) : (
+                                                <span className="text-slate-300 font-normal">-</span>
+                                            )}
+                                        </TableCell>
+
                                         <TableCell className="text-center bg-indigo-50/30 font-bold text-indigo-700 text-lg border-x border-indigo-50">
                                             {stat.total > 0 ? stat.total : <span className="text-slate-300 text-sm font-normal">-</span>}
                                         </TableCell>
