@@ -98,7 +98,7 @@ export function LeadStatusUpdater({
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
-  // ✅ UPDATED WHATSAPP LINK GENERATOR WITH +91 LOGIC
+  // WHATSAPP LINK GENERATOR WITH +91 LOGIC
   const whatsappLink = useMemo(() => {
       let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
       if (!cleaned) return "#"; 
@@ -344,8 +344,8 @@ export function LeadStatusUpdater({
 
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION
-      if (finalStatus === "Documents_Sent" && leadPhoneNumber) {
+      // 3. WHATSAPP AUTOMATION (Now identical for both Documents_Sent AND Interested)
+      if ((finalStatus === "Documents_Sent" || finalStatus === "Interested") && leadPhoneNumber) {
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
@@ -354,14 +354,15 @@ export function LeadStatusUpdater({
           } else {
               toast.error("Failed to send automated KYC template.");
           }
-      } else if (finalStatus === "Interested" && leadPhoneNumber) {
-          // ✅ ALSO UPDATED THIS REDIRECT LINK TO ENSURE +91
-          let manualClean = leadPhoneNumber.replace(/\D/g, '');
-          if (manualClean.length === 10) manualClean = `91${manualClean}`;
-          
-          const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
-          const wUrl = `https://wa.me/${manualClean}?text=${encodeURIComponent(msg)}`;
-          window.open(wUrl, '_blank');
+
+          // If it was 'Interested', we ALSO open the manual chat window
+          if (finalStatus === "Interested") {
+            let manualClean = leadPhoneNumber.replace(/\D/g, '');
+            if (manualClean.length === 10) manualClean = `91${manualClean}`;
+            const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
+            const wUrl = `https://wa.me/${manualClean}?text=${encodeURIComponent(msg)}`;
+            window.open(wUrl, '_blank');
+          }
       }
       
       // Reset UI state
