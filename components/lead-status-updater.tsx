@@ -98,12 +98,11 @@ export function LeadStatusUpdater({
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
    
-  // WHATSAPP LINK GENERATOR WITH +91 LOGIC
+  // WHATSAPP LINK GENERATOR
   const whatsappLink = useMemo(() => {
       let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
       if (!cleaned) return "#"; 
       
-      // If it's exactly 10 digits, it's missing the country code, so add 91
       if (cleaned.length === 10) {
           cleaned = `91${cleaned}`;
       }
@@ -118,8 +117,6 @@ export function LeadStatusUpdater({
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
   // --- EFFECTS ---
-
-  // 1. LocalStorage for Auto Next
   useEffect(() => {
     const saved = localStorage.getItem("crm_auto_next");
     if (saved !== null) setAutoNext(saved === "true");
@@ -130,7 +127,6 @@ export function LeadStatusUpdater({
     localStorage.setItem("crm_auto_next", String(checked));
   }
   
-  // 2. Reset on Lead Change
   useEffect(() => { 
     setLoanAmount(initialLoanAmount);
     handleReset();
@@ -140,7 +136,6 @@ export function LeadStatusUpdater({
     }
   }, [leadId, initialLoanAmount]);
 
-  // AUTOMATION: ROBUST VISUAL AUTO-DIALER
   useEffect(() => {
     if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
         if (lastDialedIdRef.current !== leadId) {
@@ -176,8 +171,6 @@ export function LeadStatusUpdater({
     }
   }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
 
-
-  // 4. Short Call Detection
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isCallInitiated && !callDurationOverride && !countdown && !dialing) {
@@ -193,7 +186,6 @@ export function LeadStatusUpdater({
     return () => clearInterval(interval);
   }, [isCallInitiated, activeCall, callDurationOverride, countdown, dialing]);
 
-  // 5. Cleanup Reset
   useEffect(() => {
     if (status !== 'not_eligible') {
       setNotEligibleReason("")
@@ -202,7 +194,6 @@ export function LeadStatusUpdater({
   }, [status, isUpdating]);
 
   // --- HANDLERS ---
-
   const handleMissedCallWA = async () => {
     if (!leadPhoneNumber) return;
     setIsSendingMissedCall(true);
@@ -344,24 +335,16 @@ export function LeadStatusUpdater({
 
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION (Now identical for both Documents_Sent AND Interested)
+      // ✅ 3. WHATSAPP AUTOMATION (Updated Logic)
+      // Now fires the automated KYC template if the status is Documents_Sent OR Interested
       if ((finalStatus === "Documents_Sent" || finalStatus === "Interested") && leadPhoneNumber) {
-          toast.info("Sending KYC Document Request via WhatsApp...");
+          toast.info("Sending Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
           if (kycResult.success) {
-              toast.success("KYC WhatsApp Template sent securely!");
+              toast.success("WhatsApp Template sent securely!");
           } else {
-              toast.error("Failed to send automated KYC template.");
-          }
-
-          // If it was 'Interested', we ALSO open the manual chat window
-          if (finalStatus === "Interested") {
-            let manualClean = leadPhoneNumber.replace(/\D/g, '');
-            if (manualClean.length === 10) manualClean = `91${manualClean}`;
-            const msg = `Hi ${telecallerName ? telecallerName : "there"}, regarding your loan application...`;
-            const wUrl = `https://wa.me/${manualClean}?text=${encodeURIComponent(msg)}`;
-            window.open(wUrl, '_blank');
+              toast.error("Failed to send automated WhatsApp template.");
           }
       }
       
