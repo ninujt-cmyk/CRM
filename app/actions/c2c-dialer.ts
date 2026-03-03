@@ -7,10 +7,8 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
   try {
     console.log(`\n🚀 [C2C START] Dialing Lead ID: ${leadId}, Phone: ${customerPhone}`);
     
-    // Standard client for fetching the user
     const supabase = await createClient();
     
-    // 💡 THE FIX: Admin client to forcefully bypass Row Level Security (RLS) updates!
     const supabaseAdmin = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,9 +27,22 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
 
     if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
 
-    // Allow both 'ready' and 'active' just in case
     if (!['ready', 'active', 'wrap_up'].includes(agent.current_status)) {
         throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
+    }
+
+    // 💡 NEW: Fetch this specific tenant's Fonada Credentials (RLS protects this automatically!)
+    const { data: tenantSettings } = await supabase
+      .from('tenant_settings')
+      .select('fonada_client_id, fonada_secret')
+      .maybeSingle();
+
+    // Use DB credentials if they exist, otherwise fallback to the global .env keys
+    const finalClientId = tenantSettings?.fonada_client_id || process.env.FONADA_C2C_CLIENT_ID;
+    const finalSecretKey = tenantSettings?.fonada_secret || process.env.FONADA_C2C_SECRET;
+
+    if (!finalClientId || !finalSecretKey) {
+        throw new Error("Dialer credentials missing. Please configure your workspace settings.");
     }
 
     // Fetch Lead Name
@@ -43,8 +54,8 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
 
     // 4. Exact Payload
     const payload = {
-        secretKey: process.env.FONADA_C2C_SECRET || "FLgbnDWAFI06EO0a",
-        clientId: process.env.FONADA_C2C_CLIENT_ID || "Help_call_services",
+        secretKey: finalSecretKey,       // 👈 Now using Tenant-Aware Keys
+        clientId: finalClientId,         // 👈 Now using Tenant-Aware Keys
         agentNumber: safeAgentPhone,
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
@@ -93,7 +104,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         // Not JSON, ignore
     }
 
-    // 6. 🚀 FORCE UPDATE DATABASE (Using Admin Client to bypass RLS)
+    // 6. 🚀 FORCE UPDATE DATABASE
     console.log("💾 [C2C DB UPDATE] Forcing Admin Update for Lead and Agent Status...");
     
     const { error: leadErr } = await supabaseAdmin.from("leads")
