@@ -300,14 +300,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
   const [errorMessage, setErrorMessage] = useState<string>("")
   const [duplicates, setDuplicates] = useState<any[]>([])
   const [showDuplicatesDialog, setShowDuplicatesDialog] = useState(false)
-  const [lastCallTimestamps, setLastCallTimestamps] = useState<Record<string, string | null>>({})
   const [telecallerStatus, setTelecallerStatus] = useState<Record<string, boolean>>({})
 
   const supabase = createClient()
 
   useEffect(() => {
     const fetchData = async () => {
-      // 1. Fetch Attendance
+      // 1. Fetch Attendance (Only one call on load)
       try {
         const today = new Date().toISOString().split('T')[0]
         const { data: attendanceRecords } = await supabase
@@ -325,48 +324,9 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       } catch (err) {
         console.error("Error fetching telecaller status:", err)
       }
-
-      // 2. Fetch Call Logs (Batch Logic)
-      const leadIds = leads.map(l => l.id);
-      if (leadIds.length === 0) return;
-
-      try {
-        const BATCH_SIZE = 100;
-        const allCallLogs: any[] = [];
-        
-        for (let i = 0; i < leadIds.length; i += BATCH_SIZE) {
-            const chunk = leadIds.slice(i, i + BATCH_SIZE);
-            const { data, error } = await supabase
-                .from("call_logs")
-                .select("lead_id, created_at")
-                .in("lead_id", chunk)
-                .order("created_at", { ascending: false });
-
-            if (error) {
-                console.error("Error fetching chunk of call logs:", error);
-                continue;
-            }
-            if (data) {
-                allCallLogs.push(...data);
-            }
-        }
-
-        const latestCalls: Record<string, string | null> = {};
-        const seenLeadIds = new Set<string>();
-
-        for (const log of allCallLogs) {
-          if (!seenLeadIds.has(log.lead_id)) {
-            latestCalls[log.lead_id] = log.created_at;
-            seenLeadIds.add(log.lead_id);
-          }
-        }
-        setLastCallTimestamps(latestCalls);
-      } catch (error) {
-        console.error("An error occurred during call log fetch:", error);
-      }
     };
     fetchData();
-  }, [leads, supabase]);
+  }, [supabase]);
 
   const calculateLeadScore = (lead: Lead): number => {
     let score = 0
@@ -467,7 +427,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     const matchesDateFrom = dateFrom === "" || leadCreatedAt >= new Date(dateFrom).getTime();
     const matchesDateTo = dateTo === "" || leadCreatedAt <= new Date(dateTo).setHours(23, 59, 59, 999); 
 
-    const lastCalledAt = lastCallTimestamps[lead.id] ? new Date(lastCallTimestamps[lead.id]!).getTime() : 0;
+    const lastCalledAt = lead.last_contacted ? new Date(lead.last_contacted).getTime() : 0;
     const matchesLastCallFrom = lastCallFrom === "" || lastCalledAt >= new Date(lastCallFrom).getTime();
     const matchesLastCallTo = lastCallTo === "" || lastCalledAt <= new Date(lastCallTo).setHours(23, 59, 59, 999);
 
@@ -557,13 +517,9 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     const idsToUpdate = new Set<string>();
 
     duplicates.forEach(group => {
-        // 1. Sort by created_at DESCENDING (Newest First)
         const sortedLeads = [...group.leads].sort((a: Lead, b: Lead) => 
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-        
-        // 2. Index 0 is the NEWEST lead (Keep this one active)
-        // Loop from Index 1 onwards (The Older leads) to mark as duplicate
         for (let i = 1; i < sortedLeads.length; i++) {
             idsToUpdate.add(sortedLeads[i].id);
         }
@@ -574,26 +530,21 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         return;
     }
 
-    if (!confirm(`This will move ${idsToUpdate.size} older duplicates to 'Dead Bucket' and tag them as 'Duplicate'. The newest leads will remain active. Continue?`)) {
+    if (!confirm(`This will move ${idsToUpdate.size} older duplicates to 'Dead Bucket'. The newest leads will remain active. Continue?`)) {
         return;
     }
 
     try {
-        // 3. Update status to 'dead_bucket' and append note
         const { error } = await supabase
             .from('leads')
             .update({ 
-                status: 'dead_bucket', // Valid Status
+                status: 'dead_bucket',
                 last_contacted: new Date().toISOString(),
                 notes: 'System: Auto-resolved duplicate (kept newest version).' 
             }) 
             .in('id', Array.from(idsToUpdate));
 
         if (error) throw error;
-
-        // 4. Try to add Duplicate Tag (Optional - doesn't fail if table structure is simple)
-        // Since we can't easily append to array without fetching first or RPC in simple update, 
-        // we'll skip complex tagging here to ensure robustness. The status change is the key.
 
         setSuccessMessage(`Successfully moved ${idsToUpdate.size} duplicates to Dead Bucket.`);
         setShowDuplicatesDialog(false);
@@ -831,7 +782,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     try {
         const { error, count } = await supabase
             .from('leads')
-            .delete({ count: 'exact' }) // Fix: Verify count
+            .delete({ count: 'exact' })
             .in('id', selectedLeads)
 
         if (error) throw error
@@ -849,7 +800,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     }
   }
 
-  // ... (handleAutoAssignLeads, handleAddTag, etc... remain exactly as they were) ...
   const handleAutoAssignLeads = async () => {
     if (!autoAssignRules.enabled || telecallers.length === 0) return
 
@@ -875,7 +825,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       if (autoAssignRules.reassignNR) {
         const staleNR = enrichedLeads.filter(l => {
           if (l.status !== 'nr' || !l.assigned_to) return false 
-          const lastContact = lastCallTimestamps[l.id] || l.last_contacted
+          const lastContact = l.last_contacted
           if (!lastContact) return false 
           const diffHours = (now.getTime() - new Date(lastContact).getTime()) / (1000 * 60 * 60)
           return diffHours > 48
@@ -886,7 +836,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       if (autoAssignRules.reassignInterested) {
         const staleInterested = enrichedLeads.filter(l => {
           if (l.status !== 'Interested' || !l.assigned_to) return false
-          const lastContact = lastCallTimestamps[l.id] || l.last_contacted
+          const lastContact = l.last_contacted
           if (!lastContact) return false
           const diffHours = (now.getTime() - new Date(lastContact).getTime()) / (1000 * 60 * 60)
           return diffHours > 72
@@ -1231,7 +1181,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       )}
 
       {/* Quick Stats Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
@@ -1279,7 +1229,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       </div>
 
       {/* Controls Bar */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1452,7 +1402,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                     setVisibleColumns(prev => ({ ...prev, [key]: checked }))
                   }
                 >
-                   {/* Improved label formatting (e.g. "loanAmount" -> "Loan Amount") */}
                   {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
                 </DropdownMenuCheckboxItem>
               ))}
@@ -1504,7 +1453,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
       {/* Bulk Actions Bar */}
       {selectedLeads.length > 0 && viewMode === 'table' && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-200 bg-blue-50 mx-4">
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center gap-2">
@@ -1674,12 +1623,11 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
       {/* Main Content Area: Table vs Kanban */}
       {viewMode === 'table' ? (
-        <Card>
-            <CardContent className="p-0">
+        <div className="overflow-x-auto">
             <Table>
                 <TableHeader>
                 <TableRow>
-                    <TableHead className="w-12">
+                    <TableHead className="w-12 pl-4">
                     <input
                         type="checkbox"
                         checked={selectedLeads.length === paginatedLeads.length && paginatedLeads.length > 0}
@@ -1756,7 +1704,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 ) : (
                     paginatedLeads.map((lead) => (
                     <TableRow key={lead.id} className={`group ${lead.status === 'dead_bucket' ? 'bg-gray-50 opacity-60' : ''}`}>
-                        <TableCell>
+                        <TableCell className="pl-4">
                         <input
                             type="checkbox"
                             checked={selectedLeads.includes(lead.id)}
@@ -1865,10 +1813,8 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                         {visibleColumns.lastContacted && (
                         <TableCell>
                             {(() => {
-                            // Check latest timestamp from call logs first, fallback to leads.last_contacted
-                            const lastContactTimestamp = lastCallTimestamps[lead.id] || lead.last_contacted;
-                            
-                            // Check Staleness
+                            // Using standard last_contacted safely without API fetch spam
+                            const lastContactTimestamp = lead.last_contacted;
                             const stale = isStale(lastContactTimestamp, lead.status);
 
                             return (
@@ -1950,7 +1896,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                         {visibleColumns.tags && (
                         <TableCell>
                             <div className="flex flex-wrap gap-1">
-                            {/* --- ADDED SAFETY CHECK HERE TOO --- */}
                             {(Array.isArray(lead.tags) ? lead.tags : []).slice(0, 2).map((tag) => (
                                 <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                             ))}
@@ -1971,7 +1916,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                                 onStatusChange={(status) => handleStatusChange(lead.id, status)}
                             />
                             
-                            {/* Fixed Dropdown Trigger */}
                             <DropdownMenu>
                                 <DropdownMenuTrigger className={triggerGhostClass}>
                                 <MoreHorizontal className="h-4 w-4" />
@@ -2010,9 +1954,9 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 )}
                 </TableBody>
             </Table>
-            </CardContent>
+            
             {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-3 border-t">
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-white mt-4">
                 <div className="text-sm text-muted-foreground">
                     Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, filteredLeads.length)} of {filteredLeads.length} results.
                 </div>
@@ -2067,13 +2011,12 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                     </Pagination>
                 </div>
             </div>
-        </Card>
+        </div>
       ) : (
         /* --- KANBAN BOARD VIEW --- */
         <div className="h-[calc(100vh-220px)] overflow-x-auto pb-4">
           <div className="flex gap-4 h-full min-w-[1200px]">
             {KANBAN_COLUMNS.map(col => {
-              // Note: We use filteredLeads here so the Kanban respects the search/filter inputs!
               const colLeads = filteredLeads.filter(l => l.status === col.id);
               const totalAmount = colLeads.reduce((sum, l) => sum + (l.loan_amount || 0), 0);
               
@@ -2084,7 +2027,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDrop(e, col.id)}
                 >
-                  {/* Column Header */}
                   <div className={`p-3 border-b border-l-4 ${col.color.replace('bg-', 'border-')} flex justify-between items-start`}>
                     <div>
                       <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -2097,7 +2039,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                     </div>
                   </div>
 
-                  {/* Draggable Cards Area */}
                   <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     {colLeads.map(lead => (
                       <Card 
