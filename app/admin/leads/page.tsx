@@ -59,6 +59,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     .from("leads")
     .select(`*, assigned_user:users!leads_assigned_to_fkey(id, full_name), assigner:users!leads_assigned_by_fkey(id, full_name)`)
     .order("created_at", { ascending: false })
+    .limit(2000) // 🔴 THE FIX: Safe limit to prevent DB memory crashes
 
   // 2. Filters
   if (searchParams.status && searchParams.status !== 'all') query = query.eq("status", searchParams.status)
