@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription, // 🔴 FIX 1: Added proper DialogDescription import
 } from "@/components/ui/dialog"
 
 import { DisbursementModal } from "@/components/admin/disbursement-modal"
@@ -224,7 +225,7 @@ export default function TelecallerDisbursementReport() {
         const { data, error } = await supabase
             .from('leads')
             .select('id, assigned_to, disbursed_amount, disbursed_at, application_number, name, bank_name, city')
-            .ilike('status', 'disbursed') // 🔴 FIX 1: This makes it perfectly case-insensitive (matches DISBURSED or Disbursed)
+            .ilike('status', 'disbursed') 
             .gte('disbursed_at', startQuery)
             .lte('disbursed_at', endQuery)
             .order('disbursed_at', { ascending: false })
@@ -240,7 +241,6 @@ export default function TelecallerDisbursementReport() {
         setLoading(false);
     }, [supabase, filterMode, selectedYear, selectedMonth, customStart, customEnd, toast]);
 
-    // 🔴 FIX 2: Restored your realtime channel listener!
     useEffect(() => {
         fetchUsersAndTargets().then(() => fetchLeads());
         
@@ -440,8 +440,7 @@ export default function TelecallerDisbursementReport() {
                     target, remaining, progress, dailyRequired, daysLeft, hasTarget: !!targetObj
                 };
             })
-            // Only show agents who have a target OR have achieved something
-            .filter(a => a.hasTarget || a.amount > 0)
+            // 🔴 FIX 2: Removed the filter so EVERY agent shows up, even those at 0!
             .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
     }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
 
@@ -478,7 +477,8 @@ export default function TelecallerDisbursementReport() {
                         <DialogContent className="max-w-2xl">
                             <DialogHeader>
                                 <DialogTitle>Set Monthly Targets</DialogTitle>
-                                <AlertDialogDescription>Assign goals for the currently selected month ({selectedMonth}/{selectedYear})</AlertDialogDescription>
+                                {/* 🔴 FIX 1: Swapped to correct DialogDescription component */}
+                                <DialogDescription>Assign goals for the currently selected month ({selectedMonth}/{selectedYear})</DialogDescription>
                             </DialogHeader>
                             <div className="max-h-[60vh] overflow-y-auto">
                                 <Table>
