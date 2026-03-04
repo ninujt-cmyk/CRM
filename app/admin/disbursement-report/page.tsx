@@ -172,10 +172,11 @@ export default function TelecallerDisbursementReport() {
     };
 
     const fetchUsersAndTargets = useCallback(async () => {
+        // 🔴 FIX: ONLY FETCH TELECALLERS
         const { data: users, error } = await supabase
             .from('users')
             .select('id, full_name')
-            .in('role', ['telecaller', 'agent', 'team_leader']); 
+            .eq('role', 'telecaller'); // Changed from .in('role', [...])
 
         if (error) return;
         const map: UserMap = {};
@@ -460,7 +461,6 @@ export default function TelecallerDisbursementReport() {
             .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
     }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
 
-    // 🔴 THIS FUNCTION DRIVES THE ICON IN BOTH TABS
     const getRankIcon = (index: number) => {
         if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500 fill-yellow-100" />;
         if (index === 1) return <Medal className="h-5 w-5 text-gray-400 fill-gray-100" />;
