@@ -9,6 +9,9 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { Suspense } from "react"
 import PWAWrapper from "@/components/pwa-client-wrapper"
 
+// ✅ IMPORT THE TENANT PROVIDER
+import { TenantProvider } from "@/context/tenant-provider"
+
 const geistSans = Inter({
   subsets: ["latin"],
   display: "swap",
@@ -63,7 +66,6 @@ export const metadata: Metadata = {
       },
     ],
   },
-  // generator: 'v0.app' // Removed - not required
 }
 
 export const viewport: Viewport = {
@@ -93,7 +95,6 @@ export default function RootLayout({
         <meta name="msapplication-TileColor" content="#000000" />
         <meta name="msapplication-tap-highlight" content="no" />
 
-        {/* Favicon links - Next.js will also auto-generate these from metadata, but keeping for compatibility */}
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
@@ -103,15 +104,22 @@ export default function RootLayout({
       </head>
       <body className="font-sans">
         <ErrorBoundary>
-          {/* Main content */}
-          {children}
+          
+          {/* ✅ WRAP THE ENTIRE APP IN THE TENANT PROVIDER */}
+          <TenantProvider>
+            
+            {/* Main content */}
+            {children}
 
-          <PWAWrapper />
+            <PWAWrapper />
 
-          {/* Toast notifications */}
-          <Toaster position="top-right" richColors closeButton duration={4000} />
+            {/* Toast notifications */}
+            <Toaster position="top-right" richColors closeButton duration={4000} />
 
-          <Analytics />
+            <Analytics />
+
+          </TenantProvider>
+          
         </ErrorBoundary>
       </body>
     </html>
