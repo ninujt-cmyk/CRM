@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { 
   Loader2, IndianRupee, TrendingUp, Search, RefreshCw, X, Users, Trophy, Medal,
   Calculator, Building2, Target, PieChart as PieIcon, ArrowUpRight, Wallet, Pencil, Zap, Printer, Gauge,
-  Lightbulb, Crown, Calendar, Trash2
+  Lightbulb, Crown, Calendar, Trash2, Flame, Crosshair
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -33,6 +33,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+
 import { DisbursementModal } from "@/components/admin/disbursement-modal"
 
 // --- TYPES ---
@@ -51,8 +59,15 @@ interface UserMap {
     [id: string]: string; 
 }
 
+interface AgentTarget {
+    target_amount: number;
+    start_date: string;
+    end_date: string;
+}
+
 // --- UTILITIES ---
 const formatCurrency = (value: number) => {
+    if (value >= 100000) return `₹${(value / 100000).toFixed(2)}L`;
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -79,7 +94,6 @@ export default function TelecallerDisbursementReport() {
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth() + 1; // 1-12
 
-    // Set Default Year & Month (Current Month)
     const [selectedYear, setSelectedYear] = useState(String(currentYear));
     const [selectedMonth, setSelectedMonth] = useState<string>(String(currentMonth).padStart(2, '0'));
     
@@ -98,6 +112,12 @@ export default function TelecallerDisbursementReport() {
     const [disbursements, setDisbursements] = useState<LeadDisbursement[]>([]);
     const [userMap, setUserMap] = useState<UserMap>({});
     
+    // GAMIFICATION STATE
+    const [agentTargets, setAgentTargets] = useState<Record<string, AgentTarget>>({});
+    const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
+    const [savingTargets, setSavingTargets] = useState(false);
+    const [tempTargets, setTempTargets] = useState<Record<string, string>>({});
+
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -106,36 +126,28 @@ export default function TelecallerDisbursementReport() {
     const setQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'lastMonth') => {
         const today = new Date();
         const y = today.getFullYear();
-        
-        let start = "";
-        let end = ""; 
+        let start = ""; let end = ""; 
 
         if (type === 'today') {
             const m = String(today.getMonth() + 1).padStart(2, '0');
             const d = String(today.getDate()).padStart(2, '0');
-            start = `${y}-${m}-${d}`;
-            end = `${y}-${m}-${d}`;
+            start = `${y}-${m}-${d}`; end = `${y}-${m}-${d}`;
         } else if (type === 'yesterday') {
-            const yest = new Date(today);
-            yest.setDate(today.getDate() - 1);
+            const yest = new Date(today); yest.setDate(today.getDate() - 1);
             const yM = String(yest.getMonth() + 1).padStart(2, '0');
             const yD = String(yest.getDate()).padStart(2, '0');
-            start = `${yest.getFullYear()}-${yM}-${yD}`;
-            end = `${yest.getFullYear()}-${yM}-${yD}`;
+            start = `${yest.getFullYear()}-${yM}-${yD}`; end = `${yest.getFullYear()}-${yM}-${yD}`;
         } else if (type === 'week') {
-            const lastWeek = new Date(today);
-            lastWeek.setDate(today.getDate() - 7);
+            const lastWeek = new Date(today); lastWeek.setDate(today.getDate() - 7);
             const wM = String(lastWeek.getMonth() + 1).padStart(2, '0');
             const wD = String(lastWeek.getDate()).padStart(2, '0');
             start = `${lastWeek.getFullYear()}-${wM}-${wD}`;
             end = `${y}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         } else if (type === 'lastMonth') {
             setFilterMode('monthly');
-            let lm = today.getMonth(); 
-            let ly = today.getFullYear();
+            let lm = today.getMonth(); let ly = today.getFullYear();
             if(lm === 0) { lm = 12; ly = ly - 1; }
-            setSelectedMonth(String(lm).padStart(2, '0'));
-            setSelectedYear(String(ly));
+            setSelectedMonth(String(lm).padStart(2, '0')); setSelectedYear(String(ly));
             return; 
         }
 
@@ -146,22 +158,39 @@ export default function TelecallerDisbursementReport() {
         }
     };
 
-    // 1. Fetch Users
-    const fetchUsers = useCallback(async () => {
-        const { data, error } = await supabase
+    // 1. Fetch Users & Targets
+    const fetchUsersAndTargets = useCallback(async () => {
+        const { data: users, error } = await supabase
             .from('users')
             .select('id, full_name')
-            .in('role', ['telecaller', 'team_leader']); 
+            .in('role', ['telecaller', 'agent', 'team_leader']); 
 
-        if (error) {
-            console.error('Error fetching users:', error);
-            return;
-        }
+        if (error) return;
         const map: UserMap = {};
-        (data || []).forEach(user => {
-            map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`;
-        });
+        users.forEach(user => { map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`; });
         setUserMap(map);
+
+        // Fetch Targets for current period
+        const today = new Date().toISOString().split('T')[0];
+        const { data: targets } = await supabase
+            .from('user_targets')
+            .select('*')
+            .gte('end_date', today)
+            .order('created_at', { ascending: false });
+
+        const targetMap: Record<string, AgentTarget> = {};
+        const tempTargetMap: Record<string, string> = {};
+        if (targets) {
+            targets.forEach(t => {
+                if (!targetMap[t.user_id]) {
+                    targetMap[t.user_id] = t;
+                    tempTargetMap[t.user_id] = String(t.target_amount);
+                }
+            });
+        }
+        setAgentTargets(targetMap);
+        setTempTargets(tempTargetMap);
+
     }, [supabase]);
 
     // 2. Fetch Leads
@@ -195,7 +224,7 @@ export default function TelecallerDisbursementReport() {
         const { data, error } = await supabase
             .from('leads')
             .select('id, assigned_to, disbursed_amount, disbursed_at, application_number, name, bank_name, city')
-            .eq('status', 'DISBURSED') 
+            .eq('status', 'Disbursed') 
             .gte('disbursed_at', startQuery)
             .lte('disbursed_at', endQuery)
             .order('disbursed_at', { ascending: false })
@@ -203,56 +232,65 @@ export default function TelecallerDisbursementReport() {
 
         if (error) {
             toast({ title: "Error", description: "Failed to fetch transactions", variant: "destructive" });
-            setLoading(false);
-            return;
+            setLoading(false); return;
         }
 
-        const safeData = (data || []).map(d => ({
-            ...d,
-            disbursed_amount: Number(d.disbursed_amount) || 0
-        }));
-
+        const safeData = (data || []).map(d => ({ ...d, disbursed_amount: Number(d.disbursed_amount) || 0 }));
         setDisbursements(safeData as LeadDisbursement[]);
         setLoading(false);
     }, [supabase, filterMode, selectedYear, selectedMonth, customStart, customEnd, toast]);
 
     useEffect(() => {
-        fetchUsers().then(() => fetchLeads());
-        const channel = supabase.channel('disbursement-updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
-                const newData = payload.new as any;
-                if (newData.status === 'DISBURSED' || (payload.old as any)?.status === 'DISBURSED') {
-                    setTimeout(() => fetchLeads(), 500);
-                }
-            })
-            .subscribe();
-        return () => { supabase.removeChannel(channel); };
-    }, [fetchUsers, fetchLeads, refreshKey, supabase]);
+        fetchUsersAndTargets().then(() => fetchLeads());
+    }, [fetchUsersAndTargets, fetchLeads, refreshKey]);
 
     const handleDelete = async () => {
         if (!deleteId) return;
         setIsDeleting(true);
         try {
-            const { error } = await supabase.from('leads')
-                .update({ status: 'Interested', disbursed_amount: null, disbursed_at: null })
-                .eq('id', deleteId);
+            const { error } = await supabase.from('leads').update({ status: 'Interested', disbursed_amount: null, disbursed_at: null }).eq('id', deleteId);
             if (error) throw error;
             toast({ title: "Deleted", description: "Transaction removed successfully." });
             setRefreshKey(prev => prev + 1); 
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" });
         } finally {
-            setIsDeleting(false);
-            setDeleteId(null);
+            setIsDeleting(false); setDeleteId(null);
+        }
+    };
+
+    const handleSaveTargets = async () => {
+        setSavingTargets(true);
+        try {
+            // Determine current month dates
+            const monthIndex = selectedMonth === 'all' ? new Date().getMonth() : parseInt(selectedMonth) - 1;
+            const startDate = new Date(Number(selectedYear), monthIndex, 1).toISOString().split('T')[0];
+            const endDate = new Date(Number(selectedYear), monthIndex + 1, 0).toISOString().split('T')[0];
+
+            const inserts = Object.entries(tempTargets).map(([userId, amount]) => ({
+                user_id: userId,
+                target_amount: Number(amount),
+                start_date: startDate,
+                end_date: endDate
+            }));
+
+            const { error } = await supabase.from('user_targets').insert(inserts);
+            if (error) throw error;
+            
+            toast({ title: "Success", description: "Targets updated successfully!" });
+            setIsTargetModalOpen(false);
+            setRefreshKey(prev => prev + 1);
+        } catch (err: any) {
+            toast({ title: "Error", description: err.message, variant: "destructive" });
+        } finally {
+            setSavingTargets(false);
         }
     };
 
     // --- AGGREGATION & ANALYTICS ---
     const { 
-        filteredData, grandTotal, displayLabel, bankChartData, trendData, 
-        pieData, avgTicketSize, cityStats, availableBanks,
-        projectedRevenue, dailyVelocity,
-        smartInsight, maxDeal
+        filteredData, grandTotal, bankChartData, trendData, pieData, avgTicketSize, cityStats, availableBanks,
+        projectedRevenue, dailyVelocity, smartInsight, maxDeal
     } = useMemo(() => {
         let total = 0;
         const bankMap: Record<string, number> = {};
@@ -263,7 +301,6 @@ export default function TelecallerDisbursementReport() {
         
         let maxDealItem: LeadDisbursement | null = null;
 
-        // 1. Filter
         const searched = disbursements.filter(item => {
             if(item.bank_name) uniqueBanks.add(item.bank_name);
             if (selectedAgentId && item.assigned_to !== selectedAgentId) return false;
@@ -276,12 +313,10 @@ export default function TelecallerDisbursementReport() {
             return telecallerName.includes(term) || customerName.includes(term) || appNo.includes(term);
         });
 
-        // 2. Aggregate
         searched.forEach(d => { 
             const amt = d.disbursed_amount;
             total += amt; 
             
-            // Stats Building
             bankMap[d.bank_name || 'Others'] = (bankMap[d.bank_name || 'Others'] || 0) + amt;
             cityMap[d.city || 'Unknown'] = (cityMap[d.city || 'Unknown'] || 0) + amt;
             agentMap[d.assigned_to] = (agentMap[d.assigned_to] || 0) + amt;
@@ -291,15 +326,11 @@ export default function TelecallerDisbursementReport() {
                 dailyMap[iso] = (dailyMap[iso] || 0) + amt;
             }
 
-            // Find Max Deal
-            if (!maxDealItem || amt > maxDealItem.disbursed_amount) {
-                maxDealItem = d;
-            }
+            if (!maxDealItem || amt > maxDealItem.disbursed_amount) maxDealItem = d;
         });
 
         const avg = searched.length > 0 ? total / searched.length : 0;
         
-        // 3. Projections & Velocity
         let velocity = 0;
         let projection = total;
         
@@ -310,7 +341,7 @@ export default function TelecallerDisbursementReport() {
             const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
             
             if (selYear === now.getFullYear() && selMonthIdx === now.getMonth()) {
-                const daysPassed = now.getDate();
+                const daysPassed = Math.max(1, now.getDate());
                 velocity = total / daysPassed;
                 projection = velocity * daysInMonth; 
             } else {
@@ -319,7 +350,6 @@ export default function TelecallerDisbursementReport() {
             }
         }
 
-        // 4. Smart Insights Logic
         let insight = "Track your daily performance to hit targets.";
         if (total > 0) {
             const entries = Object.entries(bankMap).sort((a,b) => b[1] - a[1]);
@@ -327,11 +357,9 @@ export default function TelecallerDisbursementReport() {
                 const topBankName = entries[0][0];
                 const topBankShare = (entries[0][1] / total) * 100;
                 
-                if (topBankShare > 60) {
-                    insight = `⚠️ High dependency on ${topBankName} (${topBankShare.toFixed(0)}% of volume). Consider diversifying.`;
-                } else if (topBankShare > 40) {
-                    insight = `ℹ️ ${topBankName} is your leading partner, driving ${topBankShare.toFixed(0)}% of sales.`;
-                } else {
+                if (topBankShare > 60) insight = `⚠️ High dependency on ${topBankName} (${topBankShare.toFixed(0)}% of volume). Consider diversifying.`;
+                else if (topBankShare > 40) insight = `ℹ️ ${topBankName} is your leading partner, driving ${topBankShare.toFixed(0)}% of sales.`;
+                else {
                     const agentEntries = Object.entries(agentMap).sort((a,b) => b[1] - a[1]);
                     if (agentEntries.length > 0) {
                         const topAgentName = userMap[agentEntries[0][0]]?.split(' ')[0] || 'Unknown';
@@ -342,59 +370,66 @@ export default function TelecallerDisbursementReport() {
             }
         }
 
-        let label = "Total Revenue";
-        if (selectedAgentId) label = `${userMap[selectedAgentId]}'s Revenue`;
-        if (selectedBank !== 'all') label += ` (${selectedBank})`;
-
-        // Charts
         const bChartData = Object.entries(bankMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 8);
         const sortedBanks = Object.entries(bankMap).sort((a,b) => b[1] - a[1]);
         const top5 = sortedBanks.slice(0, 5).map(([name, value]) => ({ name, value }));
         const othersVal = sortedBanks.slice(5).reduce((acc, curr) => acc + curr[1], 0);
         if(othersVal > 0) top5.push({ name: 'Others', value: othersVal });
-        const trendFinal = Object.keys(dailyMap).sort().map(iso => ({
-            date: new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-            value: dailyMap[iso]
-        }));
+        const trendFinal = Object.keys(dailyMap).sort().map(iso => ({ date: new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), value: dailyMap[iso] }));
         const cityFinal = Object.entries(cityMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 5);
-        const banksList = Array.from(uniqueBanks).sort();
 
         return {
-            filteredData: searched,
-            grandTotal: total,
-            displayLabel: label,
-            bankChartData: bChartData,
-            pieData: top5,
-            trendData: trendFinal,
-            avgTicketSize: avg,
-            cityStats: cityFinal,
-            availableBanks: banksList,
-            projectedRevenue: projection,
-            dailyVelocity: velocity,
-            smartInsight: insight,
-            maxDeal: maxDealItem
+            filteredData: searched, grandTotal: total, bankChartData: bChartData, pieData: top5,
+            trendData: trendFinal, avgTicketSize: avg, cityStats: cityFinal, availableBanks: Array.from(uniqueBanks).sort(),
+            projectedRevenue: projection, dailyVelocity: velocity, smartInsight: insight, maxDeal: maxDealItem
         };
     }, [disbursements, searchTerm, userMap, selectedAgentId, selectedBank, filterMode, selectedYear, selectedMonth]);
 
-    const telecallerStats = useMemo(() => {
+    // --- LEADERBOARD & GAMIFICATION STATS ---
+    const leaderboardStats = useMemo(() => {
         const stats: Record<string, { amount: number, count: number }> = {};
-        const leaderboardData = disbursements.filter(item => {
+        
+        // Only calculate for the selected bank/filters
+        const dataToProcess = disbursements.filter(item => {
             if (selectedBank !== 'all' && item.bank_name !== selectedBank) return false;
             return true; 
         });
-        leaderboardData.forEach(d => {
+
+        dataToProcess.forEach(d => {
             const id = d.assigned_to;
             if(!stats[id]) stats[id] = { amount: 0, count: 0 };
             stats[id].amount += (d.disbursed_amount || 0);
             stats[id].count += 1;
         });
-        return Object.entries(stats)
-            .map(([id, data]) => ({ 
-                id, name: userMap[id] || 'Unknown', amount: data.amount, count: data.count,
-                avg: data.count > 0 ? data.amount / data.count : 0
-            }))
-            .sort((a, b) => b.amount - a.amount);
-    }, [disbursements, userMap, selectedBank]);
+
+        // Current Month Date Logic for Daily Required calculation
+        const now = new Date();
+        const selYear = Number(selectedYear);
+        const selMonthIdx = selectedMonth === 'all' ? now.getMonth() : Number(selectedMonth) - 1;
+        const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
+        const daysPassed = selYear === now.getFullYear() && selMonthIdx === now.getMonth() ? now.getDate() : daysInMonth;
+        const daysLeft = Math.max(1, daysInMonth - daysPassed);
+
+        return Object.keys(userMap)
+            .map(id => {
+                const data = stats[id] || { amount: 0, count: 0 };
+                const targetObj = agentTargets[id];
+                const target = targetObj ? targetObj.target_amount : 0;
+                const achieved = data.amount;
+                const remaining = Math.max(0, target - achieved);
+                const progress = target > 0 ? Math.min(100, Math.round((achieved / target) * 100)) : 0;
+                const dailyRequired = remaining > 0 ? Math.round(remaining / daysLeft) : 0;
+
+                return { 
+                    id, name: userMap[id], amount: achieved, count: data.count,
+                    avg: data.count > 0 ? achieved / data.count : 0,
+                    target, remaining, progress, dailyRequired, daysLeft, hasTarget: !!targetObj
+                };
+            })
+            // Only show agents who have a target OR have achieved something
+            .filter(a => a.hasTarget || a.amount > 0)
+            .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
+    }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
 
     const getRankIcon = (index: number) => {
         if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500 fill-yellow-100" />;
@@ -403,7 +438,7 @@ export default function TelecallerDisbursementReport() {
         return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
     };
 
-    const targetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
+    const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
     const estimatedCommission = grandTotal * (commissionRate[0] / 100);
     const handlePrint = () => window.print();
 
@@ -420,6 +455,48 @@ export default function TelecallerDisbursementReport() {
                     <p className="text-slate-500 text-sm mt-1">Real-time financial tracking and commission analysis</p>
                 </div>
                 <div className="flex gap-2">
+                    <Dialog open={isTargetModalOpen} onOpenChange={setIsTargetModalOpen}>
+                        <DialogTrigger asChild>
+                            <Button variant="outline" className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                                <Crosshair className="h-4 w-4" /> Set Targets
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                            <DialogHeader>
+                                <DialogTitle>Set Monthly Targets</DialogTitle>
+                                <AlertDialogDescription>Assign goals for the currently selected month ({selectedMonth}/{selectedYear})</AlertDialogDescription>
+                            </DialogHeader>
+                            <div className="max-h-[60vh] overflow-y-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow><TableHead>Agent</TableHead><TableHead>Target Amount (₹)</TableHead></TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {Object.entries(userMap).map(([id, name]) => (
+                                            <TableRow key={id}>
+                                                <TableCell className="font-medium text-xs">{name}</TableCell>
+                                                <TableCell>
+                                                    <Input 
+                                                        type="number" 
+                                                        value={tempTargets[id] || ''} 
+                                                        onChange={(e) => setTempTargets(prev => ({...prev, [id]: e.target.value}))}
+                                                        placeholder="e.g. 5000000"
+                                                        className="h-8 text-xs font-mono"
+                                                    />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            <div className="flex justify-end pt-4">
+                                <Button onClick={handleSaveTargets} disabled={savingTargets} className="bg-indigo-600">
+                                    {savingTargets ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : "Save Targets"}
+                                </Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
                     <Button variant="outline" onClick={handlePrint} className="gap-2">
                         <Printer className="h-4 w-4" /> Print Report
                     </Button>
@@ -493,14 +570,115 @@ export default function TelecallerDisbursementReport() {
             </Card>
 
             {/* --- TABS --- */}
-            <Tabs defaultValue="dashboard" className="w-full">
-                <TabsList className="grid w-full max-w-[400px] grid-cols-2 print:hidden">
+            <Tabs defaultValue="leaderboard" className="w-full">
+                <TabsList className="grid w-full max-w-[600px] grid-cols-3 print:hidden">
+                    <TabsTrigger value="leaderboard" className="text-indigo-600 data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">🏆 Gamification</TabsTrigger>
                     <TabsTrigger value="dashboard">Analytics Board</TabsTrigger>
                     <TabsTrigger value="data">Data List</TabsTrigger>
                 </TabsList>
 
+                {/* 🔴 NEW: GAMIFICATION LEADERBOARD TAB (Perfect for WhatsApp Screenshots) */}
+                <TabsContent value="leaderboard" className="mt-6">
+                    <div className="max-w-4xl mx-auto p-4 space-y-6 bg-white rounded-xl shadow-sm border border-slate-100">
+                        {/* WhatsApp Header */}
+                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-6 rounded-xl shadow-md text-white">
+                            <div>
+                                <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                                    <Trophy className="text-yellow-400 w-8 h-8" /> 
+                                    DISBURSEMENT LEADERBOARD
+                                </h1>
+                                <p className="text-blue-200 text-sm mt-1 font-medium tracking-wide">
+                                    Live Performance Tracking & Targets
+                                </p>
+                            </div>
+                            <div className="text-right hidden sm:block">
+                                <div className="text-xs text-blue-200 uppercase font-bold tracking-widest">Team Total</div>
+                                <div className="text-3xl font-black text-emerald-400">
+                                    {formatCurrency(grandTotal)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-4">
+                            {leaderboardStats.map((agent, index) => {
+                                const isWinner = index === 0 && agent.progress > 0;
+                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5;
+                                const isComplete = agent.progress >= 100;
+
+                                return (
+                                    <Card key={agent.id} className={`overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-all ${
+                                        isComplete ? 'border-l-emerald-500 bg-emerald-50/30' : 
+                                        isWinner ? 'border-l-yellow-400' : 
+                                        isDanger ? 'border-l-red-500 bg-red-50/30' : 'border-l-blue-500'
+                                    }`}>
+                                    <CardContent className="p-4 sm:p-5">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${
+                                                    index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                                                    index === 1 ? 'bg-slate-200 text-slate-700' :
+                                                    index === 2 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-500'
+                                                }`}>
+                                                    {index + 1}
+                                                </div>
+                                                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                                    {agent.name}
+                                                    {isComplete && <Flame className="w-5 h-5 text-orange-500 fill-orange-500 animate-pulse" />}
+                                                </h3>
+                                            </div>
+                                            <Badge variant={isComplete ? "default" : "secondary"} className={isComplete ? "bg-emerald-500" : ""}>
+                                                {agent.daysLeft} Days Left
+                                            </Badge>
+                                        </div>
+
+                                        {agent.hasTarget ? (
+                                            <>
+                                                <div className="space-y-2 mb-4">
+                                                    <div className="flex justify-between text-sm font-semibold">
+                                                        <span className="text-slate-600">Progress</span>
+                                                        <span className={isComplete ? "text-emerald-600 font-black" : "text-blue-600"}>{agent.progress}%</span>
+                                                    </div>
+                                                    <Progress value={agent.progress} className={`h-3 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-4 pt-4 border-t border-slate-100">
+                                                    <div>
+                                                        <p className="text-[10px] uppercase font-bold text-slate-400">Target</p>
+                                                        <p className="font-semibold text-slate-700 text-sm sm:text-base">{formatCurrency(agent.target)}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] uppercase font-bold text-slate-400">Achieved</p>
+                                                        <p className={`font-black text-sm sm:text-base ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                            {formatCurrency(agent.amount)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-slate-50 rounded-md p-2 -my-2 border border-slate-100 text-center">
+                                                        <p className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-500 flex items-center justify-center gap-1">
+                                                            <TrendingUp className="w-3 h-3 hidden sm:block" /> Daily Req.
+                                                        </p>
+                                                        <p className="font-bold text-indigo-700 text-sm sm:text-base">
+                                                            {isComplete ? 'Done 🎉' : formatCurrency(agent.dailyRequired)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                                                <p className="text-sm text-slate-500">No target set. Total Achieved: <span className="font-bold text-slate-800">{formatCurrency(agent.amount)}</span></p>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                    </Card>
+                                )
+                            })}
+                            {leaderboardStats.length === 0 && (
+                                <div className="text-center p-10 text-slate-400 border border-dashed rounded-xl">No disbursements found for the selected period.</div>
+                            )}
+                        </div>
+                    </div>
+                </TabsContent>
+
+                {/* --- EXISTING DASHBOARD TAB --- */}
                 <TabsContent value="dashboard" className="space-y-6 mt-4">
-                    
                     {/* STATS STRIP */}
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                         {/* 1. ACTUAL */}
@@ -543,11 +721,11 @@ export default function TelecallerDisbursementReport() {
                             </CardContent>
                         </Card>
 
-                        {/* 3. GOAL */}
+                        {/* 3. OVERALL COMPANY GOAL */}
                         <Card className="bg-white shadow-sm border-slate-200">
                             <CardContent className="p-4 pt-6">
                                 <div className="flex justify-between items-center mb-1">
-                                    <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">Goal Progress</p>
+                                    <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">Company Goal</p>
                                     {!isTargetEditing ? (
                                         <Pencil className="h-3 w-3 text-slate-300 cursor-pointer" onClick={() => setIsTargetEditing(true)}/>
                                     ) : (
@@ -555,10 +733,10 @@ export default function TelecallerDisbursementReport() {
                                     )}
                                 </div>
                                 <div className="flex justify-between items-end">
-                                    <h2 className="text-xl font-bold text-slate-800">{targetProgress.toFixed(0)}%</h2>
+                                    <h2 className="text-xl font-bold text-slate-800">{companyTargetProgress.toFixed(0)}%</h2>
                                     <span className="text-xs text-slate-400 mb-1">of {formatCurrency(targetAmount)}</span>
                                 </div>
-                                <Progress value={targetProgress} className="h-1.5 mt-2 bg-slate-100" indicatorClassName={targetProgress >= 100 ? 'bg-green-500' : 'bg-slate-900'}/>
+                                <Progress value={companyTargetProgress} className="h-1.5 mt-2 bg-slate-100" indicatorClassName={companyTargetProgress >= 100 ? 'bg-green-500' : 'bg-slate-900'}/>
                             </CardContent>
                         </Card>
 
@@ -634,7 +812,7 @@ export default function TelecallerDisbursementReport() {
                             <Card className="shadow-sm border-slate-200 h-full">
                                 <CardHeader className="py-4 bg-slate-50 border-b">
                                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                        <Trophy className="h-4 w-4 text-yellow-500" /> Leaderboard
+                                        <Trophy className="h-4 w-4 text-yellow-500" /> Basic Overview
                                     </CardTitle>
                                 </CardHeader>
                                 <div className="overflow-x-auto">
@@ -644,12 +822,11 @@ export default function TelecallerDisbursementReport() {
                                                 <TableHead className="w-[40px] text-xs font-bold text-slate-600">#</TableHead>
                                                 <TableHead className="text-xs font-bold text-slate-600">Agent</TableHead>
                                                 <TableHead className="text-center text-xs font-bold text-slate-600">Count</TableHead>
-                                                <TableHead className="text-right text-xs font-bold text-slate-600">Avg Ticket</TableHead>
                                                 <TableHead className="text-right text-xs font-bold text-green-600">Total</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {telecallerStats.map((stat, idx) => (
+                                            {leaderboardStats.map((stat, idx) => (
                                                 <TableRow 
                                                     key={stat.id} 
                                                     className={`hover:bg-slate-50 border-b border-slate-100 ${selectedAgentId === stat.id ? 'bg-green-50' : ''}`}
@@ -658,9 +835,8 @@ export default function TelecallerDisbursementReport() {
                                                     <TableCell className="py-3">{getRankIcon(idx)}</TableCell>
                                                     <TableCell className="py-3 font-semibold text-slate-700 text-xs">{stat.name}</TableCell>
                                                     <TableCell className="py-3 text-center">
-                                                        <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-md font-medium">{stat.count}</span>
+                                                        <span className="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-md font-medium">{stat.count}</span>
                                                     </TableCell>
-                                                    <TableCell className="py-3 text-right font-mono text-xs text-slate-400">{formatCurrency(stat.avg)}</TableCell>
                                                     <TableCell className="py-3 text-right font-bold text-green-700 text-xs">{formatCurrency(stat.amount)}</TableCell>
                                                 </TableRow>
                                             ))}
@@ -672,6 +848,7 @@ export default function TelecallerDisbursementReport() {
                     </div>
                 </TabsContent>
 
+                {/* --- DATA LIST TAB --- */}
                 <TabsContent value="data" className="mt-4">
                     <Card className="shadow-sm">
                         <CardHeader><CardTitle className="text-base">Transactions</CardTitle></CardHeader>
