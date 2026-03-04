@@ -172,11 +172,10 @@ export default function TelecallerDisbursementReport() {
     };
 
     const fetchUsersAndTargets = useCallback(async () => {
-        // 🔴 FIX: ONLY FETCH TELECALLERS
         const { data: users, error } = await supabase
             .from('users')
             .select('id, full_name')
-            .eq('role', 'telecaller'); // Changed from .in('role', [...])
+            .eq('role', 'telecaller'); // STRICTLY TELECALLERS ONLY
 
         if (error) return;
         const map: UserMap = {};
@@ -468,6 +467,9 @@ export default function TelecallerDisbursementReport() {
         return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
     };
 
+    // 🔴 THE NEW STRICT GAMIFICATION FILTER: Only active players are shown in the grid
+    const gamificationAgents = leaderboardStats.filter(agent => agent.hasTarget);
+
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
     const estimatedCommission = grandTotal * (commissionRate[0] / 100);
     const handlePrint = () => window.print();
@@ -642,10 +644,11 @@ export default function TelecallerDisbursementReport() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {leaderboardStats.map((agent, index) => {
+                            {/* 🔴 MAPPING OVER ONLY AGENTS WITH ACTIVE TARGETS */}
+                            {gamificationAgents.map((agent, index) => {
                                 const isWinner = index === 0 && agent.progress > 0;
-                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5 && agent.hasTarget;
-                                const isComplete = agent.progress >= 100 && agent.hasTarget;
+                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5;
+                                const isComplete = agent.progress >= 100;
 
                                 return (
                                     <Card key={agent.id} className={`overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-all ${
@@ -668,53 +671,49 @@ export default function TelecallerDisbursementReport() {
                                                     {isComplete && <Flame className="w-4 h-4 text-orange-500 fill-orange-500 animate-pulse" />}
                                                 </h3>
                                             </div>
-                                            {agent.hasTarget && (
-                                                <Badge variant={isComplete ? "default" : "secondary"} className={`text-[10px] h-5 px-1.5 ${isComplete ? "bg-emerald-500" : ""}`}>
-                                                    {agent.daysLeft}d Left
-                                                </Badge>
-                                            )}
+                                            <Badge variant={isComplete ? "default" : "secondary"} className={`text-[10px] h-5 px-1.5 ${isComplete ? "bg-emerald-500" : ""}`}>
+                                                {agent.daysLeft}d Left
+                                            </Badge>
                                         </div>
 
-                                        {agent.hasTarget ? (
-                                            <>
-                                                <div className="space-y-1.5 mb-2">
-                                                    <div className="flex justify-between text-xs font-semibold">
-                                                        <span className="text-slate-600">Progress</span>
-                                                        <span className={isComplete ? "text-emerald-600 font-black" : "text-blue-600"}>{agent.progress}%</span>
-                                                    </div>
-                                                    <Progress value={agent.progress} className={`h-1.5 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
-                                                </div>
-                                                <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-slate-100">
-                                                    <div>
-                                                        <p className="text-[9px] uppercase font-bold text-slate-400">Target</p>
-                                                        <p className="font-semibold text-slate-700 text-xs">{formatCurrency(agent.target)}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-[9px] uppercase font-bold text-slate-400">Achieved</p>
-                                                        <p className={`font-black text-xs ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
-                                                            {formatCurrency(agent.amount)}
-                                                        </p>
-                                                    </div>
-                                                    <div className="bg-slate-50 rounded p-1 -my-1 border border-slate-100 text-center">
-                                                        <p className="text-[8px] uppercase font-bold text-indigo-500 flex items-center justify-center">
-                                                            Req/Day
-                                                        </p>
-                                                        <p className="font-bold text-indigo-700 text-xs">
-                                                            {isComplete ? 'Done' : formatCurrency(agent.dailyRequired)}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className="text-center p-2 bg-slate-50 rounded border border-dashed border-slate-200 mt-2">
-                                                <p className="text-xs text-slate-500">Achieved: <span className="font-bold text-slate-800">{formatCurrency(agent.amount)}</span></p>
-                                                <p className="text-[9px] text-slate-400 mt-0.5">No target assigned</p>
+                                        <div className="space-y-1.5 mb-2">
+                                            <div className="flex justify-between text-xs font-semibold">
+                                                <span className="text-slate-600">Progress</span>
+                                                <span className={isComplete ? "text-emerald-600 font-black" : "text-blue-600"}>{agent.progress}%</span>
                                             </div>
-                                        )}
+                                            <Progress value={agent.progress} className={`h-1.5 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-slate-100">
+                                            <div>
+                                                <p className="text-[9px] uppercase font-bold text-slate-400">Target</p>
+                                                <p className="font-semibold text-slate-700 text-xs">{formatCurrency(agent.target)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[9px] uppercase font-bold text-slate-400">Achieved</p>
+                                                <p className={`font-black text-xs ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                    {formatCurrency(agent.amount)}
+                                                </p>
+                                            </div>
+                                            <div className="bg-slate-50 rounded p-1 -my-1 border border-slate-100 text-center">
+                                                <p className="text-[8px] uppercase font-bold text-indigo-500 flex items-center justify-center">
+                                                    Req/Day
+                                                </p>
+                                                <p className="font-bold text-indigo-700 text-xs">
+                                                    {isComplete ? 'Done' : formatCurrency(agent.dailyRequired)}
+                                                </p>
+                                            </div>
+                                        </div>
                                     </CardContent>
                                     </Card>
                                 )
                             })}
+                            
+                            {gamificationAgents.length === 0 && (
+                                <div className="col-span-full text-center p-10 text-slate-400 border border-dashed rounded-xl">
+                                    No active target sprints found. Assign targets to start the leaderboard!
+                                </div>
+                            )}
                         </div>
                     </div>
                 </TabsContent>
@@ -867,6 +866,7 @@ export default function TelecallerDisbursementReport() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
+                                            {/* 🔴 THIS TABLE SHOWS EVERYONE, EVEN THOSE WITH NO TARGETS */}
                                             {leaderboardStats.map((stat, idx) => (
                                                 <TableRow 
                                                     key={stat.id} 
