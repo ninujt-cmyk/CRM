@@ -460,6 +460,14 @@ export default function TelecallerDisbursementReport() {
             .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
     }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
 
+    // 🔴 THIS FUNCTION DRIVES THE ICON IN BOTH TABS
+    const getRankIcon = (index: number) => {
+        if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500 fill-yellow-100" />;
+        if (index === 1) return <Medal className="h-5 w-5 text-gray-400 fill-gray-100" />;
+        if (index === 2) return <Medal className="h-5 w-5 text-orange-600 fill-orange-100" />;
+        return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
+    };
+
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
     const estimatedCommission = grandTotal * (commissionRate[0] / 100);
     const handlePrint = () => window.print();
@@ -611,9 +619,8 @@ export default function TelecallerDisbursementReport() {
                     <TabsTrigger value="data">Data List</TabsTrigger>
                 </TabsList>
 
-                {/* 🔴 NEW: COMPACT, MULTI-COLUMN LEADERBOARD TAB (Screenshot Ready) */}
+                {/* 🔴 GAMIFICATION LEADERBOARD TAB (Screenshot Ready) */}
                 <TabsContent value="leaderboard" className="mt-6">
-                    {/* Widened wrapper from max-w-4xl to max-w-6xl so the 3 columns fit beautifully */}
                     <div className="max-w-6xl mx-auto p-4 space-y-4 bg-white rounded-xl shadow-sm border border-slate-100">
                         {/* WhatsApp Header */}
                         <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-4 sm:p-6 rounded-xl shadow-md text-white">
@@ -634,7 +641,6 @@ export default function TelecallerDisbursementReport() {
                             </div>
                         </div>
 
-                        {/* 🔴 NEW GRID: 1 column on mobile, 2 on tablet, 3 on desktop. This fits 15 agents in a small area! */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {leaderboardStats.map((agent, index) => {
                                 const isWinner = index === 0 && agent.progress > 0;
@@ -647,7 +653,6 @@ export default function TelecallerDisbursementReport() {
                                         isWinner ? 'border-l-yellow-400' : 
                                         isDanger ? 'border-l-red-500 bg-red-50/30' : 'border-l-blue-500'
                                     }`}>
-                                    {/* 🔴 Compact padding to reduce vertical height */}
                                     <CardContent className="p-3">
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-2">
@@ -659,7 +664,7 @@ export default function TelecallerDisbursementReport() {
                                                     {index + 1}
                                                 </div>
                                                 <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1">
-                                                    {agent.name.split(' ')[0]} {/* Show first name to save space */}
+                                                    {agent.name.split(' ')[0]}
                                                     {isComplete && <Flame className="w-4 h-4 text-orange-500 fill-orange-500 animate-pulse" />}
                                                 </h3>
                                             </div>
