@@ -31,10 +31,10 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
     }
 
-    // 💡 NEW: Fetch this specific tenant's Fonada Credentials (RLS protects this automatically!)
+    // 💡 NEW: Fetch this specific tenant's Settings AND Tenant ID (RLS protects this automatically!)
     const { data: tenantSettings } = await supabase
       .from('tenant_settings')
-      .select('fonada_client_id, fonada_secret')
+      .select('tenant_id, fonada_client_id, fonada_secret')
       .maybeSingle();
 
     // Use DB credentials if they exist, otherwise fallback to the global .env keys
@@ -52,15 +52,15 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     let safeCustomerPhone = customerPhone.replace(/^\+?91/, '').slice(-10);
     let safeAgentPhone = agent.phone.replace(/^\+?91/, '').slice(-10);
 
-    // 4. Exact Payload
+    // 4. Exact Payload with Tenant Isolation
     const payload = {
-        secretKey: finalSecretKey,       // 👈 Now using Tenant-Aware Keys
-        clientId: finalClientId,         // 👈 Now using Tenant-Aware Keys
+        secretKey: finalSecretKey,       
+        clientId: finalClientId,         
         agentNumber: safeAgentPhone,
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
         customerName: lead?.name || "Customer",
-        calledId: "" 
+        calledId: tenantSettings?.tenant_id || "" // 🔴 TENANT ID INJECTED HERE
     };
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
