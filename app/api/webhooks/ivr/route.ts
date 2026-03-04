@@ -1,9 +1,10 @@
+// app/api/webhooks/ivr/route.ts
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
@@ -25,30 +26,33 @@ function getStartOfTodayIST() {
   return new Date(nowIST.getTime() - istOffset).toISOString();
 }
 
-// --- 3. FAIR DISTRIBUTION HELPER FUNCTION ---
-async function getFairAssigneeId() {
+// --- 3. FAIR DISTRIBUTION HELPER FUNCTION (TENANT AWARE) ---
+async function getFairAssigneeId(tenantId: string) {
     const startOfTodayISO = getStartOfTodayIST();
 
-    const { data: attendanceData } = await supabase
+    const { data: attendanceData } = await supabaseAdmin
         .from("attendance")
         .select("user_id")
+        .eq("tenant_id", tenantId) // 🔴 ISOLATION
         .is("check_out", null)
         .gte("check_in", startOfTodayISO);
 
     const checkedInUserIds = attendanceData?.map(a => a.user_id) || [];
     if (checkedInUserIds.length === 0) return null;
 
-    let { data: telecallers } = await supabase
+    let { data: telecallers } = await supabaseAdmin
         .from("users")
         .select("id, full_name")
+        .eq("tenant_id", tenantId) // 🔴 ISOLATION
         .in("role", ["telecaller", "agent", "user"]); 
 
     const activeTelecallers = (telecallers || []).filter(t => checkedInUserIds.includes(t.id));
     if (activeTelecallers.length === 0) return null;
         
-    const { data: todaysLeads } = await supabase
+    const { data: todaysLeads } = await supabaseAdmin
         .from("leads")
         .select("assigned_to")
+        .eq("tenant_id", tenantId) // 🔴 ISOLATION
         .gte("created_at", startOfTodayISO); 
 
     const leadCounts: Record<string, number> = {};
@@ -74,10 +78,9 @@ export async function POST(request: NextRequest) {
     let body: any = {};
     
     // 💡 ROBUST PARSING ENGINE
-    // Just in case Fonada is ACTUALLY sending tildes over the network instead of commas
     if (rawBody) {
       try { 
-        const cleanedBody = rawBody.replace(/~/g, ','); // Convert ~ to ,
+        const cleanedBody = rawBody.replace(/~/g, ',');
         body = JSON.parse(cleanedBody); 
       } catch(e) { 
         try {
@@ -90,24 +93,35 @@ export async function POST(request: NextRequest) {
     }
 
     // 💡 SECURE VARIABLE EXTRACTION
-    // Account for Fonada's weird "digitsPressed=CDR.digitpressed" key
     const customerPhone = body.mobileNumber || body.mobile_number || body.phone;
     const digitsPressed = body.digitsPressed || body['digitsPressed=CDR.digitpressed'] || body.digits_pressed;
     const callDuration = body.callDuration || 0;
     const campaignName = body.campaignName || 'Auto-IVR';
     const disposition = body.disposition || 'UNKNOWN';
+    
+    // 🔴 EXTRACT TENANT ID
+    // You MUST configure Fonada to pass the tenant_id in their IVR webhook payload.
+    // They usually allow appending custom variables or URL parameters (e.g., ?tenant=123...)
+    const tenantId = body.tenantId || body.tenant || request.nextUrl.searchParams.get("tenant") || null;
 
     if (!customerPhone) {
         console.warn("⚠️ Ignored: No mobile number provided.");
         return NextResponse.json({ status: "ignored", reason: "no_mobile_number" });
     }
+    
+    if (!tenantId) {
+        console.error("🚨 CRITICAL: IVR Webhook hit without a Tenant ID. Cannot securely route data.");
+        return NextResponse.json({ status: "error", reason: "missing_tenant_id" }, { status: 400 });
+    }
 
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-    const { data: lead } = await supabase
+    // 🔴 1. SEARCH FOR LEAD ONLY WITHIN THIS TENANT
+    const { data: lead } = await supabaseAdmin
       .from("leads")
       .select("id, notes, status")
+      .eq("tenant_id", tenantId) // STRICT ISOLATION
       .ilike("phone", `%${dbPhone}%`)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -129,10 +143,12 @@ export async function POST(request: NextRequest) {
         const deadStatuses = ["dead_bucket", "not_interested", "nr", "recycle_pool", "not_eligible", "self_employed"];
         
         if (deadStatuses.includes(statusLower)) {
-            const assignedToId = await getFairAssigneeId();
+            const assignedToId = await getFairAssigneeId(tenantId); // Pass tenant
             const fakeName = getRandomIndianName();
             
-            await supabase.from("leads").insert({
+            // 🔴 2. EXPLICITLY INJECT TENANT ID ON INSERT
+            await supabaseAdmin.from("leads").insert({
+                tenant_id: tenantId,
                 name: fakeName, 
                 phone: dbPhone,
                 status: "new",
@@ -150,7 +166,7 @@ export async function POST(request: NextRequest) {
             const bumpNote = `\n\n🚨 Customer called IVR again on ${istDate}!`;
             const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}${bumpNote}` : `${ivrNote}${bumpNote}`;
 
-            await supabase.from("leads").update({ 
+            await supabaseAdmin.from("leads").update({ 
                 status: "new",           
                 notes: existingNotes,    
                 last_contacted: new Date().toISOString() 
@@ -160,14 +176,16 @@ export async function POST(request: NextRequest) {
         }
 
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
-        await supabase.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
+        await supabaseAdmin.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
 
     } 
     else {
-        const assignedToId = await getFairAssigneeId();
+        const assignedToId = await getFairAssigneeId(tenantId); // Pass tenant
         const fakeName = getRandomIndianName();
 
-        await supabase.from("leads").insert({
+        // 🔴 3. EXPLICITLY INJECT TENANT ID ON INSERT
+        await supabaseAdmin.from("leads").insert({
+            tenant_id: tenantId,
             name: fakeName, 
             phone: dbPhone,
             status: "new",
@@ -176,7 +194,7 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    return NextResponse.json({ status: "success", message: "IVR data processed successfully" });
+    return NextResponse.json({ status: "success", message: "IVR data processed securely" });
 
   } catch (error) {
     console.error("🔥 [CRITICAL ERROR] IVR Webhook failed:", error);
@@ -185,5 +203,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ status: "success", message: "IVR Webhook is ready!" });
+  return NextResponse.json({ status: "success", message: "Multi-Tenant IVR Webhook is ready!" });
 }
