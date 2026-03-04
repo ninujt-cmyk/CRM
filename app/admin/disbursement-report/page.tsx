@@ -39,7 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogDescription, // 🔴 FIX 1: Added proper DialogDescription import
+  DialogDescription,
 } from "@/components/ui/dialog"
 
 import { DisbursementModal } from "@/components/admin/disbursement-modal"
@@ -118,10 +118,26 @@ export default function TelecallerDisbursementReport() {
     const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
     const [savingTargets, setSavingTargets] = useState(false);
     const [tempTargets, setTempTargets] = useState<Record<string, string>>({});
+    
+    // 🔴 NEW: Custom Target Dates
+    const [targetStartDate, setTargetStartDate] = useState("");
+    const [targetEndDate, setTargetEndDate] = useState("");
 
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
+
+    // Set Default Modal Dates when opened
+    useEffect(() => {
+        if (isTargetModalOpen) {
+            const monthIndex = selectedMonth === 'all' ? new Date().getMonth() : parseInt(selectedMonth) - 1;
+            const start = new Date(Number(selectedYear), monthIndex, 1).toISOString().split('T')[0];
+            const end = new Date(Number(selectedYear), monthIndex + 1, 0).toISOString().split('T')[0];
+            setTargetStartDate(start);
+            setTargetEndDate(end);
+        }
+    }, [isTargetModalOpen, selectedMonth, selectedYear]);
+
 
     // --- QUICK FILTER HANDLERS ---
     const setQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'lastMonth') => {
@@ -171,7 +187,7 @@ export default function TelecallerDisbursementReport() {
         users.forEach(user => { map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`; });
         setUserMap(map);
 
-        // Fetch Targets for current period
+        // Fetch active targets for current period
         const today = new Date().toISOString().split('T')[0];
         const { data: targets } = await supabase
             .from('user_targets')
@@ -272,19 +288,23 @@ export default function TelecallerDisbursementReport() {
     };
 
     const handleSaveTargets = async () => {
+        if (!targetStartDate || !targetEndDate) {
+            toast({ title: "Error", description: "Please select both Start and End dates.", variant: "destructive" });
+            return;
+        }
+
         setSavingTargets(true);
         try {
-            // Determine current month dates
-            const monthIndex = selectedMonth === 'all' ? new Date().getMonth() : parseInt(selectedMonth) - 1;
-            const startDate = new Date(Number(selectedYear), monthIndex, 1).toISOString().split('T')[0];
-            const endDate = new Date(Number(selectedYear), monthIndex + 1, 0).toISOString().split('T')[0];
+            const inserts = Object.entries(tempTargets)
+                .filter(([_, amount]) => amount && Number(amount) > 0) // Only save non-zero targets
+                .map(([userId, amount]) => ({
+                    user_id: userId,
+                    target_amount: Number(amount),
+                    start_date: targetStartDate,
+                    end_date: targetEndDate
+                }));
 
-            const inserts = Object.entries(tempTargets).map(([userId, amount]) => ({
-                user_id: userId,
-                target_amount: Number(amount),
-                start_date: startDate,
-                end_date: endDate
-            }));
+            if (inserts.length === 0) throw new Error("Please enter at least one target amount.");
 
             const { error } = await supabase.from('user_targets').insert(inserts);
             if (error) throw error;
@@ -403,7 +423,6 @@ export default function TelecallerDisbursementReport() {
     const leaderboardStats = useMemo(() => {
         const stats: Record<string, { amount: number, count: number }> = {};
         
-        // Only calculate for the selected bank/filters
         const dataToProcess = disbursements.filter(item => {
             if (selectedBank !== 'all' && item.bank_name !== selectedBank) return false;
             return true; 
@@ -416,14 +435,6 @@ export default function TelecallerDisbursementReport() {
             stats[id].count += 1;
         });
 
-        // Current Month Date Logic for Daily Required calculation
-        const now = new Date();
-        const selYear = Number(selectedYear);
-        const selMonthIdx = selectedMonth === 'all' ? now.getMonth() : Number(selectedMonth) - 1;
-        const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
-        const daysPassed = selYear === now.getFullYear() && selMonthIdx === now.getMonth() ? now.getDate() : daysInMonth;
-        const daysLeft = Math.max(1, daysInMonth - daysPassed);
-
         return Object.keys(userMap)
             .map(id => {
                 const data = stats[id] || { amount: 0, count: 0 };
@@ -432,6 +443,24 @@ export default function TelecallerDisbursementReport() {
                 const achieved = data.amount;
                 const remaining = Math.max(0, target - achieved);
                 const progress = target > 0 ? Math.min(100, Math.round((achieved / target) * 100)) : 0;
+                
+                // 🔴 DYNAMIC DAYS LEFT CALCULATION: Based on the agent's specific target dates!
+                let daysLeft = 1;
+                if (targetObj && targetObj.end_date) {
+                    const endDate = new Date(targetObj.end_date);
+                    const today = new Date(new Date().toISOString().split('T')[0]); // Current date, stripped of time
+                    const diffTime = endDate.getTime() - today.getTime();
+                    // +1 ensures that if today is the end date, it counts as 1 day left
+                    daysLeft = Math.max(1, Math.ceil(diffTime / (1000 * 3600 * 24)) + 1); 
+                } else {
+                    // Fallback to month calculation if no target
+                    const selYear = Number(selectedYear);
+                    const selMonthIdx = selectedMonth === 'all' ? new Date().getMonth() : Number(selectedMonth) - 1;
+                    const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
+                    const daysPassed = selYear === new Date().getFullYear() && selMonthIdx === new Date().getMonth() ? new Date().getDate() : daysInMonth;
+                    daysLeft = Math.max(1, daysInMonth - daysPassed);
+                }
+
                 const dailyRequired = remaining > 0 ? Math.round(remaining / daysLeft) : 0;
 
                 return { 
@@ -440,7 +469,6 @@ export default function TelecallerDisbursementReport() {
                     target, remaining, progress, dailyRequired, daysLeft, hasTarget: !!targetObj
                 };
             })
-            // 🔴 FIX 2: Removed the filter so EVERY agent shows up, even those at 0!
             .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
     }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
 
@@ -476,13 +504,25 @@ export default function TelecallerDisbursementReport() {
                         </DialogTrigger>
                         <DialogContent className="max-w-2xl">
                             <DialogHeader>
-                                <DialogTitle>Set Monthly Targets</DialogTitle>
-                                {/* 🔴 FIX 1: Swapped to correct DialogDescription component */}
-                                <DialogDescription>Assign goals for the currently selected month ({selectedMonth}/{selectedYear})</DialogDescription>
+                                <DialogTitle>Set Custom Target Sprints</DialogTitle>
+                                <DialogDescription>Assign goals and set a custom timeframe (e.g., 1st to 10th)</DialogDescription>
                             </DialogHeader>
-                            <div className="max-h-[60vh] overflow-y-auto">
+                            
+                            {/* 🔴 NEW: Custom Date Range Picker */}
+                            <div className="flex gap-4 my-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                <div className="flex-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Sprint Start Date</label>
+                                    <Input type="date" value={targetStartDate} onChange={e => setTargetStartDate(e.target.value)} />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Sprint End Date</label>
+                                    <Input type="date" value={targetEndDate} onChange={e => setTargetEndDate(e.target.value)} />
+                                </div>
+                            </div>
+
+                            <div className="max-h-[50vh] overflow-y-auto border rounded-md">
                                 <Table>
-                                    <TableHeader>
+                                    <TableHeader className="bg-slate-100 sticky top-0">
                                         <TableRow><TableHead>Agent</TableHead><TableHead>Target Amount (₹)</TableHead></TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -505,7 +545,7 @@ export default function TelecallerDisbursementReport() {
                             </div>
                             <div className="flex justify-end pt-4">
                                 <Button onClick={handleSaveTargets} disabled={savingTargets} className="bg-indigo-600">
-                                    {savingTargets ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : "Save Targets"}
+                                    {savingTargets ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : "Save Custom Targets"}
                                 </Button>
                             </div>
                         </DialogContent>
@@ -685,7 +725,7 @@ export default function TelecallerDisbursementReport() {
                                 )
                             })}
                             {leaderboardStats.length === 0 && (
-                                <div className="text-center p-10 text-slate-400 border border-dashed rounded-xl">No disbursements found for the selected period.</div>
+                                <div className="text-center p-10 text-slate-400 border border-dashed rounded-xl">No agents found to display on leaderboard.</div>
                             )}
                         </div>
                     </div>
