@@ -175,7 +175,7 @@ export default function TelecallerDisbursementReport() {
         const { data: users, error } = await supabase
             .from('users')
             .select('id, full_name')
-            .eq('role', 'telecaller'); // STRICTLY TELECALLERS ONLY
+            .eq('role', 'telecaller'); 
 
         if (error) return;
         const map: UserMap = {};
@@ -299,7 +299,12 @@ export default function TelecallerDisbursementReport() {
 
             if (inserts.length === 0) throw new Error("Please enter at least one target amount.");
 
-            const { error } = await supabase.from('user_targets').insert(inserts);
+            // 🔴 THE FIX: Using .upsert() instead of .insert(). 
+            // This tells Supabase to overwrite if the user_id, start_date, and end_date already match!
+            const { error } = await supabase
+                .from('user_targets')
+                .upsert(inserts, { onConflict: 'user_id,start_date,end_date' });
+                
             if (error) throw error;
             
             toast({ title: "Success", description: "Targets updated successfully!" });
@@ -467,7 +472,6 @@ export default function TelecallerDisbursementReport() {
         return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
     };
 
-    // 🔴 THE NEW STRICT GAMIFICATION FILTER: Only active players are shown in the grid
     const gamificationAgents = leaderboardStats.filter(agent => agent.hasTarget);
 
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
@@ -644,11 +648,10 @@ export default function TelecallerDisbursementReport() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {/* 🔴 MAPPING OVER ONLY AGENTS WITH ACTIVE TARGETS */}
                             {gamificationAgents.map((agent, index) => {
                                 const isWinner = index === 0 && agent.progress > 0;
-                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5;
-                                const isComplete = agent.progress >= 100;
+                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5 && agent.hasTarget;
+                                const isComplete = agent.progress >= 100 && agent.hasTarget;
 
                                 return (
                                     <Card key={agent.id} className={`overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-all ${
@@ -866,7 +869,6 @@ export default function TelecallerDisbursementReport() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {/* 🔴 THIS TABLE SHOWS EVERYONE, EVEN THOSE WITH NO TARGETS */}
                                             {leaderboardStats.map((stat, idx) => (
                                                 <TableRow 
                                                     key={stat.id} 
