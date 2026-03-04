@@ -93,7 +93,7 @@ export default function TelecallerDisbursementReport() {
     // --- STATE ---
     const [filterMode, setFilterMode] = useState<'monthly' | 'custom'>('monthly');
     const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1; // 1-12
+    const currentMonth = new Date().getMonth() + 1;
 
     const [selectedYear, setSelectedYear] = useState(String(currentYear));
     const [selectedMonth, setSelectedMonth] = useState<string>(String(currentMonth).padStart(2, '0'));
@@ -182,15 +182,16 @@ export default function TelecallerDisbursementReport() {
         users.forEach(user => { map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`; });
         setUserMap(map);
 
-        const today = new Date().toISOString().split('T')[0];
+        // Fetch targets, ordering by newest first. We don't filter by date here, 
+        // we just let the newest target override everything for that agent.
         const { data: targets } = await supabase
             .from('user_targets')
             .select('*')
-            .gte('end_date', today)
             .order('created_at', { ascending: false });
 
         const targetMap: Record<string, AgentTarget> = {};
         const tempTargetMap: Record<string, string> = {};
+        
         if (targets) {
             targets.forEach(t => {
                 if (!targetMap[t.user_id]) {
@@ -288,8 +289,9 @@ export default function TelecallerDisbursementReport() {
 
         setSavingTargets(true);
         try {
+            // Filter to ensure we only try to insert rows that have a number typed in (0 is allowed to clear a target)
             const inserts = Object.entries(tempTargets)
-                .filter(([_, amount]) => amount && Number(amount) > 0)
+                .filter(([_, amount]) => amount !== "")
                 .map(([userId, amount]) => ({
                     user_id: userId,
                     target_amount: Number(amount),
@@ -299,16 +301,16 @@ export default function TelecallerDisbursementReport() {
 
             if (inserts.length === 0) throw new Error("Please enter at least one target amount.");
 
-            // 🔴 THE FIX: Using .upsert() instead of .insert(). 
-            // This tells Supabase to overwrite if the user_id, start_date, and end_date already match!
-            const { error } = await supabase
-                .from('user_targets')
-                .upsert(inserts, { onConflict: 'user_id,start_date,end_date' });
+            // 🔴 THE FIX: Use standard insert. Because the fetcher grabs the newest row (created_at DESC), 
+            // inserting a new row automatically overrides the old one in the UI. No conflict errors!
+            const { error } = await supabase.from('user_targets').insert(inserts);
                 
             if (error) throw error;
             
-            toast({ title: "Success", description: "Targets updated successfully!" });
+            toast({ title: "Success", description: "Targets saved successfully!" });
             setIsTargetModalOpen(false);
+            
+            // Force a hard refresh of the data
             setRefreshKey(prev => prev + 1);
         } catch (err: any) {
             toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -472,7 +474,8 @@ export default function TelecallerDisbursementReport() {
         return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
     };
 
-    const gamificationAgents = leaderboardStats.filter(agent => agent.hasTarget);
+    // 🔴 THE FIX: Only show agents in Gamification if they have a target AND the target is greater than 0.
+    const gamificationAgents = leaderboardStats.filter(agent => agent.hasTarget && agent.target > 0);
 
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
     const estimatedCommission = grandTotal * (commissionRate[0] / 100);
@@ -516,7 +519,7 @@ export default function TelecallerDisbursementReport() {
 
                             <div className="max-h-[50vh] overflow-y-auto border rounded-md">
                                 <Table>
-                                    <TableHeader className="bg-slate-100 sticky top-0">
+                                    <TableHeader className="bg-slate-100 sticky top-0 z-10">
                                         <TableRow><TableHead>Agent</TableHead><TableHead>Target Amount (₹)</TableHead></TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -528,7 +531,7 @@ export default function TelecallerDisbursementReport() {
                                                         type="number" 
                                                         value={tempTargets[id] || ''} 
                                                         onChange={(e) => setTempTargets(prev => ({...prev, [id]: e.target.value}))}
-                                                        placeholder="e.g. 5000000"
+                                                        placeholder="Enter 0 to hide agent"
                                                         className="h-8 text-xs font-mono"
                                                     />
                                                 </TableCell>
@@ -537,7 +540,8 @@ export default function TelecallerDisbursementReport() {
                                     </TableBody>
                                 </Table>
                             </div>
-                            <div className="flex justify-end pt-4">
+                            <div className="flex justify-between items-center pt-4">
+                                <p className="text-xs text-slate-500">Tip: Set target to 0 to hide an agent from the leaderboard.</p>
                                 <Button onClick={handleSaveTargets} disabled={savingTargets} className="bg-indigo-600">
                                     {savingTargets ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : "Save Custom Targets"}
                                 </Button>
