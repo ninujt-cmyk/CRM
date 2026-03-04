@@ -33,7 +33,7 @@ async function getFairAssigneeId(tenantId: string) {
     const { data: attendanceData } = await supabaseAdmin
         .from("attendance")
         .select("user_id")
-        .eq("tenant_id", tenantId) // 🔴 ISOLATION
+        .eq("tenant_id", tenantId)
         .is("check_out", null)
         .gte("check_in", startOfTodayISO);
 
@@ -43,7 +43,7 @@ async function getFairAssigneeId(tenantId: string) {
     let { data: telecallers } = await supabaseAdmin
         .from("users")
         .select("id, full_name")
-        .eq("tenant_id", tenantId) // 🔴 ISOLATION
+        .eq("tenant_id", tenantId)
         .in("role", ["telecaller", "agent", "user"]); 
 
     const activeTelecallers = (telecallers || []).filter(t => checkedInUserIds.includes(t.id));
@@ -52,7 +52,7 @@ async function getFairAssigneeId(tenantId: string) {
     const { data: todaysLeads } = await supabaseAdmin
         .from("leads")
         .select("assigned_to")
-        .eq("tenant_id", tenantId) // 🔴 ISOLATION
+        .eq("tenant_id", tenantId)
         .gte("created_at", startOfTodayISO); 
 
     const leadCounts: Record<string, number> = {};
@@ -73,8 +73,13 @@ async function getFairAssigneeId(tenantId: string) {
 // ------------------------------------------
 
 export async function POST(request: NextRequest) {
+  // 🔴 1. AGGRESSIVE LOGGING: Log immediately before doing ANY processing!
+  console.log("🚨 [IVR WEBHOOK HIT] Received POST request from external service.");
+  
   try {
     const rawBody = await request.text();
+    console.log("📦 [IVR RAW PAYLOAD]:", rawBody); // Force Vercel to print the exact raw string
+
     let body: any = {};
     
     // 💡 ROBUST PARSING ENGINE
@@ -86,11 +91,13 @@ export async function POST(request: NextRequest) {
         try {
             body = Object.fromEntries(new URLSearchParams(rawBody)); 
         } catch (fallbackErr) {
-            console.error("Total parse failure:", rawBody);
+            console.error("❌ [IVR PARSE ERROR] Total parse failure:", rawBody);
             return NextResponse.json({ status: "error", message: "Invalid payload format" }, { status: 400 });
         }
       }
     }
+
+    console.log("🧩 [IVR PARSED JSON]:", body); // Verify the parser actually worked
 
     // 💡 SECURE VARIABLE EXTRACTION
     const customerPhone = body.mobileNumber || body.mobile_number || body.phone;
@@ -100,9 +107,9 @@ export async function POST(request: NextRequest) {
     const disposition = body.disposition || 'UNKNOWN';
     
     // 🔴 EXTRACT TENANT ID
-    // You MUST configure Fonada to pass the tenant_id in their IVR webhook payload.
-    // They usually allow appending custom variables or URL parameters (e.g., ?tenant=123...)
     const tenantId = body.tenantId || body.tenant || request.nextUrl.searchParams.get("tenant") || null;
+
+    console.log(`📞 Target Phone: ${customerPhone}, Tenant: ${tenantId}`);
 
     if (!customerPhone) {
         console.warn("⚠️ Ignored: No mobile number provided.");
@@ -117,11 +124,11 @@ export async function POST(request: NextRequest) {
     let dbPhone = customerPhone.replace(/^\+?91/, '');
     if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-    // 🔴 1. SEARCH FOR LEAD ONLY WITHIN THIS TENANT
+    // 🔴 SEARCH FOR LEAD ONLY WITHIN THIS TENANT
     const { data: lead } = await supabaseAdmin
       .from("leads")
       .select("id, notes, status")
-      .eq("tenant_id", tenantId) // STRICT ISOLATION
+      .eq("tenant_id", tenantId)
       .ilike("phone", `%${dbPhone}%`)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -130,23 +137,20 @@ export async function POST(request: NextRequest) {
     const digitText = digitsPressed ? `Digit Pressed: **${digitsPressed}**` : "No digit pressed";
     const ivrNote = `🤖 [IVR Auto-Log | Campaign: ${campaignName}]\nStatus: ${disposition}\n${digitText}\nDuration: ${callDuration}s.`;
 
-    // -------------------------------------------------------------
-    // LOGIC ENGINE
-    // -------------------------------------------------------------
     if (lead) {
         const statusLower = (lead.status || "").toLowerCase();
 
         if (statusLower === "disbursed") {
+            console.log("✅ Ignored: Lead already disbursed.");
             return NextResponse.json({ status: "success", message: "Ignored disbursed lead" });
         }
 
         const deadStatuses = ["dead_bucket", "not_interested", "nr", "recycle_pool", "not_eligible", "self_employed"];
         
         if (deadStatuses.includes(statusLower)) {
-            const assignedToId = await getFairAssigneeId(tenantId); // Pass tenant
+            const assignedToId = await getFairAssigneeId(tenantId); 
             const fakeName = getRandomIndianName();
             
-            // 🔴 2. EXPLICITLY INJECT TENANT ID ON INSERT
             await supabaseAdmin.from("leads").insert({
                 tenant_id: tenantId,
                 name: fakeName, 
@@ -156,6 +160,7 @@ export async function POST(request: NextRequest) {
                 assigned_to: assignedToId,
             });
 
+            console.log("♻️ Recycled dead lead as a new lead.");
             return NextResponse.json({ status: "success", message: "Recycled as new lead" });
         }
 
@@ -172,18 +177,19 @@ export async function POST(request: NextRequest) {
                 last_contacted: new Date().toISOString() 
             }).eq("id", lead.id);
 
+            console.log("🔥 Bumped warm lead back to new.");
             return NextResponse.json({ status: "success", message: "Warm lead bumped to New" });
         }
 
         const existingNotes = lead.notes ? `${lead.notes}\n\n${ivrNote}` : ivrNote;
         await supabaseAdmin.from("leads").update({ notes: existingNotes }).eq("id", lead.id);
+        console.log("📝 Appended IVR note to existing lead.");
 
     } 
     else {
-        const assignedToId = await getFairAssigneeId(tenantId); // Pass tenant
+        const assignedToId = await getFairAssigneeId(tenantId);
         const fakeName = getRandomIndianName();
 
-        // 🔴 3. EXPLICITLY INJECT TENANT ID ON INSERT
         await supabaseAdmin.from("leads").insert({
             tenant_id: tenantId,
             name: fakeName, 
@@ -192,6 +198,7 @@ export async function POST(request: NextRequest) {
             notes: ivrNote,
             assigned_to: assignedToId,
         });
+        console.log("✨ Created brand new lead from IVR call.");
     }
 
     return NextResponse.json({ status: "success", message: "IVR data processed securely" });
@@ -202,6 +209,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ status: "success", message: "Multi-Tenant IVR Webhook is ready!" });
+// 🔴 2. ALSO LOG GET REQUESTS (In case Fonada is configured wrong!)
+export async function GET(request: NextRequest) {
+  console.log("⚠️ [IVR WEBHOOK HIT] Received GET request. Fonada usually sends POST.");
+  console.log("URL Parameters:", request.nextUrl.searchParams.toString());
+  
+  return NextResponse.json({ status: "success", message: "Multi-Tenant IVR Webhook is ready! (Note: Expected POST for data submission)" });
 }
