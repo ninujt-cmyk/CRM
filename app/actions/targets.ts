@@ -83,3 +83,28 @@ export async function getLeaderboardData() {
     .filter(agent => agent.hasTarget)
     .sort((a, b) => b.progress - a.progress);
 }
+
+
+// Add this to the bottom of app/actions/targets.ts
+
+export async function setAgentTarget(userId: string, targetAmount: number, startDate: string, endDate: string) {
+  try {
+    const supabase = await createClient();
+    
+    // We insert a new target row. Because the leaderboard query uses 
+    // .order("created_at", { ascending: false }), it will automatically 
+    // pick up the newest target you set for this date range!
+    const { error } = await supabase.from("user_targets").insert({
+      user_id: userId,
+      target_amount: targetAmount,
+      start_date: startDate,
+      end_date: endDate
+    });
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error: any) {
+    console.error("Set Target Error:", error);
+    return { success: false, error: error.message };
+  }
+}
