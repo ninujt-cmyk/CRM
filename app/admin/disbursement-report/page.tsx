@@ -119,7 +119,6 @@ export default function TelecallerDisbursementReport() {
     const [savingTargets, setSavingTargets] = useState(false);
     const [tempTargets, setTempTargets] = useState<Record<string, string>>({});
     
-    // 🔴 NEW: Custom Target Dates
     const [targetStartDate, setTargetStartDate] = useState("");
     const [targetEndDate, setTargetEndDate] = useState("");
 
@@ -127,7 +126,6 @@ export default function TelecallerDisbursementReport() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
 
-    // Set Default Modal Dates when opened
     useEffect(() => {
         if (isTargetModalOpen) {
             const monthIndex = selectedMonth === 'all' ? new Date().getMonth() : parseInt(selectedMonth) - 1;
@@ -138,8 +136,6 @@ export default function TelecallerDisbursementReport() {
         }
     }, [isTargetModalOpen, selectedMonth, selectedYear]);
 
-
-    // --- QUICK FILTER HANDLERS ---
     const setQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'lastMonth') => {
         const today = new Date();
         const y = today.getFullYear();
@@ -175,7 +171,6 @@ export default function TelecallerDisbursementReport() {
         }
     };
 
-    // 1. Fetch Users & Targets
     const fetchUsersAndTargets = useCallback(async () => {
         const { data: users, error } = await supabase
             .from('users')
@@ -187,7 +182,6 @@ export default function TelecallerDisbursementReport() {
         users.forEach(user => { map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`; });
         setUserMap(map);
 
-        // Fetch active targets for current period
         const today = new Date().toISOString().split('T')[0];
         const { data: targets } = await supabase
             .from('user_targets')
@@ -210,7 +204,6 @@ export default function TelecallerDisbursementReport() {
 
     }, [supabase]);
 
-    // 2. Fetch Leads
     const fetchLeads = useCallback(async () => {
         setLoading(true);
         setSelectedAgentId(null);
@@ -296,7 +289,7 @@ export default function TelecallerDisbursementReport() {
         setSavingTargets(true);
         try {
             const inserts = Object.entries(tempTargets)
-                .filter(([_, amount]) => amount && Number(amount) > 0) // Only save non-zero targets
+                .filter(([_, amount]) => amount && Number(amount) > 0)
                 .map(([userId, amount]) => ({
                     user_id: userId,
                     target_amount: Number(amount),
@@ -364,9 +357,7 @@ export default function TelecallerDisbursementReport() {
         });
 
         const avg = searched.length > 0 ? total / searched.length : 0;
-        
-        let velocity = 0;
-        let projection = total;
+        let velocity = 0; let projection = total;
         
         if (filterMode === 'monthly' && selectedMonth !== 'all') {
             const now = new Date();
@@ -444,16 +435,13 @@ export default function TelecallerDisbursementReport() {
                 const remaining = Math.max(0, target - achieved);
                 const progress = target > 0 ? Math.min(100, Math.round((achieved / target) * 100)) : 0;
                 
-                // 🔴 DYNAMIC DAYS LEFT CALCULATION: Based on the agent's specific target dates!
                 let daysLeft = 1;
                 if (targetObj && targetObj.end_date) {
                     const endDate = new Date(targetObj.end_date);
-                    const today = new Date(new Date().toISOString().split('T')[0]); // Current date, stripped of time
+                    const today = new Date(new Date().toISOString().split('T')[0]); 
                     const diffTime = endDate.getTime() - today.getTime();
-                    // +1 ensures that if today is the end date, it counts as 1 day left
                     daysLeft = Math.max(1, Math.ceil(diffTime / (1000 * 3600 * 24)) + 1); 
                 } else {
-                    // Fallback to month calculation if no target
                     const selYear = Number(selectedYear);
                     const selMonthIdx = selectedMonth === 'all' ? new Date().getMonth() : Number(selectedMonth) - 1;
                     const daysInMonth = new Date(selYear, selMonthIdx + 1, 0).getDate();
@@ -471,13 +459,6 @@ export default function TelecallerDisbursementReport() {
             })
             .sort((a, b) => b.progress - a.progress || b.amount - a.amount);
     }, [disbursements, userMap, selectedBank, agentTargets, selectedYear, selectedMonth]);
-
-    const getRankIcon = (index: number) => {
-        if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500 fill-yellow-100" />;
-        if (index === 1) return <Medal className="h-5 w-5 text-gray-400 fill-gray-100" />;
-        if (index === 2) return <Medal className="h-5 w-5 text-orange-600 fill-orange-100" />;
-        return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
-    };
 
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
     const estimatedCommission = grandTotal * (commissionRate[0] / 100);
@@ -508,7 +489,6 @@ export default function TelecallerDisbursementReport() {
                                 <DialogDescription>Assign goals and set a custom timeframe (e.g., 1st to 10th)</DialogDescription>
                             </DialogHeader>
                             
-                            {/* 🔴 NEW: Custom Date Range Picker */}
                             <div className="flex gap-4 my-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <div className="flex-1">
                                     <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Sprint Start Date</label>
@@ -631,33 +611,35 @@ export default function TelecallerDisbursementReport() {
                     <TabsTrigger value="data">Data List</TabsTrigger>
                 </TabsList>
 
-                {/* 🔴 NEW: GAMIFICATION LEADERBOARD TAB (Perfect for WhatsApp Screenshots) */}
+                {/* 🔴 NEW: COMPACT, MULTI-COLUMN LEADERBOARD TAB (Screenshot Ready) */}
                 <TabsContent value="leaderboard" className="mt-6">
-                    <div className="max-w-4xl mx-auto p-4 space-y-6 bg-white rounded-xl shadow-sm border border-slate-100">
+                    {/* Widened wrapper from max-w-4xl to max-w-6xl so the 3 columns fit beautifully */}
+                    <div className="max-w-6xl mx-auto p-4 space-y-4 bg-white rounded-xl shadow-sm border border-slate-100">
                         {/* WhatsApp Header */}
-                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-6 rounded-xl shadow-md text-white">
+                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-4 sm:p-6 rounded-xl shadow-md text-white">
                             <div>
-                                <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
-                                    <Trophy className="text-yellow-400 w-8 h-8" /> 
+                                <h1 className="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2">
+                                    <Trophy className="text-yellow-400 w-6 h-6 sm:w-8 sm:h-8" /> 
                                     DISBURSEMENT LEADERBOARD
                                 </h1>
-                                <p className="text-blue-200 text-sm mt-1 font-medium tracking-wide">
+                                <p className="text-blue-200 text-xs sm:text-sm mt-1 font-medium tracking-wide">
                                     Live Performance Tracking & Targets
                                 </p>
                             </div>
                             <div className="text-right hidden sm:block">
                                 <div className="text-xs text-blue-200 uppercase font-bold tracking-widest">Team Total</div>
-                                <div className="text-3xl font-black text-emerald-400">
+                                <div className="text-2xl sm:text-3xl font-black text-emerald-400">
                                     {formatCurrency(grandTotal)}
                                 </div>
                             </div>
                         </div>
 
-                        <div className="grid gap-4">
+                        {/* 🔴 NEW GRID: 1 column on mobile, 2 on tablet, 3 on desktop. This fits 15 agents in a small area! */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {leaderboardStats.map((agent, index) => {
                                 const isWinner = index === 0 && agent.progress > 0;
-                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5;
-                                const isComplete = agent.progress >= 100;
+                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5 && agent.hasTarget;
+                                const isComplete = agent.progress >= 100 && agent.hasTarget;
 
                                 return (
                                     <Card key={agent.id} className={`overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-all ${
@@ -665,68 +647,69 @@ export default function TelecallerDisbursementReport() {
                                         isWinner ? 'border-l-yellow-400' : 
                                         isDanger ? 'border-l-red-500 bg-red-50/30' : 'border-l-blue-500'
                                     }`}>
-                                    <CardContent className="p-4 sm:p-5">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${
+                                    {/* 🔴 Compact padding to reduce vertical height */}
+                                    <CardContent className="p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-xs ${
                                                     index === 0 ? 'bg-yellow-100 text-yellow-700' :
                                                     index === 1 ? 'bg-slate-200 text-slate-700' :
                                                     index === 2 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-500'
                                                 }`}>
                                                     {index + 1}
                                                 </div>
-                                                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                                                    {agent.name}
-                                                    {isComplete && <Flame className="w-5 h-5 text-orange-500 fill-orange-500 animate-pulse" />}
+                                                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1">
+                                                    {agent.name.split(' ')[0]} {/* Show first name to save space */}
+                                                    {isComplete && <Flame className="w-4 h-4 text-orange-500 fill-orange-500 animate-pulse" />}
                                                 </h3>
                                             </div>
-                                            <Badge variant={isComplete ? "default" : "secondary"} className={isComplete ? "bg-emerald-500" : ""}>
-                                                {agent.daysLeft} Days Left
-                                            </Badge>
+                                            {agent.hasTarget && (
+                                                <Badge variant={isComplete ? "default" : "secondary"} className={`text-[10px] h-5 px-1.5 ${isComplete ? "bg-emerald-500" : ""}`}>
+                                                    {agent.daysLeft}d Left
+                                                </Badge>
+                                            )}
                                         </div>
 
                                         {agent.hasTarget ? (
                                             <>
-                                                <div className="space-y-2 mb-4">
-                                                    <div className="flex justify-between text-sm font-semibold">
+                                                <div className="space-y-1.5 mb-2">
+                                                    <div className="flex justify-between text-xs font-semibold">
                                                         <span className="text-slate-600">Progress</span>
                                                         <span className={isComplete ? "text-emerald-600 font-black" : "text-blue-600"}>{agent.progress}%</span>
                                                     </div>
-                                                    <Progress value={agent.progress} className={`h-3 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
+                                                    <Progress value={agent.progress} className={`h-1.5 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
                                                 </div>
-                                                <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-4 pt-4 border-t border-slate-100">
+                                                <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-slate-100">
                                                     <div>
-                                                        <p className="text-[10px] uppercase font-bold text-slate-400">Target</p>
-                                                        <p className="font-semibold text-slate-700 text-sm sm:text-base">{formatCurrency(agent.target)}</p>
+                                                        <p className="text-[9px] uppercase font-bold text-slate-400">Target</p>
+                                                        <p className="font-semibold text-slate-700 text-xs">{formatCurrency(agent.target)}</p>
                                                     </div>
                                                     <div>
-                                                        <p className="text-[10px] uppercase font-bold text-slate-400">Achieved</p>
-                                                        <p className={`font-black text-sm sm:text-base ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                        <p className="text-[9px] uppercase font-bold text-slate-400">Achieved</p>
+                                                        <p className={`font-black text-xs ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
                                                             {formatCurrency(agent.amount)}
                                                         </p>
                                                     </div>
-                                                    <div className="bg-slate-50 rounded-md p-2 -my-2 border border-slate-100 text-center">
-                                                        <p className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-500 flex items-center justify-center gap-1">
-                                                            <TrendingUp className="w-3 h-3 hidden sm:block" /> Daily Req.
+                                                    <div className="bg-slate-50 rounded p-1 -my-1 border border-slate-100 text-center">
+                                                        <p className="text-[8px] uppercase font-bold text-indigo-500 flex items-center justify-center">
+                                                            Req/Day
                                                         </p>
-                                                        <p className="font-bold text-indigo-700 text-sm sm:text-base">
-                                                            {isComplete ? 'Done 🎉' : formatCurrency(agent.dailyRequired)}
+                                                        <p className="font-bold text-indigo-700 text-xs">
+                                                            {isComplete ? 'Done' : formatCurrency(agent.dailyRequired)}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </>
                                         ) : (
-                                            <div className="text-center p-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                                                <p className="text-sm text-slate-500">No target set. Total Achieved: <span className="font-bold text-slate-800">{formatCurrency(agent.amount)}</span></p>
+                                            <div className="text-center p-2 bg-slate-50 rounded border border-dashed border-slate-200 mt-2">
+                                                <p className="text-xs text-slate-500">Achieved: <span className="font-bold text-slate-800">{formatCurrency(agent.amount)}</span></p>
+                                                <p className="text-[9px] text-slate-400 mt-0.5">No target assigned</p>
                                             </div>
                                         )}
                                     </CardContent>
                                     </Card>
                                 )
                             })}
-                            {leaderboardStats.length === 0 && (
-                                <div className="text-center p-10 text-slate-400 border border-dashed rounded-xl">No agents found to display on leaderboard.</div>
-                            )}
                         </div>
                     </div>
                 </TabsContent>
@@ -862,7 +845,6 @@ export default function TelecallerDisbursementReport() {
                         </div>
 
                         <div className="md:col-span-4 space-y-6">
-                            {/* MATCHED LEADERBOARD CARD */}
                             <Card className="shadow-sm border-slate-200 h-full">
                                 <CardHeader className="py-4 bg-slate-50 border-b">
                                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
