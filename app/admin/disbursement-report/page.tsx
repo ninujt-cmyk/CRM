@@ -669,7 +669,7 @@ export default function TelecallerDisbursementReport() {
                                                         {formatCurrency(agent.amount)}
                                                     </div>
                                                     <div className="text-[9px] text-slate-400 font-medium mt-0.5">
-                                                        T: {formatCurrency(agent.target)}
+                                                        Target: {formatCurrency(agent.target)}
                                                     </div>
                                                 </div>
                                             </div>
@@ -686,7 +686,7 @@ export default function TelecallerDisbursementReport() {
                                                 {!isComplete ? (
                                                     <div className="flex justify-between items-center text-[9px] font-semibold text-slate-500">
                                                         <span>Req: <span className="text-indigo-600">{formatCurrency(agent.dailyRequired)}/daily</span></span>
-                                                        <span className="text-amber-600 bg-amber-50 px-1 rounded">{agent.daysLeft}days left</span>
+                                                        <span className="text-amber-600 bg-amber-50 px-1 rounded">{agent.daysLeft} days left</span>
                                                     </div>
                                                 ) : (
                                                     <div className="text-[9px] font-bold text-emerald-600 text-center bg-emerald-100/50 rounded py-0.5">
