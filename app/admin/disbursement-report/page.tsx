@@ -182,8 +182,6 @@ export default function TelecallerDisbursementReport() {
         users.forEach(user => { map[user.id] = user.full_name || `ID: ${user.id.substring(0, 5)}`; });
         setUserMap(map);
 
-        // Fetch targets, ordering by newest first. We don't filter by date here, 
-        // we just let the newest target override everything for that agent.
         const { data: targets } = await supabase
             .from('user_targets')
             .select('*')
@@ -289,7 +287,6 @@ export default function TelecallerDisbursementReport() {
 
         setSavingTargets(true);
         try {
-            // Filter to ensure we only try to insert rows that have a number typed in (0 is allowed to clear a target)
             const inserts = Object.entries(tempTargets)
                 .filter(([_, amount]) => amount !== "")
                 .map(([userId, amount]) => ({
@@ -301,16 +298,12 @@ export default function TelecallerDisbursementReport() {
 
             if (inserts.length === 0) throw new Error("Please enter at least one target amount.");
 
-            // 🔴 THE FIX: Use standard insert. Because the fetcher grabs the newest row (created_at DESC), 
-            // inserting a new row automatically overrides the old one in the UI. No conflict errors!
             const { error } = await supabase.from('user_targets').insert(inserts);
                 
             if (error) throw error;
             
             toast({ title: "Success", description: "Targets saved successfully!" });
             setIsTargetModalOpen(false);
-            
-            // Force a hard refresh of the data
             setRefreshKey(prev => prev + 1);
         } catch (err: any) {
             toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -474,7 +467,6 @@ export default function TelecallerDisbursementReport() {
         return <span className="text-gray-400 font-bold text-sm">#{index + 1}</span>;
     };
 
-    // 🔴 THE FIX: Only show agents in Gamification if they have a target AND the target is greater than 0.
     const gamificationAgents = leaderboardStats.filter(agent => agent.hasTarget && agent.target > 0);
 
     const companyTargetProgress = Math.min((grandTotal / targetAmount) * 100, 100);
@@ -482,7 +474,7 @@ export default function TelecallerDisbursementReport() {
     const handlePrint = () => window.print();
 
     return (
-        <div className="p-4 md:p-8 space-y-6 bg-slate-50 min-h-screen print:p-0 print:bg-white">
+        <div className="p-2 md:p-6 space-y-6 bg-slate-50 min-h-screen print:p-0 print:bg-white">
             
             {/* --- HEADER --- */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
@@ -559,7 +551,6 @@ export default function TelecallerDisbursementReport() {
             {/* --- CONTROLS --- */}
             <Card className="border-slate-200 shadow-sm print:hidden">
                 <CardContent className="p-4">
-                    {/* INSIGHTS */}
                     {grandTotal > 0 && (
                         <div className="mb-4 bg-blue-50 border border-blue-100 rounded-md p-3 flex items-center gap-3">
                             <Lightbulb className="h-5 w-5 text-blue-600" />
@@ -623,92 +614,80 @@ export default function TelecallerDisbursementReport() {
 
             {/* --- TABS --- */}
             <Tabs defaultValue="leaderboard" className="w-full">
-                <TabsList className="grid w-full max-w-[600px] grid-cols-3 print:hidden">
+                <TabsList className="grid w-full max-w-[600px] grid-cols-3 print:hidden mb-4">
                     <TabsTrigger value="leaderboard" className="text-indigo-600 data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">🏆 Gamification</TabsTrigger>
                     <TabsTrigger value="dashboard">Analytics Board</TabsTrigger>
                     <TabsTrigger value="data">Data List</TabsTrigger>
                 </TabsList>
 
-                {/* 🔴 GAMIFICATION LEADERBOARD TAB (Screenshot Ready) */}
-                <TabsContent value="leaderboard" className="mt-6">
-                    <div className="max-w-6xl mx-auto p-4 space-y-4 bg-white rounded-xl shadow-sm border border-slate-100">
+                {/* 🔴 NEW: ULTRA-COMPACT 4-COLUMN LEADERBOARD TAB (Screenshot Ready) */}
+                <TabsContent value="leaderboard" className="mt-0">
+                    <div className="max-w-[1400px] w-full mx-auto p-4 space-y-4 bg-white rounded-xl shadow-sm border border-slate-200">
                         {/* WhatsApp Header */}
-                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-4 sm:p-6 rounded-xl shadow-md text-white">
+                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-800 p-4 rounded-xl shadow-md text-white">
                             <div>
-                                <h1 className="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2">
-                                    <Trophy className="text-yellow-400 w-6 h-6 sm:w-8 sm:h-8" /> 
+                                <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
+                                    <Trophy className="text-yellow-400 w-6 h-6" /> 
                                     DISBURSEMENT LEADERBOARD
                                 </h1>
-                                <p className="text-blue-200 text-xs sm:text-sm mt-1 font-medium tracking-wide">
-                                    Live Performance Tracking & Targets
+                                <p className="text-blue-200 text-xs mt-0.5 font-medium tracking-wide">
+                                    Sprint Target vs. Achieved
                                 </p>
                             </div>
-                            <div className="text-right hidden sm:block">
-                                <div className="text-xs text-blue-200 uppercase font-bold tracking-widest">Team Total</div>
-                                <div className="text-2xl sm:text-3xl font-black text-emerald-400">
+                            <div className="text-right">
+                                <div className="text-[10px] text-blue-200 uppercase font-bold tracking-widest">Team Total</div>
+                                <div className="text-2xl font-black text-emerald-400 leading-none">
                                     {formatCurrency(grandTotal)}
                                 </div>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {/* 🔴 GRID: 4 columns on large screens! Minimizes vertical scrolling. */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                             {gamificationAgents.map((agent, index) => {
                                 const isWinner = index === 0 && agent.progress > 0;
-                                const isDanger = agent.progress < 30 && agent.daysLeft <= 5 && agent.hasTarget;
+                                const isDanger = agent.progress < 30 && agent.daysLeft <= 3 && agent.hasTarget;
                                 const isComplete = agent.progress >= 100 && agent.hasTarget;
 
                                 return (
                                     <Card key={agent.id} className={`overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-all ${
-                                        isComplete ? 'border-l-emerald-500 bg-emerald-50/30' : 
+                                        isComplete ? 'border-l-emerald-500 bg-emerald-50/20' : 
                                         isWinner ? 'border-l-yellow-400' : 
                                         isDanger ? 'border-l-red-500 bg-red-50/30' : 'border-l-blue-500'
                                     }`}>
-                                    <CardContent className="p-3">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-xs ${
+                                    {/* 🔴 ULTRA SLIM CARD DESIGN */}
+                                    <CardContent className="p-2.5 sm:p-3 flex flex-col justify-center">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            {/* Rank & Name */}
+                                            <div className="flex items-center gap-1.5 overflow-hidden">
+                                                <div className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] ${
                                                     index === 0 ? 'bg-yellow-100 text-yellow-700' :
                                                     index === 1 ? 'bg-slate-200 text-slate-700' :
                                                     index === 2 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-500'
                                                 }`}>
                                                     {index + 1}
                                                 </div>
-                                                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1">
-                                                    {agent.name.split(' ')[0]}
-                                                    {isComplete && <Flame className="w-4 h-4 text-orange-500 fill-orange-500 animate-pulse" />}
+                                                <h3 className="font-bold text-[13px] text-slate-800 truncate" title={agent.name}>
+                                                    {agent.name.split(' ')[0]} {agent.name.split(' ')[1]?.[0] ? agent.name.split(' ')[1][0] + '.' : ''}
+                                                    {isComplete && <Flame className="inline w-3 h-3 ml-0.5 text-orange-500 fill-orange-500" />}
                                                 </h3>
                                             </div>
-                                            <Badge variant={isComplete ? "default" : "secondary"} className={`text-[10px] h-5 px-1.5 ${isComplete ? "bg-emerald-500" : ""}`}>
-                                                {agent.daysLeft}d Left
-                                            </Badge>
+                                            {/* Achieved Amount right at the top */}
+                                            <div className="text-right shrink-0">
+                                                <span className={`font-black text-[13px] ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                    {formatCurrency(agent.amount)}
+                                                </span>
+                                            </div>
                                         </div>
 
-                                        <div className="space-y-1.5 mb-2">
-                                            <div className="flex justify-between text-xs font-semibold">
-                                                <span className="text-slate-600">Progress</span>
-                                                <span className={isComplete ? "text-emerald-600 font-black" : "text-blue-600"}>{agent.progress}%</span>
-                                            </div>
+                                        {/* Progress Bar & Footer */}
+                                        <div className="space-y-1 mt-1">
                                             <Progress value={agent.progress} className={`h-1.5 ${isComplete ? '[&>div]:bg-emerald-500' : ''}`} />
-                                        </div>
-                                        
-                                        <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-slate-100">
-                                            <div>
-                                                <p className="text-[9px] uppercase font-bold text-slate-400">Target</p>
-                                                <p className="font-semibold text-slate-700 text-xs">{formatCurrency(agent.target)}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[9px] uppercase font-bold text-slate-400">Achieved</p>
-                                                <p className={`font-black text-xs ${isComplete ? 'text-emerald-600' : 'text-slate-800'}`}>
-                                                    {formatCurrency(agent.amount)}
-                                                </p>
-                                            </div>
-                                            <div className="bg-slate-50 rounded p-1 -my-1 border border-slate-100 text-center">
-                                                <p className="text-[8px] uppercase font-bold text-indigo-500 flex items-center justify-center">
-                                                    Req/Day
-                                                </p>
-                                                <p className="font-bold text-indigo-700 text-xs">
-                                                    {isComplete ? 'Done' : formatCurrency(agent.dailyRequired)}
-                                                </p>
+                                            <div className="flex justify-between items-center text-[9px] sm:text-[10px] font-medium text-slate-500">
+                                                <span>{agent.progress}% of {formatCurrency(agent.target)}</span>
+                                                <span className={isDanger ? 'text-red-500 font-bold' : ''}>
+                                                    {isComplete ? 'Done 🎉' : `Req: ${formatCurrency(agent.dailyRequired)}/d`}
+                                                </span>
                                             </div>
                                         </div>
                                     </CardContent>
@@ -726,10 +705,8 @@ export default function TelecallerDisbursementReport() {
                 </TabsContent>
 
                 {/* --- EXISTING DASHBOARD TAB --- */}
-                <TabsContent value="dashboard" className="space-y-6 mt-4">
-                    {/* STATS STRIP */}
+                <TabsContent value="dashboard" className="space-y-6 mt-0">
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                        {/* 1. ACTUAL */}
                         <Card className="bg-gradient-to-br from-green-600 to-emerald-800 text-white shadow-md border-0 md:col-span-2">
                             <CardContent className="p-4 pt-6">
                                 <div className="flex justify-between">
@@ -751,7 +728,6 @@ export default function TelecallerDisbursementReport() {
                             </CardContent>
                         </Card>
 
-                        {/* 2. BIG WIN */}
                         <Card className="bg-white shadow-sm border-slate-200">
                             <CardContent className="p-4 pt-6 flex flex-col justify-between h-full">
                                 <div className="flex justify-between items-center mb-1">
@@ -769,7 +745,6 @@ export default function TelecallerDisbursementReport() {
                             </CardContent>
                         </Card>
 
-                        {/* 3. OVERALL COMPANY GOAL */}
                         <Card className="bg-white shadow-sm border-slate-200">
                             <CardContent className="p-4 pt-6">
                                 <div className="flex justify-between items-center mb-1">
@@ -788,7 +763,6 @@ export default function TelecallerDisbursementReport() {
                             </CardContent>
                         </Card>
 
-                         {/* 4. COMMISSION */}
                          <Card className="bg-blue-50/50 border-blue-100 shadow-sm">
                             <CardContent className="p-4 pt-6">
                                 <div className="flex justify-between items-center mb-1">
@@ -800,7 +774,6 @@ export default function TelecallerDisbursementReport() {
                         </Card>
                     </div>
 
-                    {/* CHARTS */}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                         <div className="md:col-span-8 space-y-6">
                              <Card className="shadow-sm border-slate-200">
@@ -896,7 +869,7 @@ export default function TelecallerDisbursementReport() {
                 </TabsContent>
 
                 {/* --- DATA LIST TAB --- */}
-                <TabsContent value="data" className="mt-4">
+                <TabsContent value="data" className="mt-0">
                     <Card className="shadow-sm">
                         <CardHeader><CardTitle className="text-base">Transactions</CardTitle></CardHeader>
                         <CardContent className="p-0">
