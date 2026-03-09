@@ -85,15 +85,10 @@ export function LeadStatusUpdater({
   // DIALER STATE
   const [elapsedTime, setElapsedTime] = useState(0)
   const [callDurationOverride, setCallDurationOverride] = useState<number | null>(null) 
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [dialing, setDialing] = useState(false);
    
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
   const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) 
   
-  // REF to track duplication
-  const lastDialedIdRef = useRef<string | null>(null)
-
   // DERIVED STATE
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
   const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
@@ -130,51 +125,11 @@ export function LeadStatusUpdater({
   useEffect(() => { 
     setLoanAmount(initialLoanAmount);
     handleReset();
-    if (leadId !== lastDialedIdRef.current) {
-        setDialing(false);
-        setCountdown(null);
-    }
   }, [leadId, initialLoanAmount]);
 
   useEffect(() => {
-    if (isCallInitiated && leadId && leadPhoneNumber && autoNext) {
-        if (lastDialedIdRef.current !== leadId) {
-            lastDialedIdRef.current = leadId; 
-            setCountdown(3); 
-            
-            const interval = setInterval(() => {
-                setCountdown((prev) => {
-                    if (prev === null) return null;
-                    if (prev <= 1) {
-                        clearInterval(interval);
-                        setDialing(true);
-                        
-                        const cleanNumber = leadPhoneNumber.replace(/\D/g, '');
-                        const iframe = document.createElement('iframe');
-                        iframe.style.display = 'none';
-                        document.body.appendChild(iframe);
-                        iframe.src = `tel:${cleanNumber}`;
-                        
-                        setTimeout(() => {
-                            if(document.body.contains(iframe)) document.body.removeChild(iframe);
-                            setDialing(false);
-                        }, 1000);
-                        
-                        return null;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-
-            return () => clearInterval(interval);
-        }
-    }
-  }, [leadId, isCallInitiated, leadPhoneNumber, autoNext]);
-
-
-  useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isCallInitiated && !callDurationOverride && !countdown && !dialing) {
+    if (isCallInitiated && !callDurationOverride) {
         const startTime = activeCall?.startTime || Date.now();
         interval = setInterval(() => {
             const seconds = Math.floor((Date.now() - startTime) / 1000);
@@ -185,7 +140,7 @@ export function LeadStatusUpdater({
         toast.info("Short call detected", { description: "Auto-selected 'No Response'" });
     }
     return () => clearInterval(interval);
-  }, [isCallInitiated, activeCall, callDurationOverride, countdown, dialing]);
+  }, [isCallInitiated, activeCall, callDurationOverride]);
 
   useEffect(() => {
     if (status !== 'not_eligible') {
@@ -296,8 +251,10 @@ export function LeadStatusUpdater({
 
     setIsUpdating(true)
     try {
-      let finalStatus = status; 
-      const updateData: any = { last_contacted: new Date().toISOString() }
+      const updateData: any = { 
+        status: status, 
+        last_contacted: new Date().toISOString() 
+      }
       
       if (loanAmount !== null && !isNaN(loanAmount)) updateData.loan_amount = loanAmount
       if (remarks.trim()) updateData.notes = remarks
@@ -305,41 +262,17 @@ export function LeadStatusUpdater({
         updateData.notes = updateData.notes ? `${updateData.notes}\n\nNot Eligible: ${note}` : `Not Eligible: ${note}`
       }
 
-      if (status === "Not_Interested") {
-        const { data: leadData } = await supabase.from("leads").select("tags").eq("id", leadId).single()
-        let currentTags: string[] = [];
-        try { currentTags = Array.isArray(leadData?.tags) ? leadData.tags : JSON.parse(leadData?.tags || '[]'); } catch(e){}
-        
-        if (currentTags.includes("NI_STRIKE_1")) {
-            finalStatus = "dead_bucket" 
-        } else {
-            finalStatus = "recycle_pool" 
-            updateData.tags = [...currentTags, "NI_STRIKE_1"]
-        }
-      }
-      
-      updateData.status = finalStatus;
-
       // 1. UPDATE SUPABASE DATABASE
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
-      onStatusUpdate?.(finalStatus, note) 
-      
-      // 2. LOG ACTIONS
-      if (finalStatus !== status) {
-          const logContent = finalStatus === "recycle_pool" 
-            ? "System: Strike 1 (Not Interested). Lead Recycled." 
-            : "System: Strike 2 (Not Interested). Lead moved to Dead Bucket.";
-          const { data: { user } } = await supabase.auth.getUser()
-          if(user) await supabase.from("notes").insert({ lead_id: leadId, user_id: user.id, content: logContent, note_type: "status_change" })
-      }
+      onStatusUpdate?.(status, note) 
 
       if (isCallInitiated) await logCall(finalDuration)
 
-      // 3. WHATSAPP AUTOMATION
+      // 2. WHATSAPP AUTOMATION
       // ✅ TRIGGER KYC TEMPLATE FOR BOTH "DOCUMENTS SENT" AND "INTERESTED"
-      if ((finalStatus === "Documents_Sent" || finalStatus === "Interested") && leadPhoneNumber) {
+      if ((status === "Documents_Sent" || status === "Interested") && leadPhoneNumber) {
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
@@ -347,7 +280,7 @@ export function LeadStatusUpdater({
               toast.success("KYC WhatsApp Template sent securely!");
               
               // Optional: Ask if they also want to open manual WhatsApp for a custom message
-              if (finalStatus === "Interested") {
+              if (status === "Interested") {
                   if(window.confirm("Automated KYC list sent. Open WhatsApp web to send a personal message too?")) {
                       let manualClean = leadPhoneNumber.replace(/\D/g, '');
                       if (manualClean.length === 10) manualClean = `91${manualClean}`;
@@ -424,33 +357,13 @@ export function LeadStatusUpdater({
       {/* Celebration Effect */}
       {status === 'Disbursed' && <div className="absolute inset-0 pointer-events-none bg-emerald-500/10 animate-pulse z-0" />}
 
-      {/* AUTO DIAL OVERLAY */}
-      {countdown !== null && (
-         <div className="absolute inset-0 z-50 bg-slate-900/95 flex flex-col items-center justify-center text-white animate-in fade-in zoom-in duration-300">
-             <div className="text-6xl font-bold mb-4 animate-bounce text-blue-400">{countdown}</div>
-             <div className="flex flex-col items-center gap-1">
-                <span className="text-sm font-medium text-slate-300">Auto-dialing next lead...</span>
-                <span className="text-lg font-bold">{telecallerName ? `Calling ${leadPhoneNumber}` : leadPhoneNumber}</span>
-             </div>
-             <Button variant="secondary" size="sm" className="mt-8 bg-red-600 hover:bg-red-700 text-white border-none" onClick={() => { setCountdown(null); lastDialedIdRef.current = leadId; }}>
-                Cancel Auto-Dial
-             </Button>
-         </div>
-      )}
-
       <CardHeader className="flex-none flex flex-row items-center justify-between py-3 bg-slate-50/50">
         <CardTitle className="text-base font-semibold flex items-center gap-2">
-          {/* Dialer Status Indicator */}
-          {dialing ? (
-             <span className="flex items-center gap-2 text-green-600 animate-pulse">
-                <Loader2 className="h-4 w-4 animate-spin"/> Dialing...
-             </span>
-          ) : (
-             <>
-               {isCallInitiated ? <Phone className="h-4 w-4 text-blue-600 animate-pulse"/> : <Activity className="h-4 w-4 text-slate-500"/>}
-               {isCallInitiated ? "Active Call Session" : "Update Status"}
-             </>
-          )}
+          {/* Dialer Status Indicator Simplified */}
+          <>
+            {isCallInitiated ? <Phone className="h-4 w-4 text-blue-600 animate-pulse"/> : <Activity className="h-4 w-4 text-slate-500"/>}
+            {isCallInitiated ? "Active Call Session" : "Update Status"}
+          </>
         </CardTitle>
         <div className="flex gap-1">
             <TooltipProvider>
