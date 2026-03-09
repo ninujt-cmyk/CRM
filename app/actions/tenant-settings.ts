@@ -6,6 +6,12 @@ export async function updateWorkspaceSettings(formData: {
     fonada_client_id: string;
     fonada_secret: string;
     whatsapp_api_key: string;
+    cron_auto_checkout: boolean;
+    cron_auto_refill: boolean;
+    cron_daily_report: boolean;
+    cron_kyc: boolean;
+    cron_sla: boolean;
+    cron_smart_notifications: boolean;
 }) {
     try {
         const supabase = await createClient()
@@ -14,7 +20,7 @@ export async function updateWorkspaceSettings(formData: {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error("Unauthorized")
 
-        // 2. Fetch the user's tenant_id securely (RLS protects this automatically)
+        // 2. Fetch the user's tenant_id securely
         const { data: settingsRow } = await supabase
             .from('tenant_settings')
             .select('tenant_id')
@@ -24,13 +30,19 @@ export async function updateWorkspaceSettings(formData: {
             throw new Error("Workspace configuration not found. Please contact support.")
         }
 
-        // 3. Update the keys
+        // 3. Update the keys AND the cron toggles
         const { error } = await supabase
             .from('tenant_settings')
             .update({
                 fonada_client_id: formData.fonada_client_id,
                 fonada_secret: formData.fonada_secret,
                 whatsapp_api_key: formData.whatsapp_api_key,
+                cron_auto_checkout: formData.cron_auto_checkout,
+                cron_auto_refill: formData.cron_auto_refill,
+                cron_daily_report: formData.cron_daily_report,
+                cron_kyc: formData.cron_kyc,
+                cron_sla: formData.cron_sla,
+                cron_smart_notifications: formData.cron_smart_notifications,
                 updated_at: new Date().toISOString()
             })
             .eq('tenant_id', settingsRow.tenant_id)
