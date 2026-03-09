@@ -6,13 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "sonner"
 import { 
   Building2, PhoneCall, MessageSquare, 
-  Save, KeyRound, Loader2, ShieldCheck 
+  Save, KeyRound, Loader2, ShieldCheck, Clock, Activity 
 } from "lucide-react"
 
-// Import our new Server Action
+// Import our Server Action
 import { updateWorkspaceSettings } from "@/app/actions/tenant-settings"
 
 export default function WorkspaceSettingsPage() {
@@ -25,7 +26,14 @@ export default function WorkspaceSettingsPage() {
   const [formData, setFormData] = useState({
     fonada_client_id: "",
     fonada_secret: "",
-    whatsapp_api_key: ""
+    whatsapp_api_key: "",
+    // Cron Job States
+    cron_auto_checkout: true,
+    cron_auto_refill: true,
+    cron_daily_report: true,
+    cron_kyc: true,
+    cron_sla: true,
+    cron_smart_notifications: true
   })
 
   // Fetch existing settings on load
@@ -34,7 +42,11 @@ export default function WorkspaceSettingsPage() {
       try {
         const { data, error } = await supabase
           .from('tenant_settings')
-          .select('fonada_client_id, fonada_secret, whatsapp_api_key')
+          .select(`
+            fonada_client_id, fonada_secret, whatsapp_api_key,
+            cron_auto_checkout, cron_auto_refill, cron_daily_report, 
+            cron_kyc, cron_sla, cron_smart_notifications
+          `)
           .maybeSingle()
 
         if (error) throw error
@@ -43,7 +55,13 @@ export default function WorkspaceSettingsPage() {
           setFormData({
             fonada_client_id: data.fonada_client_id || "",
             fonada_secret: data.fonada_secret || "",
-            whatsapp_api_key: data.whatsapp_api_key || ""
+            whatsapp_api_key: data.whatsapp_api_key || "",
+            cron_auto_checkout: data.cron_auto_checkout ?? true,
+            cron_auto_refill: data.cron_auto_refill ?? true,
+            cron_daily_report: data.cron_daily_report ?? true,
+            cron_kyc: data.cron_kyc ?? true,
+            cron_sla: data.cron_sla ?? true,
+            cron_smart_notifications: data.cron_smart_notifications ?? true
           })
         }
       } catch (err: any) {
@@ -60,15 +78,20 @@ export default function WorkspaceSettingsPage() {
   const handleSave = async () => {
     setIsSaving(true)
     
+    // Send the updated data to your server action
     const response = await updateWorkspaceSettings(formData)
     
     if (response.success) {
-      toast.success(response.message)
+      toast.success("Settings saved successfully!")
     } else {
-      toast.error(response.error)
+      toast.error(response.error || "Failed to save settings")
     }
     
     setIsSaving(false)
+  }
+
+  const handleCronToggle = (field: keyof typeof formData) => {
+    setFormData(prev => ({ ...prev, [field]: !prev[field] as any }))
   }
 
   if (isLoading) {
@@ -161,6 +184,78 @@ export default function WorkspaceSettingsPage() {
                 onChange={(e) => setFormData(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
                 className="font-mono text-sm bg-slate-50"
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 🔴 AUTOMATED CRON JOBS CARD */}
+        <Card className="shadow-sm border-slate-200">
+          <CardHeader className="border-b bg-slate-50/50 pb-4">
+            <CardTitle className="text-lg flex items-center gap-2 text-slate-800">
+              <Clock className="h-5 w-5 text-orange-500" />
+              Automated Background Tasks (Cron)
+            </CardTitle>
+            <CardDescription>
+              Enable or disable automated system tasks. If paused, the external cron job will safely skip execution for your workspace.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-slate-100">
+              
+              {/* SLA Cron */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">SLA & Lead Recycling</Label>
+                  <p className="text-sm text-slate-500">Automatically reassigns neglected (SLA breach) and stuck No-Response (NR) leads.</p>
+                </div>
+                <Switch checked={formData.cron_sla} onCheckedChange={() => handleCronToggle('cron_sla')} />
+              </div>
+
+              {/* Auto Refill */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">Auto Lead Refill</Label>
+                  <p className="text-sm text-slate-500">Automatically pulls unassigned leads from the general pool and gives them to active agents.</p>
+                </div>
+                <Switch checked={formData.cron_auto_refill} onCheckedChange={() => handleCronToggle('cron_auto_refill')} />
+              </div>
+
+              {/* KYC */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">KYC Reminders</Label>
+                  <p className="text-sm text-slate-500">Scans the system and sends automated WhatsApp reminders for pending customer documents.</p>
+                </div>
+                <Switch checked={formData.cron_kyc} onCheckedChange={() => handleCronToggle('cron_kyc')} />
+              </div>
+
+              {/* Smart Notifications */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">Smart Notifications</Label>
+                  <p className="text-sm text-slate-500">Triggers follow-up alerts and CRM dashboard notifications for your telecallers.</p>
+                </div>
+                <Switch checked={formData.cron_smart_notifications} onCheckedChange={() => handleCronToggle('cron_smart_notifications')} />
+              </div>
+
+              {/* Daily Report */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">Daily Admin Report</Label>
+                  <p className="text-sm text-slate-500">Compiles and emails the end-of-day organizational performance report.</p>
+                </div>
+                <Switch checked={formData.cron_daily_report} onCheckedChange={() => handleCronToggle('cron_daily_report')} />
+              </div>
+
+              {/* Auto Checkout */}
+              <div className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold text-slate-800">Auto Force Checkout</Label>
+                  <p className="text-sm text-slate-500">Automatically ends the shift of any agent who forgets to check out at midnight.</p>
+                </div>
+                <Switch checked={formData.cron_auto_checkout} onCheckedChange={() => handleCronToggle('cron_auto_checkout')} />
+              </div>
+
             </div>
           </CardContent>
         </Card>
