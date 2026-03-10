@@ -20,6 +20,13 @@ export async function GET(request: Request) {
   console.log("=======================================================");
 
   try {
+    // 🔴 NEW: Tenant Settings Pause Check
+    const { data: settings } = await supabase.from("tenant_settings").select("cron_auto_refill").maybeSingle();
+    if (settings && settings.cron_auto_refill === false) {
+        console.log("⏸️ [REFILL] Auto-Refill is paused in workspace settings. Skipping.");
+        return NextResponse.json({ status: "paused", message: "Cron disabled in settings" });
+    }
+
     // 1. GET ALL CHECKED-IN AGENTS
     const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
     const { data: attendanceData } = await supabase
@@ -45,7 +52,7 @@ export async function GET(request: Request) {
         ["telecaller", "agent", "user"].includes((user.role || "").toLowerCase())
     ) || [];
 
-    // 2. CHECK WHO IS STARVED (< 1 New Lead)
+    // 2. CHECK WHO IS STARVED (0 New Leads)
     // Fetch all current 'new' leads assigned to these agents
     const { data: currentNewLeads } = await supabase
         .from("leads")
@@ -53,20 +60,28 @@ export async function GET(request: Request) {
         .ilike("status", "new")
         .in("assigned_to", activeTelecallers.map(a => a.id));
 
-    // Count them up
+    // 🔴 FIX: Start counting at 0, not 3!
     const newLeadCounts: Record<string, number> = {};
-    activeTelecallers.forEach(t => newLeadCounts[t.id] = 3);
+    activeTelecallers.forEach(t => newLeadCounts[t.id] = 0);
     
     if (currentNewLeads) {
         currentNewLeads.forEach(lead => {
-            if (lead.assigned_to) newLeadCounts[lead.assigned_to]++;
+            if (lead.assigned_to && newLeadCounts[lead.assigned_to] !== undefined) {
+                newLeadCounts[lead.assigned_to]++;
+            }
         });
     }
 
-    // Filter agents who have exactly 0 new leads
-    const starvedAgents = activeTelecallers.filter(agent => newLeadCounts[agent.id] === 3);
+    // Log the exact counts for debugging so you can see their lead load in Vercel
+    console.log("📊 [REFILL DEBUG] Current 'New' Lead Counts:");
+    activeTelecallers.forEach(agent => {
+        console.log(`   - ${agent.full_name}: ${newLeadCounts[agent.id]}`);
+    });
 
-    console.log(`📊 [REFILL] Found ${activeTelecallers.length} online agents. ${starvedAgents.length} are starved (3 leads).`);
+    // 🔴 FIX: Filter agents who have exactly 0 new leads
+    const starvedAgents = activeTelecallers.filter(agent => newLeadCounts[agent.id] === 0);
+
+    console.log(`📊 [REFILL] Found ${activeTelecallers.length} online agents. ${starvedAgents.length} are starved (0 leads).`);
 
     let totalRefilled = 0;
 
@@ -76,10 +91,11 @@ export async function GET(request: Request) {
         console.log(`🔍 [REFILL] Searching pool for agent: ${agent.full_name}`);
 
         // Fetch 10 oldest leads from the pool that do NOT belong to this agent
+        // 🔴 FIX: Added % wildcards in case the database has trailing spaces like "Not_Interested "
         const { data: poolLeads, error: poolError } = await supabase
             .from("leads")
             .select("id, notes")
-            .or("status.ilike.not_interested,status.ilike.recycle_pool") // Case-insensitive match for both statuses
+            .or("status.ilike.%not_interested%,status.ilike.%recycle_pool%") 
             .neq("assigned_to", agent.id) // Must NOT be their old lead
             .order("last_contacted", { ascending: true, nullsFirst: true }) // Oldest first
             .limit(10);
@@ -91,7 +107,7 @@ export async function GET(request: Request) {
 
         if (!poolLeads || poolLeads.length === 0) {
             console.log(`⚠️ [REFILL] Recycle pool is empty! Cannot refill ${agent.full_name}.`);
-            continue; // Move to the next agent (though if it's empty, no one gets leads)
+            continue; // Move to the next agent
         }
 
         // Process these 10 leads individually to append notes properly
