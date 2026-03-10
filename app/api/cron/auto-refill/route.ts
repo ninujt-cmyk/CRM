@@ -1,11 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+// 🔴 KILL ALL CACHING DEAD
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: { persistSession: false },
+    global: {
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' }
+    }
+  }
 );
 
 export async function GET(request: Request) {
@@ -20,14 +29,14 @@ export async function GET(request: Request) {
   console.log("=======================================================");
 
   try {
-    // 🔴 NEW: Tenant Settings Pause Check
+    // 1. Tenant Settings Pause Check
     const { data: settings } = await supabase.from("tenant_settings").select("cron_auto_refill").maybeSingle();
     if (settings && settings.cron_auto_refill === false) {
         console.log("⏸️ [REFILL] Auto-Refill is paused in workspace settings. Skipping.");
         return NextResponse.json({ status: "paused", message: "Cron disabled in settings" });
     }
 
-    // 1. GET ALL CHECKED-IN AGENTS
+    // 2. GET ALL CHECKED-IN AGENTS
     const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
     const { data: attendanceData } = await supabase
         .from("attendance")
@@ -42,7 +51,6 @@ export async function GET(request: Request) {
         return NextResponse.json({ status: "skipped", message: "No agents online" });
     }
 
-    // Get user details
     const { data: onlineUsers } = await supabase
         .from("users")
         .select("id, full_name, role")
@@ -52,52 +60,63 @@ export async function GET(request: Request) {
         ["telecaller", "agent", "user"].includes((user.role || "").toLowerCase())
     ) || [];
 
-    // 2. CHECK WHO IS STARVED (0 New Leads)
-    // Fetch all current 'new' leads assigned to these agents
+    // 3. CHECK WHO IS STARVED (0 New Leads)
+    // 🔴 Increased limit to 10,000 to prevent Supabase hiding data
     const { data: currentNewLeads } = await supabase
         .from("leads")
-        .select("assigned_to")
+        .select("id, assigned_to, created_at, status")
         .ilike("status", "new")
-        .in("assigned_to", activeTelecallers.map(a => a.id));
+        .in("assigned_to", activeTelecallers.map(a => a.id))
+        .limit(10000);
 
-    // 🔴 FIX: Start counting at 0, not 3!
     const newLeadCounts: Record<string, number> = {};
     activeTelecallers.forEach(t => newLeadCounts[t.id] = 0);
     
+    // Ghost Tracker arrays
+    const sampleGhostLeads: any[] = [];
+
     if (currentNewLeads) {
         currentNewLeads.forEach(lead => {
             if (lead.assigned_to && newLeadCounts[lead.assigned_to] !== undefined) {
                 newLeadCounts[lead.assigned_to]++;
+                
+                // Save a few ghost leads for debugging
+                if (sampleGhostLeads.length < 5) {
+                    sampleGhostLeads.push(lead);
+                }
             }
         });
     }
 
-    // Log the exact counts for debugging so you can see their lead load in Vercel
     console.log("📊 [REFILL DEBUG] Current 'New' Lead Counts:");
     activeTelecallers.forEach(agent => {
         console.log(`   - ${agent.full_name}: ${newLeadCounts[agent.id]}`);
     });
 
-    // 🔴 FIX: Filter agents who have exactly 0 new leads
+    // 🔴 THE GHOST REVEALER: If the code says they have leads, but the dashboard says 0, look here!
+    if (sampleGhostLeads.length > 0) {
+        console.log("👻 [GHOST LEAD CHECK] Here are 3 leads the DB says are 'new':");
+        sampleGhostLeads.slice(0, 3).forEach(lead => {
+            console.log(`     -> ID: ${lead.id} | Created: ${lead.created_at} | Agent ID: ${lead.assigned_to}`);
+        });
+    }
+
     const starvedAgents = activeTelecallers.filter(agent => newLeadCounts[agent.id] === 0);
 
     console.log(`📊 [REFILL] Found ${activeTelecallers.length} online agents. ${starvedAgents.length} are starved (0 leads).`);
 
     let totalRefilled = 0;
 
-    // 3. SEQUENTIALLY REFILL STARVED AGENTS
-    // We use a regular 'for...of' loop so they don't steal from each other
+    // 4. SEQUENTIALLY REFILL STARVED AGENTS
     for (const agent of starvedAgents) {
         console.log(`🔍 [REFILL] Searching pool for agent: ${agent.full_name}`);
 
-        // Fetch 10 oldest leads from the pool that do NOT belong to this agent
-        // 🔴 FIX: Added % wildcards in case the database has trailing spaces like "Not_Interested "
         const { data: poolLeads, error: poolError } = await supabase
             .from("leads")
             .select("id, notes")
             .or("status.ilike.%not_interested%,status.ilike.%recycle_pool%") 
-            .neq("assigned_to", agent.id) // Must NOT be their old lead
-            .order("last_contacted", { ascending: true, nullsFirst: true }) // Oldest first
+            .neq("assigned_to", agent.id) 
+            .order("last_contacted", { ascending: true, nullsFirst: true }) 
             .limit(10);
 
         if (poolError) {
@@ -107,10 +126,9 @@ export async function GET(request: Request) {
 
         if (!poolLeads || poolLeads.length === 0) {
             console.log(`⚠️ [REFILL] Recycle pool is empty! Cannot refill ${agent.full_name}.`);
-            continue; // Move to the next agent
+            continue; 
         }
 
-        // Process these 10 leads individually to append notes properly
         for (const lead of poolLeads) {
             const refillNote = `⛽ [SYSTEM: AUTO-REFILL]\nLead recycled from 'Not Interested/Pool'. Reassigned to ${agent.full_name} as a fresh lead.`;
             const updatedNotes = lead.notes ? `${lead.notes}\n\n${refillNote}` : refillNote;
@@ -121,7 +139,7 @@ export async function GET(request: Request) {
                     assigned_to: agent.id,
                     status: "new",
                     notes: updatedNotes,
-                    last_contacted: new Date().toISOString() // Critical: Give them a fresh 30-min SLA timer!
+                    last_contacted: new Date().toISOString() 
                 })
                 .eq("id", lead.id);
 
