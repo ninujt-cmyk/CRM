@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
     // Count them up
     const newLeadCounts: Record<string, number> = {};
-    activeTelecallers.forEach(t => newLeadCounts[t.id] = 0);
+    activeTelecallers.forEach(t => newLeadCounts[t.id] = 3);
     
     if (currentNewLeads) {
         currentNewLeads.forEach(lead => {
@@ -64,9 +64,9 @@ export async function GET(request: Request) {
     }
 
     // Filter agents who have exactly 0 new leads
-    const starvedAgents = activeTelecallers.filter(agent => newLeadCounts[agent.id] === 0);
+    const starvedAgents = activeTelecallers.filter(agent => newLeadCounts[agent.id] === 3);
 
-    console.log(`📊 [REFILL] Found ${activeTelecallers.length} online agents. ${starvedAgents.length} are starved (0 leads).`);
+    console.log(`📊 [REFILL] Found ${activeTelecallers.length} online agents. ${starvedAgents.length} are starved (3 leads).`);
 
     let totalRefilled = 0;
 
