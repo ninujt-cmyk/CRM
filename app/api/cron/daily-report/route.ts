@@ -1,12 +1,13 @@
+// app/api/cron/daily-report/route.ts
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
 // --- CONFIGURATION ---
 const resend = new Resend(process.env.RESEND_API_KEY)
-const supabase = createClient(
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Admin client to fetch across all tenants
 )
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log("⏳ Starting Daily Report Job...")
+    console.log("⏳ Starting Multi-Tenant Daily Report Job...")
 
     // 2. TIME CALCULATIONS
     const today = new Date()
@@ -63,15 +64,31 @@ export async function GET(request: Request) {
 
     let emailsSent = 0
 
-    // 3. FETCH ALL ACTIVE USERS
-    const { data: allUsers } = await supabase
+    // 🔴 3. FETCH TENANTS WITH DAILY REPORTS ENABLED
+    const { data: activeTenants, error: tenantError } = await supabaseAdmin
+      .from('tenant_settings')
+      .select('tenant_id')
+      .eq('cron_daily_report', true);
+
+    if (tenantError) throw tenantError;
+
+    if (!activeTenants || activeTenants.length === 0) {
+      console.log("⏭️ [CRON] No tenants have daily reports enabled. Skipping.");
+      return NextResponse.json({ message: 'No tenants have daily reports enabled.' });
+    }
+
+    const enabledTenantIds = activeTenants.map(t => t.tenant_id);
+
+    // 🔴 4. FETCH ALL ACTIVE USERS (ONLY FOR OPTED-IN TENANTS)
+    const { data: allUsers } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, role, tenant_id, monthly_target')
       .eq('is_active', true)
+      .in('tenant_id', enabledTenantIds) // Strict Isolation Filter
 
-    if (!allUsers) return NextResponse.json({ message: "No users found" })
+    if (!allUsers || allUsers.length === 0) return NextResponse.json({ message: "No active users found in opted-in tenants" })
 
-    // Group by Tenant (To keep data isolated)
+    // Group by Tenant (To strictly isolate data processing per company)
     const usersByTenant: Record<string, any[]> = {}
     allUsers.forEach(u => {
       if (!usersByTenant[u.tenant_id]) usersByTenant[u.tenant_id] = []
@@ -79,45 +96,49 @@ export async function GET(request: Request) {
     })
 
     // ============================================================
-    // PROCESS EACH TENANT SEPARATELY
+    // 5. PROCESS EACH TENANT SEPARATELY (ISOLATED EXECUTION)
     // ============================================================
     for (const tenantId of Object.keys(usersByTenant)) {
+      console.log(`🏢 Processing reports for Tenant: ${tenantId}`);
       const tenantUsers = usersByTenant[tenantId]
       
-      // Identify Roles
+      // Identify Roles for this specific tenant
       const telecallers = tenantUsers.filter(u => u.role === 'telecaller')
-      const admins = tenantUsers.filter(u => ['tenant_admin', 'team_leader', 'super_admin', 'owner'].includes(u.role))
+      const admins = tenantUsers.filter(u => ['admin', 'manager', 'team_leader', 'super_admin'].includes(u.role))
       
       const staffIds = telecallers.map(u => u.id)
       if (staffIds.length === 0) continue
 
-      // A. FETCH RAW DATA
-      // -----------------
+      // A. FETCH RAW DATA FOR THIS TENANT ONLY
+      // --------------------------------------
       
       // 1. Call Logs (Yesterday)
-      const { data: calls } = await supabase
+      const { data: calls } = await supabaseAdmin
         .from('call_logs')
         .select('user_id, duration_seconds, call_status')
+        .eq('tenant_id', tenantId) // Ensure we only hit this tenant's logs
         .in('user_id', staffIds)
         .gte('created_at', startOfYesterday)
         .lte('created_at', endOfYesterday)
 
       // 2. Leads Updated Yesterday
-      const { data: leadUpdates } = await supabase
+      const { data: leadUpdates } = await supabaseAdmin
         .from('leads')
         .select('assigned_to, status')
+        .eq('tenant_id', tenantId) // Ensure we only hit this tenant's leads
         .in('assigned_to', staffIds)
         .gte('updated_at', startOfYesterday)
         .lte('updated_at', endOfYesterday)
 
       // 3. Revenue (Month to Date)
-      const { data: revenueLeads } = await supabase
+      const { data: revenueLeads } = await supabaseAdmin
         .from('leads')
         .select('assigned_to, disbursed_amount, loan_amount')
+        .eq('tenant_id', tenantId)
         .in('assigned_to', staffIds)
         .gte('updated_at', startOfMonth)
         .lte('updated_at', endOfMonth)
-        .eq('status', 'DISBURSED')
+        .eq('status', 'Disbursed') // Ensure exact case match with your DB
 
       // B. AGGREGATE STATS
       // -----------------
@@ -153,17 +174,14 @@ export async function GET(request: Request) {
         else if (status === 'not_eligible') s.notEligible++
         else if (status === 'Not_Interested') s.notInterested++
         else if (['nr', 'Busy', 'RNR', 'Switched Off'].includes(status)) s.nr++
-        else if (status === 'DISBURSED') s.DISBURSEDCount++
+        else if (status === 'Disbursed' || status === 'DISBURSED') s.DISBURSEDCount++
       })
 
-      // Fill Revenue (FIXED CALCULATION)
+      // Fill Revenue
       revenueLeads?.forEach(l => {
         if(statsMap[l.assigned_to]) {
-          // 1. Get amount safely (prefer disbursed, fallback to loan)
           const rawAmount = l.disbursed_amount || l.loan_amount;
-          // 2. Parse it to a real Number (removes commas if string)
           const cleanAmount = parseAmount(rawAmount);
-          // 3. Add mathematically
           statsMap[l.assigned_to].revenueAchieved += cleanAmount;
         }
       })
@@ -173,14 +191,14 @@ export async function GET(request: Request) {
       
       // Revenue Leaderboard (For Ranking)
       const revenueSorted = [...statsArray].sort((a:any, b:any) => b.revenueAchieved - a.revenueAchieved)
-      const topRevenuePerformer = revenueSorted[0]
+      const topRevenuePerformer = revenueSorted[0] || { user: { full_name: "N/A" }, revenueAchieved: 0 }
 
       // Volume Leaderboard (For Admin Table)
       const volumeSorted = [...statsArray].sort((a:any, b:any) => b.count - a.count)
 
 
-      // C. SEND EMAILS
-      // --------------
+      // C. SEND EMAILS FOR THIS TENANT
+      // ------------------------------
 
       // 1. Send "Performance Coach" to Telecallers
       for (const stat of statsArray) {
@@ -196,10 +214,10 @@ export async function GET(request: Request) {
           dateStr
         })
         emailsSent++
-        await delay(700) 
+        await delay(500) // Slight delay to respect Resend API limits
       }
 
-      // 2. Send "Global Report" to Admins
+      // 2. Send "Global Report" to Admins of THIS Tenant
       if (admins.length > 0) {
         const adminHTML = generateAdminHTML(volumeSorted, dateStr)
         
@@ -207,16 +225,17 @@ export async function GET(request: Request) {
           await resend.emails.send({
             from: 'Bankscart CRM <reports@crm.bankscart.com>',
             to: admin.email,
-            subject: `📊 Global Daily Report - ${dateStr}`,
+            subject: `📊 Workspace Daily Report - ${dateStr}`,
             html: adminHTML
           })
           emailsSent++
-          await delay(700)
+          await delay(500)
         }
       }
 
     } // End Tenant Loop
 
+    console.log(`✅ [CRON FINISHED] Successfully sent ${emailsSent} report emails.`);
     return NextResponse.json({ success: true, emails_sent: emailsSent })
 
   } catch (error: any) {
@@ -231,18 +250,15 @@ export async function GET(request: Request) {
 // ==================================================================
 async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPerformer, daysRemaining, dateStr }: any) {
   
-  // Logic needed for Coach's Analysis
   const target = parseAmount(recipient.monthly_target || 3000000)
   const gap = Math.max(0, target - stats.revenueAchieved)
   const dailyRequired = gap / daysRemaining
   
-  // Rank Color Logic
-  let rankColor = '#f97316' // Default Orange
+  let rankColor = '#f97316' 
   let rankMsg = "You're doing okay, keep pushing."
   if (rank === 1) { rankColor = '#22c55e'; rankMsg = "You are the CHAMPION! 🏆"; }
   else if (rank > (totalStaff * 0.66)) { rankColor = '#ef4444'; rankMsg = "You are in the danger zone."; }
 
-  // Coach Analysis Box Logic
   let coachBox = ''
   if (stats.count < TARGET_DAILY_CALLS) {
     coachBox = `
@@ -265,7 +281,6 @@ async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPer
       </div>`
   }
 
-  // Progress Bar Width
   const progressPercent = Math.min(100, (stats.revenueAchieved / target) * 100)
 
   const html = `
@@ -281,7 +296,7 @@ async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPer
           <div style="text-align: center; margin-bottom: 20px;">
             <h1 style="margin: 0; font-size: 42px; color: ${rankColor};">#${rank}</h1>
             <p style="margin: 0; font-weight: bold; color: ${rankColor};">${rankMsg}</p>
-            <p style="font-size: 12px; color: #999;">Center Rank (Revenue)</p>
+            <p style="font-size: 12px; color: #999;">Workspace Rank (Revenue)</p>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
@@ -341,7 +356,6 @@ async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPer
 // ==================================================================
 function generateAdminHTML(sortedStats: any[], dateStr: string) {
   
-  // 1. Calculate Grand Totals
   const total = { count: 0, nr: 0, callback: 0, interested: 0, login: 0, notEligible: 0, notInterested: 0, DISBURSED: 0, duration: 0 }
   
   sortedStats.forEach(s => {
@@ -356,16 +370,14 @@ function generateAdminHTML(sortedStats: any[], dateStr: string) {
     total.duration += s.duration
   })
 
-  // 2. Generate Rows
   const rowsHTML = sortedStats.map((s, index) => {
     const totalUsers = sortedStats.length
     
-    // Color Logic for Count Column
     let countStyle = 'padding: 8px; font-weight: bold;'
-    if (s.count === 0) countStyle += 'background-color: #fee2e2; color: #991b1b;' // Red
-    else if (index < totalUsers / 3) countStyle += 'background-color: #dcfce7; color: #166534;' // Green
-    else if (index < (totalUsers * 2) / 3) countStyle += 'background-color: #ffedd5; color: #9a3412;' // Orange
-    else countStyle += 'background-color: #fee2e2; color: #991b1b;' // Red
+    if (s.count === 0) countStyle += 'background-color: #fee2e2; color: #991b1b;' 
+    else if (index < totalUsers / 3) countStyle += 'background-color: #dcfce7; color: #166534;' 
+    else if (index < (totalUsers * 2) / 3) countStyle += 'background-color: #ffedd5; color: #9a3412;' 
+    else countStyle += 'background-color: #fee2e2; color: #991b1b;' 
 
     return `
     <tr style="border-bottom: 1px solid #eee; text-align: center; color: #333;">
@@ -384,7 +396,7 @@ function generateAdminHTML(sortedStats: any[], dateStr: string) {
 
   return `
       <div style="font-family: Arial, sans-serif; font-size: 12px; color: #333; overflow-x: auto;">
-        <h2 style="color: #1e3a8a;">Global Daily Report (${dateStr})</h2>
+        <h2 style="color: #1e3a8a;">Workspace Daily Report (${dateStr})</h2>
         <p>Sorted by call volume (High to Low).</p>
         
         <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
