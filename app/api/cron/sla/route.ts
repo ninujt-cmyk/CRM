@@ -41,13 +41,28 @@ export async function GET(request: Request) {
     const startOfTodayISO = getStartOfTodayIST();
     const maxShiftStart = new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString();
 
-    // 🔴 2. FETCH ALL ACTIVE ORGANIZATIONS (TENANTS)
+    // 🔴 2. FETCH TENANTS WITH SLA CRON ENABLED
+    const { data: activeSettings, error: settingsError } = await supabaseAdmin
+        .from('tenant_settings')
+        .select('tenant_id')
+        .eq('cron_sla', true);
+
+    if (settingsError) throw settingsError;
+    if (!activeSettings || activeSettings.length === 0) {
+        console.log("⏭️ [CRON] No tenants have SLA auto-reassignment enabled. Skipping.");
+        return NextResponse.json({ status: "success", message: "No tenants opted in." });
+    }
+
+    const enabledTenantIds = activeSettings.map(s => s.tenant_id);
+
+    // Fetch organizations so we can log their names
     const { data: tenants, error: tenantError } = await supabaseAdmin
         .from('organizations')
-        .select('id, name');
+        .select('id, name')
+        .in('id', enabledTenantIds);
 
     if (tenantError) throw tenantError;
-    if (!tenants || tenants.length === 0) return NextResponse.json({ status: "success", message: "No tenants found." });
+    if (!tenants || tenants.length === 0) return NextResponse.json({ status: "success", message: "No valid organizations found." });
 
     let totalSlaReassigned = 0;
     let totalNrRecycled = 0;
@@ -147,7 +162,9 @@ export async function GET(request: Request) {
             await supabaseAdmin.from("leads").update({ 
                 assigned_to: winner.id,
                 notes: updatedNotes
-            }).eq("id", lead.id);
+            })
+            .eq("id", lead.id)
+            .eq("tenant_id", tenant.id); // 🔴 EXTRA ISOLATION SAFETY
 
             leadCounts[winner.id]++;
             totalSlaReassigned++;
@@ -168,7 +185,9 @@ export async function GET(request: Request) {
                     status: "dead_bucket",
                     assigned_to: null, 
                     notes: updatedNotes
-                }).eq("id", lead.id);
+                })
+                .eq("id", lead.id)
+                .eq("tenant_id", tenant.id); // 🔴 EXTRA ISOLATION SAFETY
                 
                 totalMovedToDead++;
                 continue;
@@ -192,7 +211,9 @@ export async function GET(request: Request) {
                 status: "new",           
                 tags: tags,              
                 notes: updatedNotes
-            }).eq("id", lead.id);
+            })
+            .eq("id", lead.id)
+            .eq("tenant_id", tenant.id); // 🔴 EXTRA ISOLATION SAFETY
 
             leadCounts[winner.id]++;
             totalNrRecycled++;
