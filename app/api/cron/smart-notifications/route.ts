@@ -1,8 +1,10 @@
+// app/api/cron/smart-notifications/route.ts
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 // --- CONFIGURATION ---
-const supabase = createClient(
+// 🔴 Use the Admin Client to bypass RLS for background jobs
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
@@ -55,12 +57,11 @@ export async function GET(request: Request) {
   try {
     // 1. Security Check
     const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (process.env.NODE_ENV !== 'development' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // 2. Determine Time (IST)
-    // We adjust UTC time to IST (UTC+5:30)
     const now = new Date()
     const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000)
     const istOffset = 5.5 * 60 * 60 * 1000
@@ -70,8 +71,23 @@ export async function GET(request: Request) {
     const currentMinute = istDate.getMinutes() // 0-59
     const isWeekend = [5, 6].includes(istDate.getDay()) // 5=Friday, 6=Saturday (Adjust as needed)
 
-    console.log(`⏰ Running Notification Job. Time: ${currentHour}:${currentMinute} (IST)`)
+    console.log(`⏰ Running Smart Notifications Job. Time: ${currentHour}:${currentMinute} (IST)`)
 
+    // 🔴 3. FETCH TENANTS WITH SMART NOTIFICATIONS ENABLED
+    const { data: activeTenants, error: tenantError } = await supabaseAdmin
+      .from('tenant_settings')
+      .select('tenant_id')
+      .eq('cron_smart_notifications', true)
+
+    if (tenantError) throw tenantError
+
+    if (!activeTenants || activeTenants.length === 0) {
+      console.log("⏭️ [CRON] No tenants have smart notifications enabled. Skipping.")
+      return NextResponse.json({ message: 'No active tenants.' })
+    }
+
+    // Extract enabled IDs
+    const enabledTenantIds = activeTenants.map(t => t.tenant_id)
     let notificationsSent = 0
 
     // =================================================================
@@ -79,35 +95,32 @@ export async function GET(request: Request) {
     // =================================================================
     if (currentHour === 9 && currentMinute >= 30 && currentMinute < 60) {
       
-      // Get all active telecallers
-      const { data: telecallers } = await supabase
+      // Get all active telecallers strictly inside enabled tenants
+      const { data: telecallers } = await supabaseAdmin
         .from('users')
-        .select('id, full_name')
+        .select('id, full_name, tenant_id')
         .eq('role', 'telecaller')
         .eq('is_active', true)
+        .in('tenant_id', enabledTenantIds) // ISOLATION
 
-      if (!telecallers) return NextResponse.json({ message: "No users" })
+      if (telecallers && telecallers.length > 0) {
+        const todayStr = istDate.toISOString().split('T')[0]
+        
+        const { data: attendance } = await supabaseAdmin
+          .from('attendance')
+          .select('user_id')
+          .eq('date', todayStr)
+          .in('tenant_id', enabledTenantIds) // ISOLATION
 
-      // Check attendance for today
-      const todayStr = istDate.toISOString().split('T')[0]
-      
-      const { data: attendance } = await supabase
-        .from('attendance')
-        .select('user_id')
-        .eq('date', todayStr)
+        const checkedInIds = new Set(attendance?.map(a => a.user_id) || [])
 
-      const checkedInIds = new Set(attendance?.map(a => a.user_id) || [])
-
-      for (const user of telecallers) {
-        if (!checkedInIds.has(user.id)) {
-          // NOT CHECKED IN
-          await sendNotification(user.id, "⚠️ Attendance Alert", getRandomMsg(MESSAGES.LATE_CHECKIN))
-        } else {
-          // CHECKED IN (Optional: Send only once. Using a 'sent_today' flag in DB is better, 
-          // but for simplicity, we assume this runs once or we allow duplicate motivation)
-           // logic to ensure we don't spam 'Good Morning' every 10 mins omitted for brevity
+        for (const user of telecallers) {
+          if (!checkedInIds.has(user.id)) {
+            // NOT CHECKED IN -> Pass tenant_id to the helper
+            await sendNotification(user.id, user.tenant_id, "⚠️ Attendance Alert", getRandomMsg(MESSAGES.LATE_CHECKIN))
+            notificationsSent++
+          }
         }
-        notificationsSent++
       }
     }
 
@@ -116,63 +129,66 @@ export async function GET(request: Request) {
     // =================================================================
     if (currentHour >= 11 && currentHour <= 17) {
       
-      // Fetch Logins Today
       const startOfDay = new Date(istDate.setHours(0,0,0,0)).toISOString()
       const endOfDay = new Date(istDate.setHours(23,59,59,999)).toISOString()
 
-      // Get Users & Their Login Counts
-      const { data: telecallers } = await supabase.from('users').select('id, full_name').eq('role', 'telecaller').eq('is_active', true)
-      const { data: leads } = await supabase.from('leads')
-        .select('assigned_to, status')
-        .eq('status', 'Login Done') // Check your specific status string
-        .gte('updated_at', startOfDay)
-        .lte('updated_at', endOfDay)
+      // Fetch users in enabled tenants
+      const { data: telecallers } = await supabaseAdmin
+        .from('users')
+        .select('id, full_name, tenant_id')
+        .eq('role', 'telecaller')
+        .eq('is_active', true)
+        .in('tenant_id', enabledTenantIds) // ISOLATION
 
-      // Map Counts
-      const loginCounts: Record<string, number> = {}
-      leads?.forEach(l => { loginCounts[l.assigned_to] = (loginCounts[l.assigned_to] || 0) + 1 })
+      if (telecallers && telecallers.length > 0) {
+        // Fetch Logins for the specific tenants
+        const { data: leads } = await supabaseAdmin.from('leads')
+          .select('assigned_to, status')
+          .in('status', ['Login', 'Login Done']) // Match UI string
+          .gte('updated_at', startOfDay)
+          .lte('updated_at', endOfDay)
+          .in('tenant_id', enabledTenantIds) // ISOLATION
 
-      for (const user of (telecallers || [])) {
-        const count = loginCounts[user.id] || 0
-        let title = "Performance Update"
-        let message = ""
-
-        // 11 AM Logic
-        if (currentHour === 11) {
-            if (count === 0) {
-                title = "📈 Catch Up Required"
-                message = getRandomMsg(MESSAGES.LOW_PERFORMANCE_MORNING)
+        // Map Counts
+        const loginCounts: Record<string, number> = {}
+        leads?.forEach(l => { 
+            if(l.assigned_to) {
+                loginCounts[l.assigned_to] = (loginCounts[l.assigned_to] || 0) + 1 
             }
-        }
-        // 1 PM (Lunch)
-        else if (currentHour === 13) {
-            title = "🍛 Lunch Time Soon"
-            message = getRandomMsg(MESSAGES.LUNCH_APPROACHING)
-        }
-        // 2 PM (Back to work)
-        else if (currentHour === 14) {
-             title = "🚀 Back to Work"
-             message = getRandomMsg(MESSAGES.POST_LUNCH_BOOST)
-        }
-        // 5 PM (End Day Push)
-        else if (currentHour === 17) {
-            title = "🏁 Final Hour"
-            message = isWeekend ? getRandomMsg(MESSAGES.WEEKEND_VIBES) : getRandomMsg(MESSAGES.LAST_HOUR_PUSH)
-        }
-        // General Hourly Low Performance Check (12pm, 3pm, 4pm)
-        else if (count < 2) { 
-            // If logins are very low in middle of day
-            title = "💡 Quick Tip"
-            message = `You have ${count} logins. Pick up the pace! Call your fresh leads now.`
-        }
+        })
 
-        if (message) {
-            await sendNotification(user.id, title, message)
-            notificationsSent++
+        for (const user of telecallers) {
+          const count = loginCounts[user.id] || 0
+          let title = ""
+          let message = ""
+
+          if (currentHour === 11 && count === 0) {
+              title = "📈 Catch Up Required"
+              message = getRandomMsg(MESSAGES.LOW_PERFORMANCE_MORNING)
+          } else if (currentHour === 13) {
+              title = "🍛 Lunch Time Soon"
+              message = getRandomMsg(MESSAGES.LUNCH_APPROACHING)
+          } else if (currentHour === 14) {
+               title = "🚀 Back to Work"
+               message = getRandomMsg(MESSAGES.POST_LUNCH_BOOST)
+          } else if (currentHour === 17) {
+              title = "🏁 Final Hour"
+              message = isWeekend ? getRandomMsg(MESSAGES.WEEKEND_VIBES) : getRandomMsg(MESSAGES.LAST_HOUR_PUSH)
+          } else if (count < 2) { 
+              title = "💡 Quick Tip"
+              message = `You have ${count} logins. Pick up the pace! Call your fresh leads now.`
+          }
+
+          if (message) {
+              // Pass the tenant_id to the helper
+              await sendNotification(user.id, user.tenant_id, title, message)
+              notificationsSent++
+          }
         }
       }
     }
 
+    console.log(`🏁 [CRON FINISHED] Sent ${notificationsSent} smart notifications.`)
     return NextResponse.json({ success: true, notifications_sent: notificationsSent })
 
   } catch (error: any) {
@@ -181,21 +197,17 @@ export async function GET(request: Request) {
   }
 }
 
-// --- HELPER: INSERT INTO DB ---
-async function sendNotification(userId: string, title: string, message: string) {
-    // 1. Insert into 'notifications' table
-    const { error } = await supabase.from('notifications').insert({
+// --- HELPER: INSERT INTO DB (TENANT AWARE) ---
+async function sendNotification(userId: string, tenantId: string, title: string, message: string) {
+    const { error } = await supabaseAdmin.from('notifications').insert({
+        tenant_id: tenantId, // 🔴 SECURE ISOLATION
         user_id: userId,
         title: title,
         message: message,
         is_read: false,
-        type: 'system', // or 'alert'
+        type: 'system', 
         created_at: new Date().toISOString()
     })
 
     if (error) console.error("DB Insert Error", error)
-    
-    // 2. (Optional) Trigger Push Notification via your existing API
-    // If you want actual device alerts, you can fetch the user's push_subscription here 
-    // and send using web-push library.
 }
