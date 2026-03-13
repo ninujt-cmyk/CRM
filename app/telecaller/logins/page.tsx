@@ -43,7 +43,7 @@ export default function TelecallerLoginsPage() {
     // Pending Pop-up State
     const [pendingLogins, setPendingLogins] = useState<any[]>([])
     const [isPendingModalOpen, setIsPendingModalOpen] = useState(false)
-    const hasCheckedPending = useRef(false) // Ref to prevent re-opening modal on every fetch
+    const hasCheckedPending = useRef(false) 
     
     // Duplicate Logic States
     const [dupState, setDupState] = useState<DuplicateState>('clean')
@@ -51,7 +51,7 @@ export default function TelecallerLoginsPage() {
     
     // Form Data
     const [formData, setFormData] = useState({
-        id: null as string | null, // ID present means "Edit Mode"
+        id: null as string | null, 
         name: "",
         phone: "",
         bank_name: "",
@@ -64,7 +64,7 @@ export default function TelecallerLoginsPage() {
     const dailyGoal = 5 
     const todayCount = logins.filter(l => new Date(l.updated_at).toDateString() === new Date().toDateString()).length
 
-    // 1. GLOBAL DUPLICATE CHECK (Via RPC)
+    // 1. SPECIFIC LOGINS DUPLICATE CHECK (Via new RPC)
     useEffect(() => {
         const checkPhone = async () => {
             if (debouncedPhone.length < 10) {
@@ -75,9 +75,9 @@ export default function TelecallerLoginsPage() {
             setDupState('checking')
 
             try {
-                // Using RPC to bypass RLS for duplicate checking only
+                // 🔴 THE FIX: Using the new check_login_duplicate function
                 const { data, error } = await supabase
-                    .rpc('check_global_duplicate', { lookup_phone: debouncedPhone })
+                    .rpc('check_login_duplicate', { lookup_phone: debouncedPhone })
 
                 if (error) throw error;
 
