@@ -9,19 +9,20 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     
     const supabase = await createClient();
     
+    // Admin client to safely bypass RLS for internal credential checks
     const supabaseAdmin = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
     
-    // 1. Authenticate
+    // 1. Authenticate the user clicking the button
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    // 2. Fetch Agent
+    // 2. Fetch Agent's details (including their tenant_id)
     const { data: agent, error: agentError } = await supabase
       .from('users')
-      .select('phone, current_status, full_name')
+      .select('phone, current_status, full_name, tenant_id')
       .eq('id', user.id)
       .single();
 
@@ -31,10 +32,11 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
     }
 
-    // 💡 NEW: Fetch this specific tenant's Settings AND Tenant ID (RLS protects this automatically!)
-    const { data: tenantSettings } = await supabase
+    // 🔴 THE FIX: Use supabaseAdmin to fetch the secret keys so RLS doesn't block the Telecaller
+    const { data: tenantSettings } = await supabaseAdmin
       .from('tenant_settings')
       .select('tenant_id, fonada_client_id, fonada_secret')
+      .eq('tenant_id', agent.tenant_id)
       .maybeSingle();
 
     // Use DB credentials if they exist, otherwise fallback to the global .env keys
@@ -60,7 +62,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         customerNumber: safeCustomerPhone,
         agentName: agent.full_name || "BanksCart Agent",
         customerName: lead?.name || "Customer",
-        calledId: tenantSettings?.tenant_id || "" // 🔴 TENANT ID INJECTED HERE
+        calledId: tenantSettings?.tenant_id || "" // TENANT ID INJECTED HERE
     };
 
     console.log("📤 [C2C PAYLOAD]:", JSON.stringify(payload));
@@ -104,7 +106,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
         // Not JSON, ignore
     }
 
-    // 6. 🚀 FORCE UPDATE DATABASE
+    // 6. FORCE UPDATE DATABASE
     console.log("💾 [C2C DB UPDATE] Forcing Admin Update for Lead and Agent Status...");
     
     const { error: leadErr } = await supabaseAdmin.from("leads")
