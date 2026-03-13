@@ -34,26 +34,23 @@ export async function POST(request: NextRequest) {
 
     let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
 
-    // 🔴 THE FIX: REVERSE-LOOKUP THE TENANT ID USING THE AGENT'S PHONE NUMBER
-    const { data: possibleAgents, error: agentSearchErr } = await supabaseAdmin
+    // 🔴 THE FIX: SMART TENANT LOOKUP
+    // Since Fonada stripped the custom ID, we find the agent by their phone number
+    // and extract their isolated Tenant ID directly from our database!
+    const { data: agent } = await supabaseAdmin
         .from("users")
-        .select("id, tenant_id, current_status")
+        .select("id, tenant_id")
         .ilike("phone", `%${dbAgentPhone}%`)
-        .order("status_updated_at", { ascending: false });
+        .limit(1)
+        .maybeSingle();
 
-    if (agentSearchErr) {
-        console.error("❌ Database error searching for agent:", agentSearchErr);
+    if (!agent || !agent.tenant_id) {
+      console.error(`🚨 [SECURITY WARNING] Agent not found or missing Tenant ID for phone: ${dbAgentPhone}`);
+      return NextResponse.json({ status: "ignored", reason: "agent_or_tenant_not_found" });
     }
 
-    if (!possibleAgents || possibleAgents.length === 0) {
-        console.error(`🚨 [WEBHOOK] Agent phone ${dbAgentPhone} not found in any tenant.`);
-        return NextResponse.json({ status: "ignored", reason: "agent_not_found_in_database" });
-    }
-
-    // Handle cases where the same phone might exist in multiple workspaces
-    // Prioritize the one who is currently "on_call"
-    const agent = possibleAgents.find(a => a.current_status === 'on_call') || possibleAgents[0];
     const tenantId = agent.tenant_id;
+    console.log(`🔐 [SMART LOOKUP] Successfully mapped call to Tenant ID: ${tenantId}`);
 
     // Agent didn't pick up
     if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition)) {
@@ -65,7 +62,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "success", message: "Agent leg failed." });
     }
 
-    // 🔴 SCOPE LEAD SEARCH TO THE REVERSE-LOOKUP TENANT
+    // 2. SCOPE LEAD SEARCH TO THE EXACT TENANT
     let dbCustomerPhone = customerPhone ? customerPhone.replace(/^\+?91/, '').slice(-10) : null;
     let finalLeadId = null;
 
@@ -73,7 +70,7 @@ export async function POST(request: NextRequest) {
         const { data: leads } = await supabaseAdmin
             .from("leads")
             .select("id")
-            .eq("tenant_id", tenantId) // STRICT ISOLATION
+            .eq("tenant_id", tenantId) // STRICT ISOLATION APPLIED
             .ilike("phone", `%${dbCustomerPhone}%`)
             .eq("assigned_to", agent.id) 
             .order("last_contacted", { ascending: false }) 
@@ -85,7 +82,7 @@ export async function POST(request: NextRequest) {
             const { data: fallbackLead } = await supabaseAdmin
                 .from("leads")
                 .select("id")
-                .eq("tenant_id", tenantId) // STRICT ISOLATION
+                .eq("tenant_id", tenantId) // STRICT ISOLATION APPLIED
                 .ilike("phone", `%${dbCustomerPhone}%`)
                 .order("created_at", { ascending: false })
                 .limit(1)
