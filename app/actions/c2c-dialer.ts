@@ -29,56 +29,31 @@ export async function POST(request: NextRequest) {
     
     const agentDisposition = (body.agentDisposition || "").toUpperCase();
     const customerDisposition = (body.customerDisposition || body.disposition || body.status || "UNKNOWN").toUpperCase();
-    
+
     if (!agentPhone) return NextResponse.json({ status: "ignored", reason: "Missing agent phone" });
 
     let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
 
-    // 🔴 2. THE FIX: SECURE TENANT RESOLUTION
-    // Step A: Try to get from URL parameter (e.g., ?tenant_id=123)
-    let tenantId = request.nextUrl.searchParams.get("tenant_id");
+    // 🔴 THE FIX: REVERSE-LOOKUP THE TENANT ID USING THE AGENT'S PHONE NUMBER
+    const { data: possibleAgents, error: agentSearchErr } = await supabaseAdmin
+        .from("users")
+        .select("id, tenant_id, current_status")
+        .ilike("phone", `%${dbAgentPhone}%`)
+        .order("status_updated_at", { ascending: false });
 
-    // Step B: If missing, look up the Agent by phone number to find their Tenant
-    let agentId = null;
-
-    if (!tenantId) {
-        console.log(`⚠️ Tenant ID missing from payload. Attempting to resolve via Agent Phone: ${dbAgentPhone}`);
-        
-        const { data: agentLookup } = await supabaseAdmin
-            .from("users")
-            .select("id, tenant_id")
-            .ilike("phone", `%${dbAgentPhone}%`)
-            .limit(1)
-            .maybeSingle();
-
-        if (agentLookup && agentLookup.tenant_id) {
-            tenantId = agentLookup.tenant_id;
-            agentId = agentLookup.id;
-            console.log(`✅ Successfully resolved Tenant ID: ${tenantId} via Agent.`);
-        } else {
-            console.error("🚨 [SECURITY CRITICAL] Could not resolve Tenant ID. Agent phone not found in any workspace.");
-            return NextResponse.json({ status: "error", reason: "unresolved_tenant" }, { status: 400 });
-        }
-    } else {
-        // If we DID get tenantId from the URL, we still need the agentId
-        const { data: agentLookup } = await supabaseAdmin
-            .from("users")
-            .select("id")
-            .eq("tenant_id", tenantId)
-            .ilike("phone", `%${dbAgentPhone}%`)
-            .limit(1)
-            .maybeSingle();
-            
-        agentId = agentLookup?.id;
+    if (agentSearchErr) {
+        console.error("❌ Database error searching for agent:", agentSearchErr);
     }
 
-    if (!agentId) {
-      return NextResponse.json({ status: "ignored", reason: "agent_not_found_in_tenant" });
+    if (!possibleAgents || possibleAgents.length === 0) {
+        console.error(`🚨 [WEBHOOK] Agent phone ${dbAgentPhone} not found in any tenant.`);
+        return NextResponse.json({ status: "ignored", reason: "agent_not_found_in_database" });
     }
 
-    // ------------------------------------------------------------------
-    // REST OF THE LOGIC PROCEEDS NORMALLY WITH ISOLATED TENANT ID
-    // ------------------------------------------------------------------
+    // Handle cases where the same phone might exist in multiple workspaces
+    // Prioritize the one who is currently "on_call"
+    const agent = possibleAgents.find(a => a.current_status === 'on_call') || possibleAgents[0];
+    const tenantId = agent.tenant_id;
 
     // Agent didn't pick up
     if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition)) {
@@ -86,11 +61,11 @@ export async function POST(request: NextRequest) {
             current_status: 'wrap_up',
             status_reason: `Agent Leg: ${agentDisposition}`,
             status_updated_at: new Date().toISOString()
-        }).eq("id", agentId);
+        }).eq("id", agent.id);
         return NextResponse.json({ status: "success", message: "Agent leg failed." });
     }
 
-    // 3. SCOPE LEAD SEARCH TO THE EXACT TENANT
+    // 🔴 SCOPE LEAD SEARCH TO THE REVERSE-LOOKUP TENANT
     let dbCustomerPhone = customerPhone ? customerPhone.replace(/^\+?91/, '').slice(-10) : null;
     let finalLeadId = null;
 
@@ -100,7 +75,7 @@ export async function POST(request: NextRequest) {
             .select("id")
             .eq("tenant_id", tenantId) // STRICT ISOLATION
             .ilike("phone", `%${dbCustomerPhone}%`)
-            .eq("assigned_to", agentId) 
+            .eq("assigned_to", agent.id) 
             .order("last_contacted", { ascending: false }) 
             .limit(1);
 
@@ -119,12 +94,12 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // 4. Save Call Log
+    // Save Call Log
     if (finalLeadId) {
         await supabaseAdmin.from("call_logs").insert({
             tenant_id: tenantId, // Explicitly attribute to the correct company
             lead_id: finalLeadId,
-            user_id: agentId,
+            user_id: agent.id,
             call_type: "outbound_c2c",
             duration_seconds: duration,
             disposition: customerDisposition, 
@@ -133,12 +108,12 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    // 5. Push agent to wrap-up
+    // Push agent to wrap-up
     await supabaseAdmin.from("users").update({
         current_status: 'wrap_up',
         status_reason: 'Call Completed',
         status_updated_at: new Date().toISOString()
-    }).eq("id", agentId);
+    }).eq("id", agent.id);
 
     return NextResponse.json({ status: "success", message: "C2C Call logged securely." });
 
