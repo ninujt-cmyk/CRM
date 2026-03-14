@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/logout-button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Separator } from "@/components/ui/separator"
 import { 
   Tooltip, 
   TooltipContent, 
@@ -21,9 +20,9 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 // Icons
-import { ChevronLeft, ChevronRight, Menu } from "lucide-react"
+import { ChevronLeft, Menu } from "lucide-react"
 
-// --- SUB-COMPONENT: Nav Item (Updated with Enhanced 3D Effect) ---
+// --- SUB-COMPONENT: Nav Item (Enhanced 3D Effect) ---
 function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: boolean, isActive: boolean }) {
   const Icon = item.icon
 
@@ -36,9 +35,8 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
             <div
               className={cn(
                 "h-11 w-11 flex items-center justify-center rounded-2xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
-                // 3D Effect: Scale + Rotate + Shadow on Hover
                 "hover:scale-115 hover:-translate-y-1 hover:rotate-3 hover:shadow-[0_10px_20px_-5px_rgba(59,130,246,0.4)]",
-                "active:scale-95 active:translate-y-0", // Tactile click press
+                "active:scale-95 active:translate-y-0", 
                 isActive 
                   ? "bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/40" 
                   : "bg-white text-slate-500 hover:text-blue-600 border border-slate-100"
@@ -63,30 +61,19 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
         className={cn(
           "relative flex items-center w-full p-3 rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
           "border cursor-pointer overflow-hidden",
-          
-          // --- THE 3D EFFECT ---
-          // 1. Lift Up (Translate Y)
-          // 2. Scale Up
-          // 3. Deep Shadow (Gives height perception)
-          // 4. Border Highlight (Simulates light catching edge)
           "hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)] hover:border-blue-200/50",
-          
-          // Active Click Effect (Press down)
           "active:scale-[0.98] active:translate-y-0 active:shadow-none",
-
           isActive 
             ? "bg-gradient-to-r from-blue-50 via-indigo-50 to-white text-blue-700 border-blue-100 shadow-sm" 
             : "bg-transparent text-slate-600 border-transparent hover:bg-white"
         )}
       >
-        {/* Active Indicator (Glowing Pill) */}
         {isActive && (
           <div className="absolute left-0 h-full w-1 bg-blue-600 rounded-r-full shadow-[0_0_15px_2px_rgba(37,99,235,0.6)]" />
         )}
 
         <Icon className={cn(
           "h-5 w-5 mr-3 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
-          // Icon bounces on hover
           "group-hover/item:scale-125 group-hover/item:rotate-6",
           isActive ? "text-blue-600" : "text-slate-400 group-hover/item:text-blue-500"
         )} />
@@ -98,7 +85,6 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
           {item.name}
         </span>
 
-        {/* Dynamic Light Sheen Effect */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/60 to-transparent -translate-x-full group-hover/item:animate-[shimmer_1.5s_infinite] pointer-events-none" />
       </div>
     </Link>
@@ -122,7 +108,6 @@ export function AdminSidebar() {
     localStorage.setItem("sidebar-collapsed", JSON.stringify(!isCollapsed))
   }
 
-  // Hydration guard
   if (!isMounted) return <div className="hidden md:flex w-[70px] h-screen bg-white border-r" />
 
   return (
@@ -135,7 +120,7 @@ export function AdminSidebar() {
               <Menu className="h-5 w-5 text-slate-700" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 p-0 border-r-0">
+          <SheetContent side="left" className="w-72 p-0 border-r-0 flex flex-col h-full">
             <SidebarContent isCollapsed={false} pathname={pathname} />
           </SheetContent>
         </Sheet>
@@ -144,16 +129,15 @@ export function AdminSidebar() {
       {/* 2. DESKTOP SIDEBAR */}
       <div 
         className={cn(
-          "hidden md:flex flex-col h-screen bg-slate-50/50 border-r border-slate-200/60 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] relative sticky top-0",
+          "hidden md:flex flex-col h-screen bg-slate-50/50 border-r border-slate-200/60 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] sticky top-0 z-20",
           isCollapsed ? "w-[90px]" : "w-72"
         )}
       >
-        {/* 3D Floating Toggle Button */}
         <Button
           variant="outline"
           size="icon"
           onClick={toggleSidebar}
-          className="absolute -right-4 top-8 h-9 w-9 rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] border-slate-100 z-30 hidden md:flex text-slate-400 hover:text-blue-600 hover:scale-110 hover:-rotate-180 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+          className="absolute -right-4 top-8 h-9 w-9 rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] border-slate-100 z-30 hidden md:flex text-slate-400 hover:text-blue-600 hover:scale-110 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
         >
           <ChevronLeft className={cn("h-4 w-4 transition-transform duration-300", isCollapsed && "rotate-180")} />
         </Button>
@@ -169,13 +153,12 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
   return (
     <div className="flex flex-col h-full bg-white/60 backdrop-blur-2xl">
       
-      {/* Branding - 3D Logo */}
-      <div className={cn("h-24 flex items-center border-b border-slate-100/50 px-6 transition-all duration-500", isCollapsed ? "justify-center" : "justify-start gap-4")}>
+      {/* 1. Branding - FIXED HEIGHT (shrink-0) */}
+      <div className={cn("h-24 shrink-0 flex items-center border-b border-slate-100/50 px-6 transition-all duration-500", isCollapsed ? "justify-center" : "justify-start gap-4")}>
         <div className="relative group cursor-default">
             <div className="h-12 w-12 bg-gradient-to-tr from-blue-600 to-violet-600 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] flex-shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-blue-600/50">
               BC
             </div>
-            {/* Ambient Glow */}
             <div className="absolute -inset-2 bg-blue-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
         </div>
         
@@ -187,38 +170,40 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         )}
       </div>
 
-      {/* Navigation */}
-      <ScrollArea className="flex-1 py-6">
-        <div className="px-4 space-y-9">
-          <TooltipProvider delayDuration={0}>
-            {sidebarGroups.map((group, groupIndex) => (
-              <div key={group.label} className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${groupIndex * 100}ms` }}>
-                {!isCollapsed && (
-                  <h4 className="mb-4 px-3 text-[11px] font-extrabold text-slate-300 uppercase tracking-widest">
-                    {group.label}
-                  </h4>
-                )}
-                <div className="space-y-1.5">
-                  {group.items.map((item) => (
-                    <SidebarItem 
-                      key={item.href} 
-                      item={item} 
-                      isCollapsed={isCollapsed} 
-                      isActive={item.exact ? pathname === item.href : pathname.startsWith(item.href)} 
-                    />
-                  ))}
+      {/* 2. Navigation - SCROLLABLE AREA (flex-1, min-h-0, overflow-hidden) */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full w-full">
+          <div className="px-4 py-6 space-y-9">
+            <TooltipProvider delayDuration={0}>
+              {sidebarGroups.map((group, groupIndex) => (
+                <div key={group.label} className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${groupIndex * 100}ms` }}>
+                  {!isCollapsed && (
+                    <h4 className="mb-4 px-3 text-[11px] font-extrabold text-slate-300 uppercase tracking-widest">
+                      {group.label}
+                    </h4>
+                  )}
+                  <div className="space-y-1.5">
+                    {group.items.map((item) => (
+                      <SidebarItem 
+                        key={item.href} 
+                        item={item} 
+                        isCollapsed={isCollapsed} 
+                        isActive={item.exact ? pathname === item.href : pathname.startsWith(item.href)} 
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </TooltipProvider>
-        </div>
-      </ScrollArea>
+              ))}
+            </TooltipProvider>
+          </div>
+        </ScrollArea>
+      </div>
 
-      {/* User & Logout - Floating Card */}
-      <div className="p-4 border-t border-slate-100/50">
+      {/* 3. User & Logout - FIXED HEIGHT (shrink-0) */}
+      <div className="p-4 shrink-0 border-t border-slate-100/50 bg-white/40">
         {!isCollapsed && (
           <div className="group flex items-center gap-3 px-3 mb-4 p-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default">
-            <div className="relative">
+            <div className="relative shrink-0">
               <Avatar className="h-10 w-10 border-2 border-white shadow-md group-hover:scale-105 transition-transform duration-300">
                 <AvatarImage src="/placeholder-user.jpg" />
                 <AvatarFallback className="bg-slate-800 text-white font-bold">AD</AvatarFallback>
@@ -243,6 +228,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
           showText={!isCollapsed}
         />
       </div>
+      
     </div>
   )
 }
