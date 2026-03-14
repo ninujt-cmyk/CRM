@@ -20,8 +20,8 @@ import {
 } from "@/components/ui/tooltip"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// Icons - Swapped Lucide for modern Tabler Icons
-import { IconArrowBarLeft, IconMenuDeep } from "@tabler/icons-react"
+// Modern Icons (Phosphor Icons)
+import { CaretLeft, ListDashes } from "@phosphor-icons/react"
 
 // --- SUB-COMPONENT: Nav Item (Updated with Enhanced 3D Effect) ---
 function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: boolean, isActive: boolean }) {
@@ -44,8 +44,8 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
                   : "bg-white text-slate-500 hover:text-blue-600 border border-slate-100"
               )}
             >
-              {/* Added a subtle stroke adjustment here if using Tabler icons in your config */}
-              <Icon stroke={isActive ? 2.5 : 2} className="h-5 w-5" />
+              {/* Added bold weight for Phosphor icons if supported by the item */}
+              <Icon className="h-5 w-5" weight={isActive ? "fill" : "regular"} />
               <span className="sr-only">{item.name}</span>
             </div>
           </Link>
@@ -86,13 +86,14 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
         )}
 
         <Icon 
-          stroke={isActive ? 2.5 : 2}
+          weight={isActive ? "fill" : "regular"}
           className={cn(
             "h-5 w-5 mr-3 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
             // Icon bounces on hover
             "group-hover/item:scale-125 group-hover/item:rotate-6",
             isActive ? "text-blue-600" : "text-slate-400 group-hover/item:text-blue-500"
-        )} />
+          )} 
+        />
         
         <span className={cn(
           "font-semibold tracking-tight transition-colors",
@@ -135,7 +136,7 @@ export function AdminSidebar() {
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="shadow-lg active:scale-95 transition-transform bg-white/80 backdrop-blur-md">
-              <IconMenuDeep stroke={2} className="h-5 w-5 text-slate-700" />
+              <ListDashes weight="bold" className="h-5 w-5 text-slate-700" />
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-72 p-0 border-r-0">
@@ -158,7 +159,7 @@ export function AdminSidebar() {
           onClick={toggleSidebar}
           className="absolute -right-4 top-8 h-9 w-9 rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] border-slate-100 z-30 hidden md:flex text-slate-400 hover:text-blue-600 hover:scale-110 hover:-rotate-180 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
         >
-          <IconArrowBarLeft stroke={2.5} className={cn("h-4 w-4 transition-transform duration-300", isCollapsed && "rotate-180")} />
+          <CaretLeft weight="bold" className={cn("h-4 w-4 transition-transform duration-300", isCollapsed && "rotate-180")} />
         </Button>
 
         <SidebarContent isCollapsed={isCollapsed} pathname={pathname} />
