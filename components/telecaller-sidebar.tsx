@@ -118,7 +118,8 @@ export function TelecallerSidebar({}: TelecallerSidebarProps) {
           </Button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2">
+        {/* Added overflow-y-auto here to make only the links scrollable */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-2">
           {navigation.map((item) => {
             const isActive = pathname === item.href
             return (
