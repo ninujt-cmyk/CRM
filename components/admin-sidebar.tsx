@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { LogoutButton } from "@/components/logout-button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Separator } from "@/components/ui/separator"
 import { 
   Tooltip, 
   TooltipContent, 
@@ -20,8 +19,8 @@ import {
 } from "@/components/ui/tooltip"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// Icons (Strictly Lucide)
-import { ChevronLeft, AlignLeft } from "lucide-react"
+// Modernized Lucide Icons
+import { ChevronsLeft, AlignLeft } from "lucide-react"
 
 // --- SUB-COMPONENT: Nav Item (Updated with Enhanced 3D Effect) ---
 function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: boolean, isActive: boolean }) {
@@ -44,9 +43,10 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
                   : "bg-white text-slate-500 hover:text-blue-600 border border-slate-100"
               )}
             >
+              {/* Lucide Trick: Thicker stroke when active for a premium feel */}
               <Icon 
-                className={cn("h-5 w-5 transition-all duration-300", isActive ? "fill-white/20" : "fill-transparent")} 
                 strokeWidth={isActive ? 2.5 : 2} 
+                className="h-5 w-5" 
               />
               <span className="sr-only">{item.name}</span>
             </div>
@@ -93,8 +93,7 @@ function SidebarItem({ item, isCollapsed, isActive }: { item: any, isCollapsed: 
             "h-5 w-5 mr-3 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
             // Icon bounces on hover
             "group-hover/item:scale-125 group-hover/item:rotate-6",
-            // Inject a soft fill for active states to make Lucide feel more solid
-            isActive ? "text-blue-600 fill-blue-600/20" : "text-slate-400 group-hover/item:text-blue-500 fill-transparent"
+            isActive ? "text-blue-600" : "text-slate-400 group-hover/item:text-blue-500"
           )} 
         />
         
@@ -162,7 +161,7 @@ export function AdminSidebar() {
           onClick={toggleSidebar}
           className="absolute -right-4 top-8 h-9 w-9 rounded-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)] border-slate-100 z-30 hidden md:flex text-slate-400 hover:text-blue-600 hover:scale-110 hover:-rotate-180 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
         >
-          <ChevronLeft strokeWidth={2.5} className={cn("h-4 w-4 transition-transform duration-300", isCollapsed && "rotate-180")} />
+          <ChevronsLeft strokeWidth={2.5} className={cn("h-4 w-4 transition-transform duration-300", isCollapsed && "rotate-180")} />
         </Button>
 
         <SidebarContent isCollapsed={isCollapsed} pathname={pathname} />
@@ -194,8 +193,8 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         )}
       </div>
 
-      {/* Navigation */}
-      <ScrollArea className="flex-1 py-6">
+      {/* Navigation - Added min-h-0 to ensure flex child can scroll */}
+      <ScrollArea className="flex-1 py-6 min-h-0">
         <div className="px-4 space-y-9">
           <TooltipProvider delayDuration={0}>
             {sidebarGroups.map((group, groupIndex) => (
@@ -222,7 +221,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       </ScrollArea>
 
       {/* User & Logout - Floating Card */}
-      <div className="p-4 border-t border-slate-100/50">
+      <div className="p-4 border-t border-slate-100/50 mt-auto">
         {!isCollapsed && (
           <div className="group flex items-center gap-3 px-3 mb-4 p-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default">
             <div className="relative">
