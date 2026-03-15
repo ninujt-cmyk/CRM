@@ -3,21 +3,25 @@
 import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { PhoneForwarded, Loader2, Timer, CheckCircle2, User } from "lucide-react"
+import { PhoneForwarded, Loader2, Timer, CheckCircle2, User, PauseCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function GlobalAutoDialer() {
-    const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
+    // Added 'paused' state
+    const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline' | 'paused'>('offline')
     const [countdown, setCountdown] = useState(10) 
     const [isVisible, setIsVisible] = useState(false)
     const [currentCustomer, setCurrentCustomer] = useState<string | null>(null)
     
+    // Complete Opt-Out for the company
+    const [tenantEnabled, setTenantEnabled] = useState(true)
+
     const supabase = createClient()
     const router = useRouter()
     const { toast } = useToast()
 
-    const stateLock = useRef<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline'>('offline')
+    const stateLock = useRef<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline' | 'paused'>('offline')
     const timerRef = useRef<NodeJS.Timeout | null>(null)
     const userIdRef = useRef<string | null>(null)
 
@@ -32,12 +36,24 @@ export function GlobalAutoDialer() {
             if (!user) return
             userIdRef.current = user.id
 
-            const { data } = await supabase.from('users').select('current_status').eq('id', user.id).single()
-            if (data) handleDatabaseStatusChange(data.current_status)
+            // 1. Check Tenant Level Opt-Out and User Status
+            const { data: userData } = await supabase.from('users').select('current_status, auto_dialer_status, tenant_id').eq('id', user.id).single()
+            
+            if (userData?.tenant_id) {
+                const { data: settings } = await supabase.from('tenant_settings').select('auto_dialer_enabled').eq('tenant_id', userData.tenant_id).single()
+                if (settings && settings.auto_dialer_enabled === false) {
+                    setTenantEnabled(false);
+                    setIsVisible(false);
+                    return; // Abort entirely!
+                }
+            }
 
+            if (userData) handleDatabaseStatusChange(userData.current_status, userData.auto_dialer_status)
+
+            // 2. Listen for both status AND dialer_status changes
             const channel = supabase.channel('auto_dialer_sync')
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${user.id}` }, 
-                (payload) => handleDatabaseStatusChange(payload.new.current_status))
+                (payload) => handleDatabaseStatusChange(payload.new.current_status, payload.new.auto_dialer_status))
                 .subscribe()
 
             return () => { supabase.removeChannel(channel) }
@@ -49,9 +65,9 @@ export function GlobalAutoDialer() {
         let pollInterval: NodeJS.Timeout;
         if (dialState === 'on_call' && userIdRef.current) {
             pollInterval = setInterval(async () => {
-                const { data } = await supabase.from('users').select('current_status').eq('id', userIdRef.current!).single();
+                const { data } = await supabase.from('users').select('current_status, auto_dialer_status').eq('id', userIdRef.current!).single();
                 if (data && data.current_status !== 'on_call' && data.current_status !== 'dialing') {
-                    handleDatabaseStatusChange(data.current_status);
+                    handleDatabaseStatusChange(data.current_status, data.auto_dialer_status);
                 }
             }, 3000);
         }
@@ -72,11 +88,21 @@ export function GlobalAutoDialer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [countdown, dialState]);
 
-    const handleDatabaseStatusChange = (dbStatus: string) => {
+    const handleDatabaseStatusChange = (dbStatus: string, autoDialerStatus: string) => {
+        if (!tenantEnabled) return;
+
+        // 🔴 CRITICAL NEW LOGIC: Intercept if Admin paused the dialer!
+        if (autoDialerStatus === 'paused' && dbStatus !== 'on_call') {
+            changeState('paused');
+            setIsVisible(true); // Keep it visible so the agent knows it was paused by admin
+            if (timerRef.current) clearInterval(timerRef.current);
+            return;
+        }
+
         const normalizedStatus = (dbStatus === 'ready' || dbStatus === 'active') ? 'active' : dbStatus;
 
         if (normalizedStatus === 'active') {
-            if (['offline', 'wrap_up', 'empty', 'idle', 'on_call'].includes(stateLock.current)) {
+            if (['offline', 'wrap_up', 'empty', 'idle', 'on_call', 'paused'].includes(stateLock.current)) {
                 changeState('idle');
                 setIsVisible(true);
                 executeAutoDial(); 
@@ -112,16 +138,13 @@ export function GlobalAutoDialer() {
 
     const executeAutoDial = async () => {
         const uid = userIdRef.current
-        if (!uid || stateLock.current === 'dialing' || stateLock.current === 'on_call') return;
+        if (!uid || stateLock.current === 'dialing' || stateLock.current === 'on_call' || stateLock.current === 'paused') return;
         
         changeState('dialing');
 
         try {
             let nextLead = null;
-
-            // 💡 Helper: The "Midnight" timestamp to prevent same-day repeat calls
-            const startOfToday = new Date();
-            startOfToday.setHours(0, 0, 0, 0);
+            const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
             const todayISO = startOfToday.toISOString();
 
             const sortLeads = (leads: any[], dateField: string = 'created_at') => {
@@ -134,11 +157,9 @@ export function GlobalAutoDialer() {
                 });
             };
 
-            // 🪣 BUCKET 1: Own New Leads
             const { data: ownNew } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['New Lead', 'new']).limit(50);
             if (ownNew && ownNew.length > 0) nextLead = sortLeads(ownNew, 'created_at')[0];
 
-            // 🪣 BUCKET 2: Steal Leads (Unassigned OR Agents with > 5 leads)
             if (!nextLead) {
                 const { data: unassignedNew } = await supabase.from('leads').select('*').is('assigned_to', null).in('status', ['New Lead', 'new']).limit(50);
                 if (unassignedNew && unassignedNew.length > 0) {
@@ -150,7 +171,6 @@ export function GlobalAutoDialer() {
                     if (otherAgentsLeads && otherAgentsLeads.length > 0) {
                         const counts: Record<string, number> = {};
                         otherAgentsLeads.forEach(l => { counts[l.assigned_to] = (counts[l.assigned_to] || 0) + 1; });
-                        
                         const overloadedAgent = Object.keys(counts).find(aId => counts[aId] > 5);
                         if (overloadedAgent) {
                             const stealableLeads = otherAgentsLeads.filter(l => l.assigned_to === overloadedAgent);
@@ -161,80 +181,44 @@ export function GlobalAutoDialer() {
                 }
             }
 
-            // 🪣 BUCKET 3: Standard Active Queue (Follow Ups) - 🔥 NO SAME DAY CALLS
             if (!nextLead) {
-                const { data: queueLeads } = await supabase.from('leads')
-                    .select('*')
-                    .eq('assigned_to', uid)
-                    .in('status', ['Follow Up', 'Contacted', 'follow_up'])
-                    .lt('last_contacted', todayISO) // Only grab leads contacted BEFORE today
-                    .limit(50);
+                const { data: queueLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Follow Up', 'Contacted', 'follow_up']).lt('last_contacted', todayISO).limit(50);
                 if (queueLeads && queueLeads.length > 0) nextLead = sortLeads(queueLeads, 'last_contacted')[0];
             }
 
-            // 🪣 BUCKET 4: Not Reachable (NR) Leads - MAX 4 ATTEMPTS PER DAY
             if (!nextLead) {
                 const { data: nrLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['nr', 'Not Reachable']).limit(50);
-                
                 if (nrLeads && nrLeads.length > 0) {
                     const leadIds = nrLeads.map(l => l.id);
-
-                    const { data: todayLogs } = await supabase
-                        .from('call_logs')
-                        .select('lead_id')
-                        .in('lead_id', leadIds)
-                        .gte('created_at', todayISO);
-
+                    const { data: todayLogs } = await supabase.from('call_logs').select('lead_id').in('lead_id', leadIds).gte('created_at', todayISO);
                     const attemptCounts: Record<string, number> = {};
-                    if (todayLogs) {
-                        todayLogs.forEach(log => {
-                            attemptCounts[log.lead_id] = (attemptCounts[log.lead_id] || 0) + 1;
-                        });
-                    }
-
+                    if (todayLogs) { todayLogs.forEach(log => { attemptCounts[log.lead_id] = (attemptCounts[log.lead_id] || 0) + 1; }); }
                     const callableNrLeads = nrLeads.filter(l => (attemptCounts[l.id] || 0) < 4);
-
-                    if (callableNrLeads.length > 0) {
-                        nextLead = sortLeads(callableNrLeads, 'last_contacted')[0];
-                    }
+                    if (callableNrLeads.length > 0) nextLead = sortLeads(callableNrLeads, 'last_contacted')[0];
                 }
             }
 
-            // 🪣 BUCKET 5: Interested (> 24 Hrs old)
             if (!nextLead) {
                 const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-                const { data: intLeads } = await supabase.from('leads')
-                    .select('*')
-                    .eq('assigned_to', uid)
-                    .in('status', ['Interested', 'interested'])
-                    .lt('last_contacted', twentyFourHoursAgo)
-                    .limit(50);
+                const { data: intLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Interested', 'interested']).lt('last_contacted', twentyFourHoursAgo).limit(50);
                 if (intLeads && intLeads.length > 0) nextLead = sortLeads(intLeads, 'last_contacted')[0];
             }
 
-            // 🪣 BUCKET 6: Not Interested - 🔥 NO SAME DAY CALLS
             if (!nextLead) {
-                const { data: notIntLeads } = await supabase.from('leads')
-                    .select('*')
-                    .eq('assigned_to', uid)
-                    .in('status', ['Not Interested', 'Not_Interested', 'recycle_pool'])
-                    .lt('last_contacted', todayISO) // Only grab leads contacted BEFORE today
-                    .limit(50);
+                const { data: notIntLeads } = await supabase.from('leads').select('*').eq('assigned_to', uid).in('status', ['Not Interested', 'Not_Interested', 'recycle_pool']).lt('last_contacted', todayISO).limit(50);
                 if (notIntLeads && notIntLeads.length > 0) nextLead = sortLeads(notIntLeads, 'last_contacted')[0];
             }
 
-            // 🚨 IF ALL BUCKETS ARE EMPTY
             if (!nextLead) {
                 changeState('empty');
                 setCurrentCustomer(null);
                 setTimeout(async () => {
-                    const { data } = await supabase.from('users').select('current_status').eq('id', uid).single()
-                    if (data?.current_status === 'active' || data?.current_status === 'ready') executeAutoDial()
+                    const { data } = await supabase.from('users').select('current_status, auto_dialer_status').eq('id', uid).single()
+                    if (data?.auto_dialer_status !== 'paused' && (data?.current_status === 'active' || data?.current_status === 'ready')) executeAutoDial()
                 }, 10000)
                 return
             }
 
-            // 🚀 TRIGGER THE CALL
             setCurrentCustomer(nextLead.name);
             const res = await initiateC2CCall(nextLead.id, nextLead.phone);
 
@@ -252,16 +236,17 @@ export function GlobalAutoDialer() {
         }
     }
 
-    if (!isVisible) return null;
+    if (!isVisible || !tenantEnabled) return null;
 
     return (
-        <div className="fixed bottom-6 left-6 z-50 bg-white border-2 border-emerald-500 rounded-lg shadow-2xl p-4 w-80 animate-in slide-in-from-bottom-5">
+        <div className={`fixed bottom-6 left-6 z-50 bg-white border-2 rounded-lg shadow-2xl p-4 w-80 animate-in slide-in-from-bottom-5 ${dialState === 'paused' ? 'border-amber-500' : 'border-emerald-500'}`}>
             <div className="flex items-start gap-4">
                 <div className="mt-1">
                     {dialState === 'dialing' && <Loader2 className="h-6 w-6 text-emerald-600 animate-spin" />}
                     {dialState === 'on_call' && <PhoneForwarded className="h-6 w-6 text-emerald-600 animate-pulse" />}
                     {dialState === 'wrap_up' && <Timer className="h-6 w-6 text-amber-500 animate-pulse" />}
                     {dialState === 'empty' && <CheckCircle2 className="h-6 w-6 text-slate-400" />}
+                    {dialState === 'paused' && <PauseCircle className="h-6 w-6 text-amber-600" />}
                 </div>
 
                 <div className="flex-1">
@@ -270,6 +255,7 @@ export function GlobalAutoDialer() {
                         {dialState === 'on_call' && "Call in Progress"}
                         {dialState === 'wrap_up' && "Wrap-Up Mode"}
                         {dialState === 'empty' && "Queue Empty"}
+                        {dialState === 'paused' && "Dialer Paused"}
                     </h4>
                     
                     {currentCustomer && (dialState === 'dialing' || dialState === 'on_call') && (
@@ -279,11 +265,12 @@ export function GlobalAutoDialer() {
                         </div>
                     )}
 
-                    <p className="text-xs text-slate-500 font-medium mt-1">
+                    <p className={`text-xs font-medium mt-1 ${dialState === 'paused' ? 'text-amber-600' : 'text-slate-500'}`}>
                         {dialState === 'wrap_up' && `Next call starts in ${countdown}s...`}
                         {dialState === 'on_call' && "Waiting for hangup..."}
                         {dialState === 'dialing' && "Please answer your phone."}
                         {dialState === 'empty' && "Auto-polling for leads."}
+                        {dialState === 'paused' && "Admin has paused your dialer."}
                     </p>
                 </div>
             </div>
