@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { 
   Building, ChevronDown, ChevronUp, ArrowUpRight, 
-  Copy, PhoneMissed, MessageSquare 
+  Copy, PhoneMissed, MessageSquare, Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,9 @@ import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { toast } from "sonner"
+
+// Import the Server Action for C2C
+import { initiateC2CCall } from "@/app/actions/c2c-dialer" 
 
 interface Lead {
   id: string
@@ -60,10 +63,10 @@ export function TelecallerLeadsTable({
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
+  const [isDialingC2C, setIsDialingC2C] = useState<string | null>(null) // Tracks which lead is currently connecting
 
   // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
-    // BUG FIX: Wrapped router.push in startTransition safely
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
       if (sortBy === field) {
@@ -84,10 +87,40 @@ export function TelecallerLeadsTable({
   }
 
   // --- 2. ACTIONS ---
-  const handleCallInitiated = (lead: Lead) => {
+  
+  // Standard Call (tel: link)
+  const handleStandardCallInitiated = (lead: Lead) => {
     setSelectedLead(lead)
     setIsStatusDialogOpen(true)
     setIsCallInitiated(true)
+  }
+
+  // C2C Cloud Call
+  const handleC2CCallInitiated = async (leadId: string, customerPhone: string) => {
+      const lead = leads.find(l => l.id === leadId);
+      if (!lead) return;
+
+      setIsDialingC2C(leadId); // Show loading spinner on row
+      
+      try {
+          toast.info("Initiating cloud call...", { description: "Please wait for your phone to ring." });
+          
+          const result = await initiateC2CCall(leadId, customerPhone);
+          
+          if (result.success) {
+              toast.success(result.message);
+              // Open the status popup immediately since the call is connecting!
+              setSelectedLead(lead);
+              setIsCallInitiated(true);
+              setIsStatusDialogOpen(true);
+          } else {
+              toast.error(result.error || "Failed to initiate call");
+          }
+      } catch (error: any) {
+          toast.error("Call failed", { description: error.message });
+      } finally {
+          setIsDialingC2C(null);
+      }
   }
 
   const handleCallLogged = (callLogId: string) => {
@@ -187,7 +220,7 @@ export function TelecallerLeadsTable({
           <Table>
             <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <TableRow>
-                <TableHead className="w-[120px]">Contact</TableHead>
+                <TableHead className="w-[300px]">Contact Options</TableHead>
                 <TableHead className="w-[200px] md:w-[250px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('name')}>
                     <div className="flex items-center">Name <SortIcon field="name"/></div>
                 </TableHead>
@@ -204,37 +237,50 @@ export function TelecallerLeadsTable({
             <TableBody>
               {leads.map((lead) => {
                 const isHighPriority = lead.priority === 'high';
+                const isDialing = isDialingC2C === lead.id;
                 
                 return (
                   <TableRow key={lead.id} className={cn("group transition-colors hover:bg-slate-50", isHighPriority ? "border-l-4 border-l-red-500" : "")}>
                     <TableCell>
-                        <div className="flex items-center gap-1">
-                            <QuickActions 
-                                phone={lead.phone || ""} 
-                                email={lead.email || ""} 
-                                leadId={lead.id} 
-                                onCallInitiated={() => handleCallInitiated(lead)} 
-                            />
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button onClick={() => copyToClipboard(lead.phone || '')} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                                            <Copy className="h-3.5 w-3.5" />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Copy Number</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <a href={getWhatsAppLink(lead.phone || '', lead.name)} target="_blank" className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors border border-green-200">
-                                            <MessageSquare className="h-3.5 w-3.5" />
-                                        </a>
-                                    </TooltipTrigger>
-                                    <TooltipContent>WhatsApp</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
+                        <div className="flex items-center gap-1.5">
+                            {isDialing ? (
+                                <div className="flex items-center gap-2 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100 text-sm font-medium w-[200px]">
+                                    <Loader2 className="h-4 w-4 animate-spin" /> Connecting...
+                                </div>
+                            ) : (
+                                <QuickActions 
+                                    phone={lead.phone || ""} 
+                                    email={lead.email || ""} 
+                                    leadId={lead.id} 
+                                    onCallInitiated={() => handleStandardCallInitiated(lead)} 
+                                    onC2CCallInitiated={handleC2CCallInitiated}
+                                />
+                            )}
+
+                            {!isDialing && (
+                              <>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button onClick={() => copyToClipboard(lead.phone || '')} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+                                                <Copy className="h-3.5 w-3.5" />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Copy Number</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <a href={getWhatsAppLink(lead.phone || '', lead.name)} target="_blank" className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors border border-green-200">
+                                                <MessageSquare className="h-3.5 w-3.5" />
+                                            </a>
+                                        </TooltipTrigger>
+                                        <TooltipContent>WhatsApp</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                              </>
+                            )}
                         </div>
                     </TableCell>
                     <TableCell>
