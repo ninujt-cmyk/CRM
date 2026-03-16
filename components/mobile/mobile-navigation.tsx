@@ -66,7 +66,7 @@ export function MobileNavigation({ userRole = "telecaller", pendingCount = 0 }: 
               <div className="flex flex-col h-full">
                 {/* Header */}
                 <div className="p-6 border-b border-border">
-                  <h2 className="text-lg font-semibold">Bankscart CRM</h2>
+                  <h2 className="text-lg font-semibold">Hanva CRM</h2>
                   <p className="text-sm text-muted-foreground capitalize">{userRole}</p>
                 </div>
 
@@ -113,7 +113,7 @@ export function MobileNavigation({ userRole = "telecaller", pendingCount = 0 }: 
             </SheetContent>
           </Sheet>
 
-          <h1 className="text-lg font-semibold">Bankscart CRM</h1>
+          <h1 className="text-lg font-semibold">Hanva CRM</h1>
 
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="p-2">
