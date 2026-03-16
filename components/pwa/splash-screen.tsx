@@ -140,7 +140,7 @@ export function SplashScreen({
           {/* Typography */}
           <div className="space-y-2 animate-in slide-in-from-bottom-4 fade-in duration-700 delay-300 fill-mode-both pt-2">
             <h1 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200 tracking-tight flex items-center justify-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-400" /> Bankscart CRM
+              <TrendingUp className="h-4 w-4 text-blue-400" /> Hanva CRM
             </h1>
           </div>
 
