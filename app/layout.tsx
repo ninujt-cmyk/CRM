@@ -25,13 +25,13 @@ const geistMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Bankscart CRM",
+  title: "Hanva CRM",
   description: "Professional telecaller CRM system for lead management",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Bankscart CRM",
+    title: "Hanva CRM",
   },
   formatDetection: {
     telephone: false,
@@ -85,10 +85,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
       <head>
-        <meta name="application-name" content="Bankscart CRM" />
+        <meta name="application-name" content="Hanva CRM" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Bankscart CRM" />
+        <meta name="apple-mobile-web-app-title" content="Hanva CRM" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="msapplication-config" content="/browserconfig.xml" />
