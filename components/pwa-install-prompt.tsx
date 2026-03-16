@@ -100,7 +100,7 @@ export function PWAInstallPrompt() {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2">
               <Download className="h-5 w-5 text-primary" />
-              <CardTitle className="text-lg">Install Bankscart CRM</CardTitle>
+              <CardTitle className="text-lg">Install Hanva CRM</CardTitle>
             </div>
             <Button variant="ghost" size="sm" onClick={handleDismiss} className="h-6 w-6 p-0">
               <X className="h-4 w-4" />
