@@ -24,7 +24,7 @@ export interface OfflineCallLog {
 
 class OfflineDB {
   private db: IDBDatabase | null = null
-  private readonly dbName = "BankscartCRM"
+  private readonly dbName = "HanvaCRM"
   private readonly version = 3 // Bumped version again for new approach
 
   async init(): Promise<void> {
