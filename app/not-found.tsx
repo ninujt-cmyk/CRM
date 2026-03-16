@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Home, ArrowLeft } from "lucide-react"
 
 export const metadata: Metadata = {
-  title: "Page Not Found - Bankscart CRM",
+  title: "Page Not Found - Hanva CRM",
   description: "The page you're looking for doesn't exist.",
 }
 
