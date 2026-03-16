@@ -87,7 +87,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col gap-6">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Bankscart CRM</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Hanva CRM</h1>
             <p className="text-gray-600">Professional Lead Management System</p>
           </div>
           <Card className="shadow-lg">
