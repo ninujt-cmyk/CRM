@@ -19,7 +19,7 @@ const geistMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Bankscart CRM",
+  title: "Hanva CRM",
   description: "Professional telecaller CRM system for lead management",
 }
 
