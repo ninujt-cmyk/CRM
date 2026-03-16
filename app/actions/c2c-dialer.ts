@@ -22,7 +22,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
 
     if (agentError || !agent?.phone) throw new Error("Agent phone number not found.");
 
-    if (!['ready', 'active', 'wrap_up', 'offline'].includes(agent.current_status)) {
+    if (!['ready', 'active', 'wrap_up', 'offline', 'on_call'].includes(agent.current_status)) {
         throw new Error(`You must be 'Ready' to dial. Current status: ${agent.current_status}`);
     }
 
