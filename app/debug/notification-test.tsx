@@ -20,7 +20,7 @@ export default function NotificationTest() {
   const testBrowserNotification = () => {
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("Test Notification", {
-        body: "This is a test notification from Bankscart CRM",
+        body: "This is a test notification from Hanva CRM",
         icon: "/icons/icon-192x192.png"
       })
     } else {
