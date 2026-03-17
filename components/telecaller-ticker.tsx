@@ -54,7 +54,7 @@ export function TelecallerTicker() {
           maximumFractionDigits: 0
         }).format(pending)
         
-        setMessage(`Hey ${name}! 🎯 ${formattedPending} more to go to hit your Bankscart target. Keep the momentum going—you can do it! 💥`)
+        setMessage(`Hey ${name}! 🎯 ${formattedPending} more to go to hit your Hanva target. Keep the momentum going—you can do it! 💥`)
       }
     }
 
