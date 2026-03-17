@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { BarChart3, Calendar, TrendingUp, Users, TrendingDown, ArrowUpRight, Trophy, AlertCircle, CheckCircle2 } from "lucide-react"
+import { BarChart3, Calendar, TrendingUp, Users, TrendingDown, ArrowUpRight, ArrowDownRight, Trophy, AlertCircle, CheckCircle2 } from "lucide-react"
 import { ReportsFilters } from "@/components/reports-filters"
 import { PerformanceChart } from "@/components/performance-chart"
 import { LeadConversionChart } from "@/components/lead-conversion-chart"
