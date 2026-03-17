@@ -187,7 +187,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         
         {!isCollapsed && (
           <div className="flex flex-col overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
-            <span className="font-extrabold text-slate-800 text-xl tracking-tight">BanksCart</span>
+            <span className="font-extrabold text-slate-800 text-xl tracking-tight">Hanva</span>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">Admin Panel</span>
           </div>
         )}
@@ -233,7 +233,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
             </div>
             <div className="flex flex-col overflow-hidden">
               <span className="text-sm font-bold text-slate-800 truncate">Admin User</span>
-              <span className="text-[10px] text-slate-500 truncate font-medium">admin@bankscart.com</span>
+              <span className="text-[10px] text-slate-500 truncate font-medium">admin@hanva.com</span>
             </div>
           </div>
         )}
