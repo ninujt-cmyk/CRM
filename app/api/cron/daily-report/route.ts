@@ -223,7 +223,7 @@ export async function GET(request: Request) {
         
         for (const admin of admins) {
           await resend.emails.send({
-            from: 'Bankscart CRM <reports@crm.bankscart.com>',
+            from: 'Hanva CRM <reports@crm.hanva.in>',
             to: admin.email,
             subject: `📊 Workspace Daily Report - ${dateStr}`,
             html: adminHTML
@@ -343,7 +343,7 @@ async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPer
   `
 
   await resend.emails.send({
-    from: 'Bankscart CRM <reports@crm.bankscart.com>', 
+    from: 'Hanva CRM <reports@crm.hanva.in>', 
     to: recipient.email,
     subject: `🎯 Performance Coach - ${dateStr}`,
     html: html
