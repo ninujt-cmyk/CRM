@@ -20,13 +20,24 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return;
 
-      // Because of RLS, fetching from 'organizations' will ONLY return the single org this user belongs to!
-      const { data } = await supabase
-        .from("organizations")
-        .select("id, name, plan")
-        .single()
+      // 1. Securely get the user's specific tenant_id
+      const { data: profile } = await supabase
+        .from('users')
+        .select('tenant_id')
+        .eq('id', user.id)
+        .single();
 
-      if (data) setOrg(data)
+      if (profile?.tenant_id) {
+         // 2. Fetch only THAT specific organization (Prevents 406 Error for Super Admins)
+         const { data } = await supabase
+           .from("organizations")
+           .select("id, name, plan")
+           .eq('id', profile.tenant_id)
+           .limit(1)
+           .maybeSingle()
+
+         if (data) setOrg(data)
+      }
     }
     
     fetchTenant()
