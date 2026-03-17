@@ -179,14 +179,14 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       {/* Branding - 3D Logo */}
       <div className={cn("h-24 flex items-center border-b border-slate-100/50 px-6 transition-all duration-500", isCollapsed ? "justify-center" : "justify-start gap-4")}>
         <div className="relative group cursor-default">
-            {/* Logo Container */}
-            <div className="h-12 w-12 bg-gradient-to-tr from-blue-600 to-violet-600 rounded-2xl flex items-center justify-center shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] flex-shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-blue-600/50 overflow-hidden">
+            {/* Logo Container - Made Circular and White */}
+            <div className="h-12 w-12 bg-white border border-slate-100/50 rounded-full flex items-center justify-center shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] flex-shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-blue-600/50 overflow-hidden">
               <Image 
                 src="/icons/icon-32x32.jpg" 
                 alt="Logo"
                 width={32}
                 height={32}
-                className="object-contain"
+                className="object-contain rounded-full"
               />
             </div>
             {/* Ambient Glow */}
