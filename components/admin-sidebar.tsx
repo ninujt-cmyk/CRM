@@ -184,8 +184,8 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
               <Image 
                 src="/icons/icon-64x64.jpg" 
                 alt="Logo"
-                width={32}
-                height={32}
+                width={64}
+                height={64}
                 className="object-contain rounded-full"
               />
             </div>
