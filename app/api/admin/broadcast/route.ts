@@ -11,7 +11,7 @@ const supabase = createClient(
 // Init WebPush (Optional: for device alerts)
 if (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     webpush.setVapidDetails(
-      'mailto:support@bankscart.com',
+      'mailto:support@hanva.in',
       process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     )
