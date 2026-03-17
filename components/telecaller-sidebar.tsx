@@ -196,10 +196,10 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
             {/* Logo Container - Made Circular and White */}
             <div className="h-12 w-12 bg-white border border-slate-100/50 rounded-full flex items-center justify-center shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] flex-shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-blue-600/50 overflow-hidden">
               <Image 
-                src="/icons/icon-32x32.jpg" 
+                src="/icons/icon-64x64.jpg" 
                 alt="Logo"
-                width={32}
-                height={32}
+                width={64}
+                height={64}
                 className="object-contain rounded-full"
               />
             </div>
