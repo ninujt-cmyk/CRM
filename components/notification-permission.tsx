@@ -24,7 +24,7 @@ export function NotificationPermission() {
         if (permission === "granted") {
           console.log("Notification permission granted");
           // Create a welcome notification
-          new Notification("Welcome to Bankscart CRM", {
+          new Notification("Welcome to Hanva CRM", {
             body: "You'll receive notifications for follow-ups and reminders",
             icon: "/icon-192.png",
             tag: "welcome"
