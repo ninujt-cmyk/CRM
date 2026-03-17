@@ -200,7 +200,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         
         {!isCollapsed && (
           <div className="flex flex-col overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
-            <span className="font-extrabold text-slate-800 text-xl tracking-tight">BanksCart</span>
+            <span className="font-extrabold text-slate-800 text-xl tracking-tight">Hanva</span>
             <span className="text-[10px] text-blue-600 font-bold uppercase tracking-[0.2em]">Telecaller Panel</span>
           </div>
         )}
