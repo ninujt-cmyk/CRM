@@ -20,16 +20,16 @@ export function LiveScriptCard({ leadName, loanType, status, agentName }: LiveSc
   let scriptContent = "";
 
   if (status === 'New Lead' || status === 'new') {
-      scriptContent = `Hi, am I speaking with ${firstName}? \n\nMy name is ${agentName} calling from the BanksCart approvals desk. I'm calling because you recently checked your eligibility for a ${type} loan. \n\nI have your file open right here, and I just need 60 seconds to verify two quick details so we can process your instant approval. Is now a good time?`;
+      scriptContent = `Hi, am I speaking with ${firstName}? \n\nMy name is ${agentName} calling from the Hanva approvals desk. I'm calling because you recently checked your eligibility for a ${type} loan. \n\nI have your file open right here, and I just need 60 seconds to verify two quick details so we can process your instant approval. Is now a good time?`;
   } 
   else if (status === 'Follow Up') {
-      scriptContent = `Hi ${firstName}, this is ${agentName} from BanksCart returning your call. \n\nI’m following up on your ${type} loan application. We are holding a special interest rate for you, but it expires soon. Do you have any quick questions I can clear up for you right now?`;
+      scriptContent = `Hi ${firstName}, this is ${agentName} from Hanva returning your call. \n\nI’m following up on your ${type} loan application. We are holding a special interest rate for you, but it expires soon. Do you have any quick questions I can clear up for you right now?`;
   }
   else if (status === 'Documents_Sent') {
-      scriptContent = `Hi ${firstName}, ${agentName} here from BanksCart. \n\nGreat news—your initial approval for the ${type} loan is secure. To get the funds disbursed to your account, we just need you to upload your PAN and Aadhar card. I sent you a WhatsApp link earlier. Were you able to open it?`;
+      scriptContent = `Hi ${firstName}, ${agentName} here from Hanva. \n\nGreat news—your initial approval for the ${type} loan is secure. To get the funds disbursed to your account, we just need you to upload your PAN and Aadhar card. I sent you a WhatsApp link earlier. Were you able to open it?`;
   }
   else {
-      scriptContent = `Hi ${firstName}, this is ${agentName} from BanksCart regarding your ${type} loan application. How can I assist you today?`;
+      scriptContent = `Hi ${firstName}, this is ${agentName} from Hanva regarding your ${type} loan application. How can I assist you today?`;
   }
 
   return (
