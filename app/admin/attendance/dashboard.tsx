@@ -343,51 +343,56 @@ export function AdminAttendanceDashboard() {
   
   // -- HOLIDAYS --
   const addCustomHoliday = async () => {
-    if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
-    const { data, error } = await supabase.from('holidays').insert([{
-      date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
-    }]).select().single();
-    
-    if (error) return toast.error("Failed to add holiday");
-    setHolidays([...holidays, data]);
-    setNewHolidayName(""); setNewHolidayDate("");
-    toast.success("Holiday added!");
-  };
+  if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
+  const { data, error } = await supabase.from('holidays').insert([{
+    date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
+  }]).select().single();
   
-  const toggleWorkingDay = async (holiday: Holiday) => {
-    const { error } = await supabase.from('holidays').update({ is_working_day: !holiday.is_working_day }).eq('id', holiday.id);
-    if (!error) {
-      setHolidays(holidays.map(h => h.id === holiday.id ? { ...h, is_working_day: !h.is_working_day } : h));
-      toast.success("Holiday updated");
-    }
-  };
-  
-  const fetchPublicHolidays = async (year: number) => {
+  if (error) return toast.error("Failed to add holiday");
+  setHolidays([...holidays, data]);
+  setNewHolidayName(""); setNewHolidayDate("");
+  toast.success("Holiday added!");
+};
+
+const toggleWorkingDay = async (holiday: Holiday) => {
+  const { error } = await supabase.from('holidays').update({ is_working_day: !holiday.is_working_day }).eq('id', holiday.id);
+  if (!error) {
+    setHolidays(holidays.map(h => h.id === holiday.id ? { ...h, is_working_day: !h.is_working_day } : h));
+    toast.success("Holiday updated");
+  }
+};
+
+const fetchPublicHolidays = async (year: number) => {
   setIsFetchingHolidays(true);
   try {
-    // Standard Indian Public Holidays (You can add/remove from this list)
-    // Note: Festival dates like Diwali or Holi change yearly, so you may need to update those manually or use the "Add Holiday" UI.
-    const indianHolidays = [
-      { date: `${year}-01-01`, name: "New Year's Day" },
-      { date: `${year}-01-26`, name: "Republic Day" },
-      { date: `${year}-05-01`, name: "Labour Day" },
-      { date: `${year}-08-15`, name: "Independence Day" },
-      { date: `${year}-10-02`, name: "Gandhi Jayanti" },
-      { date: `${year}-12-25`, name: "Christmas Day" }
-    ];
+    const API_KEY = "z2BG2S5Bso9KhBX3uWHy3WXAkPWdaSev";
+    const res = await fetch(`https://calendarific.com/api/v2/holidays?api_key=${API_KEY}&country=IN&year=${year}`);
+    const data = await res.json();
 
-    const formattedHolidays = indianHolidays.map((h) => ({
-      date: h.date, 
+    if (data.meta.code !== 200) {
+      throw new Error(data.meta.error_detail || "API fetch failed");
+    }
+
+    // Calendarific returns a lot of observances. Filter to only keep major holidays.
+    const holidaysList = data.response.holidays;
+    const majorHolidays = holidaysList.filter((h: any) => 
+      h.type.includes("National holiday") || 
+      h.type.includes("Gazetted Holiday") ||
+      h.type.includes("Restricted Holiday") // Remove this line if you don't want restricted holidays
+    );
+
+    const formattedHolidays = majorHolidays.map((h: any) => ({
+      date: h.date.iso.split('T')[0], // Extracts just the YYYY-MM-DD
       name: h.name, 
       type: 'public', 
       is_working_day: false
     }));
 
-    // Upsert into Supabase (ignores duplicates if you set up the unique constraint)
+    // Upsert into Supabase (ignores exact date duplicates)
     const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
     if (error) throw error;
     
-    toast.success(`Imported standard Indian public holidays for ${year}`);
+    toast.success(`Imported ${formattedHolidays.length} public holidays for ${year}`);
     loadData(); // Refresh dashboard
   } catch (e) {
     console.error(e);
