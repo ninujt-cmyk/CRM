@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, isSameDay, isAfter, eachDayOfInterval, subDays, getDay, isWeekend } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, isSameDay, isAfter, eachDayOfInterval, subDays, getDay, getDate, isWeekend } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
@@ -109,7 +109,6 @@ export function AdminAttendanceDashboard() {
   const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
   
   const [loading, setLoading] = useState(true);
-  const [isExporting, setIsExporting] = useState(false);
   
   // Filters & Config
   const [searchTerm, setSearchTerm] = useState("");
@@ -130,6 +129,7 @@ export function AdminAttendanceDashboard() {
   const [newHolidayName, setNewHolidayName] = useState("");
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [isFetchingHolidays, setIsFetchingHolidays] = useState(false);
+  const [enableSecondSaturdayHoliday, setEnableSecondSaturdayHoliday] = useState(false);
 
   // Modals & User Data
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -149,7 +149,7 @@ export function AdminAttendanceDashboard() {
   const [missingRecords, setMissingRecords] = useState<AttendanceRecord[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
 
-  // --- 1. FETCH OFFICES ON MOUNT ---
+  // --- 1. FETCH OFFICES & LOCAL SETTINGS ON MOUNT ---
   useEffect(() => {
     const fetchOffices = async () => {
       const { data, error } = await supabase.from('office_locations').select('*');
@@ -160,6 +160,9 @@ export function AdminAttendanceDashboard() {
       }
     };
     fetchOffices();
+
+    const savedSecondSat = localStorage.getItem('enableSecondSaturdayHoliday');
+    if (savedSecondSat) setEnableSecondSaturdayHoliday(JSON.parse(savedSecondSat));
   }, []);
 
   // --- REAL-TIME SUBSCRIPTION ---
@@ -196,7 +199,7 @@ export function AdminAttendanceDashboard() {
           .order("date", { ascending: false }),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", feedDateStr),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", yesterdayStr).not("check_in", "is", null).is("check_out", null),
-        supabase.from("holidays").select("*").gte("date", startDateStr).lte("date", endDateStr)
+        supabase.from("holidays").select("*").gte("date", format(startOfMonth(dateRange.start), "yyyy-MM-dd")).lte("date", format(endOfMonth(dateRange.end), "yyyy-MM-dd"))
       ]);
 
       if (usersRes.error) throw usersRes.error;
@@ -277,6 +280,32 @@ export function AdminAttendanceDashboard() {
     return Math.max(0, checkInMinutes - thresholdMinutes);
   };
 
+  // HOLIDAY CHECKER LOGIC
+  const checkIfHoliday = (dateObj: Date, dateStr: string) => {
+    // 1. Check Explicit Database Holidays (Takes priority, allows overrides)
+    const dbHoliday = holidays.find(h => h.date === dateStr);
+    if (dbHoliday) {
+      if (!dbHoliday.is_working_day) return { isHoliday: true, name: dbHoliday.name };
+      // If admin explicitly marked it as a working day, override weekends!
+      if (dbHoliday.is_working_day) return { isHoliday: false, name: "" }; 
+    }
+
+    // 2. Check Sundays
+    if (getDay(dateObj) === 0) {
+      return { isHoliday: true, name: "Sunday" };
+    }
+
+    // 3. Check Second Saturdays
+    if (enableSecondSaturdayHoliday && getDay(dateObj) === 6) {
+      const dateNum = getDate(dateObj);
+      if (dateNum >= 8 && dateNum <= 14) {
+        return { isHoliday: true, name: "Second Saturday" };
+      }
+    }
+
+    return { isHoliday: false, name: "" };
+  };
+
   const getLocationType = (data: any) => {
     if (!data) return { type: 'unknown', name: 'Unknown', distance: 0 };
     try {
@@ -342,65 +371,79 @@ export function AdminAttendanceDashboard() {
   // --- ACTIONS ---
   
   // -- HOLIDAYS --
+  const handleSecondSatToggle = (checked: boolean) => {
+    setEnableSecondSaturdayHoliday(checked);
+    localStorage.setItem('enableSecondSaturdayHoliday', JSON.stringify(checked));
+    toast.success(checked ? "Second Saturday Holiday Enabled" : "Second Saturday Holiday Disabled");
+  };
+
   const addCustomHoliday = async () => {
-  if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
-  const { data, error } = await supabase.from('holidays').insert([{
-    date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
-  }]).select().single();
-  
-  if (error) return toast.error("Failed to add holiday");
-  setHolidays([...holidays, data]);
-  setNewHolidayName(""); setNewHolidayDate("");
-  toast.success("Holiday added!");
-};
-
-const toggleWorkingDay = async (holiday: Holiday) => {
-  const { error } = await supabase.from('holidays').update({ is_working_day: !holiday.is_working_day }).eq('id', holiday.id);
-  if (!error) {
-    setHolidays(holidays.map(h => h.id === holiday.id ? { ...h, is_working_day: !h.is_working_day } : h));
-    toast.success("Holiday updated");
-  }
-};
-
-const fetchPublicHolidays = async (year: number) => {
-  setIsFetchingHolidays(true);
-  try {
-    const API_KEY = "z2BG2S5Bso9KhBX3uWHy3WXAkPWdaSev";
-    const res = await fetch(`https://calendarific.com/api/v2/holidays?api_key=${API_KEY}&country=IN&year=${year}`);
-    const data = await res.json();
-
-    if (data.meta.code !== 200) {
-      throw new Error(data.meta.error_detail || "API fetch failed");
-    }
-
-    // Calendarific returns a lot of observances. Filter to only keep major holidays.
-    const holidaysList = data.response.holidays;
-    const majorHolidays = holidaysList.filter((h: any) => 
-      h.type.includes("National holiday") || 
-      h.type.includes("Gazetted Holiday") ||
-      h.type.includes("Restricted Holiday") // Remove this line if you don't want restricted holidays
-    );
-
-    const formattedHolidays = majorHolidays.map((h: any) => ({
-      date: h.date.iso.split('T')[0], // Extracts just the YYYY-MM-DD
-      name: h.name, 
-      type: 'public', 
-      is_working_day: false
-    }));
-
-    // Upsert into Supabase (ignores exact date duplicates)
-    const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
-    if (error) throw error;
+    if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
+    const { data, error } = await supabase.from('holidays').insert([{
+      date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
+    }]).select().single();
     
-    toast.success(`Imported ${formattedHolidays.length} public holidays for ${year}`);
-    loadData(); // Refresh dashboard
-  } catch (e) {
-    console.error(e);
-    toast.error("Failed to sync public holidays");
-  } finally {
-    setIsFetchingHolidays(false);
-  }
-};
+    if (error) return toast.error("Failed to add holiday");
+    setHolidays([...holidays, data]);
+    setNewHolidayName(""); setNewHolidayDate("");
+    toast.success("Holiday added!");
+  };
+  
+  const toggleWorkingDay = async (holiday: Holiday) => {
+    const { error } = await supabase.from('holidays').update({ is_working_day: !holiday.is_working_day }).eq('id', holiday.id);
+    if (!error) {
+      setHolidays(holidays.map(h => h.id === holiday.id ? { ...h, is_working_day: !h.is_working_day } : h));
+      toast.success("Holiday updated");
+    }
+  };
+
+  const deleteHoliday = async (id: string) => {
+    const { error } = await supabase.from('holidays').delete().eq('id', id);
+    if (!error) {
+      setHolidays(holidays.filter(h => h.id !== id));
+      toast.success("Holiday removed");
+    } else {
+      toast.error("Failed to delete holiday");
+    }
+  };
+  
+  const fetchPublicHolidays = async (year: number) => {
+    setIsFetchingHolidays(true);
+    try {
+      const API_KEY = "z2BG2S5Bso9KhBX3uWHy3WXAkPWdaSev";
+      const res = await fetch(`https://calendarific.com/api/v2/holidays?api_key=${API_KEY}&country=IN&year=${year}`);
+      const data = await res.json();
+  
+      if (data.meta.code !== 200) {
+        throw new Error(data.meta.error_detail || "API fetch failed");
+      }
+  
+      const holidaysList = data.response.holidays;
+      const majorHolidays = holidaysList.filter((h: any) => 
+        h.type.includes("National holiday") || 
+        h.type.includes("Gazetted Holiday") ||
+        h.type.includes("Restricted Holiday")
+      );
+  
+      const formattedHolidays = majorHolidays.map((h: any) => ({
+        date: h.date.iso.split('T')[0], 
+        name: h.name, 
+        type: 'public', 
+        is_working_day: false
+      }));
+  
+      const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
+      if (error) throw error;
+      
+      toast.success(`Imported ${formattedHolidays.length} public holidays for ${year}`);
+      loadData(); 
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to sync public holidays");
+    } finally {
+      setIsFetchingHolidays(false);
+    }
+  };
 
   // -- OFFICES --
   const addOffice = async () => {
@@ -520,13 +563,15 @@ const fetchPublicHolidays = async (year: number) => {
       if (view === 'daily') {
         const record = userRecords.find(r => isSameDay(parseISO(r.date), dateRange.start));
         const dayStr = format(dateRange.start, "yyyy-MM-dd");
-        const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
-        const status = record ? record.status : (isHoliday ? 'holiday' : 'absent');
+        
+        const holidayInfo = checkIfHoliday(dateRange.start, dayStr);
+        const status = record ? record.status : (holidayInfo.isHoliday ? 'holiday' : 'absent');
+        
         return matchesSearch && matchesDept && status === statusFilter;
       }
       return matchesSearch && matchesDept;
     });
-  }, [users, searchTerm, departmentFilter, statusFilter, processedData, view, dateRange, holidays]);
+  }, [users, searchTerm, departmentFilter, statusFilter, processedData, view, dateRange, holidays, enableSecondSaturdayHoliday]);
 
   // --- PAGINATION LOGIC ---
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
@@ -543,13 +588,13 @@ const fetchPublicHolidays = async (year: number) => {
     const trend = days.map(day => {
       const dayStr = format(day, "yyyy-MM-dd");
       const records = processedData.filter(r => r.date === dayStr);
-      const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+      const holidayInfo = checkIfHoliday(day, dayStr);
 
       return {
         date: format(day, "MMM dd"),
         present: records.filter(r => r.status === 'present').length,
         late: records.filter(r => r.status === 'late').length,
-        absent: isHol ? 0 : users.length - records.length
+        absent: holidayInfo.isHoliday ? 0 : users.length - records.length
       };
     }).slice(-14);
 
@@ -561,7 +606,7 @@ const fetchPublicHolidays = async (year: number) => {
     const topViolators = Object.entries(lateCounts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count).slice(0, 5);
 
     return { trend, topViolators };
-  }, [processedData, users.length, dateRange, holidays]);
+  }, [processedData, users.length, dateRange, holidays, enableSecondSaturdayHoliday]);
 
   const stats = useMemo(() => {
     if (view === 'monthly') {
@@ -569,15 +614,16 @@ const fetchPublicHolidays = async (year: number) => {
     }
     const dailyRecords = processedData.filter(r => isSameDay(parseISO(r.date), dateRange.start));
     const dayStr = format(dateRange.start, "yyyy-MM-dd");
-    const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
+    const holidayInfo = checkIfHoliday(dateRange.start, dayStr);
     
     return { 
       present: dailyRecords.filter(r => r.status === 'present').length, 
       late: dailyRecords.filter(r => r.status === 'late').length, 
-      absent: isHoliday ? 0 : users.length - dailyRecords.length,
-      isHoliday: !!isHoliday
+      absent: holidayInfo.isHoliday ? 0 : users.length - dailyRecords.length,
+      isHoliday: holidayInfo.isHoliday,
+      holidayName: holidayInfo.name
     };
-  }, [processedData, users.length, view, dateRange, holidays]);
+  }, [processedData, users.length, view, dateRange, holidays, enableSecondSaturdayHoliday]);
 
   const navigate = (dir: 'prev' | 'next') => {
     if (view === 'daily') {
@@ -614,15 +660,16 @@ const fetchPublicHolidays = async (year: number) => {
            const dayStr = format(day, "yyyy-MM-dd");
            const record = userRecords.find(r => r.date === dayStr);
            const isWE = isWeekend(day);
-           const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+           
+           const holidayInfo = checkIfHoliday(day, dayStr);
            
            let color = "bg-slate-100"; // default empty
            if(isWE) color = "bg-slate-50 border-dashed border-slate-200";
-           if(isHol) color = "bg-purple-200"; // Holiday
+           if(holidayInfo.isHoliday) color = "bg-purple-200"; // Holiday priority
            
            if(record?.status === 'present') color = "bg-emerald-500";
            if(record?.status === 'late') color = "bg-yellow-400";
-           if(!record && !isWE && !isHol && isAfter(new Date(), day)) color = "bg-red-200"; // Absent in past
+           if(!record && !isWE && !holidayInfo.isHoliday && isAfter(new Date(), day)) color = "bg-red-200"; // Absent in past
 
            return (
              <TooltipProvider key={dayStr}>
@@ -632,7 +679,7 @@ const fetchPublicHolidays = async (year: number) => {
                  </TooltipTrigger>
                  <TooltipContent className="text-xs">
                     <p className="font-bold">{format(day, "MMM dd")}</p>
-                    <p>{record ? `${record.status} (${record.check_in ? format(parseISO(record.check_in), "HH:mm") : "?"})` : isHol ? isHol.name : isWE ? "Weekend" : "Absent"}</p>
+                    <p>{record ? `${record.status} (${record.check_in ? format(parseISO(record.check_in), "HH:mm") : "?"})` : holidayInfo.isHoliday ? holidayInfo.name : isWE ? "Weekend" : "Absent"}</p>
                  </TooltipContent>
                </Tooltip>
              </TooltipProvider>
@@ -770,8 +817,9 @@ const fetchPublicHolidays = async (year: number) => {
                           if (view === 'daily') {
                             const record = userRecords.find(r => isSameDay(parseISO(r.date), dateRange.start));
                             const dayStr = format(dateRange.start, "yyyy-MM-dd");
-                            const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
-                            const status = record ? record.status : (isHoliday ? 'holiday' : 'absent');
+                            
+                            const holidayInfo = checkIfHoliday(dateRange.start, dayStr);
+                            const status = record ? record.status : (holidayInfo.isHoliday ? 'holiday' : 'absent');
                             
                             const progress = Math.min(100, (Number(record?.total_hours || 0) / 9) * 100);
                             const locationInfo = getLocationType(record?.location_check_in);
@@ -798,8 +846,8 @@ const fetchPublicHolidays = async (year: number) => {
                                       {status === 'late' && record?.check_in && (
                                         <TooltipContent><p>Late by {calculateLateMinutes(record.check_in)} mins</p></TooltipContent>
                                       )}
-                                      {status === 'holiday' && isHoliday && (
-                                        <TooltipContent><p>{isHoliday.name}</p></TooltipContent>
+                                      {status === 'holiday' && holidayInfo.isHoliday && (
+                                        <TooltipContent><p>{holidayInfo.name}</p></TooltipContent>
                                       )}
                                     </Tooltip>
                                   </TooltipProvider>
@@ -955,7 +1003,7 @@ const fetchPublicHolidays = async (year: number) => {
 
       {/* --- SETTINGS DIALOG --- */}
       <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Configuration</DialogTitle>
             <DialogDescription>Manage attendance rules and office locations.</DialogDescription>
@@ -1008,14 +1056,31 @@ const fetchPublicHolidays = async (year: number) => {
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between items-center mb-3">
                 <Label className="text-base">Holiday Management</Label>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={isFetchingHolidays}
-                  onClick={() => fetchPublicHolidays(new Date().getFullYear())}
-                >
-                  <Globe className="h-3 w-3 mr-2"/> Sync Public Holidays
-                </Button>
+                <div className="flex gap-2 items-center">
+                    <Button 
+                    variant="outline" 
+                    size="sm" 
+                    disabled={isFetchingHolidays}
+                    onClick={() => fetchPublicHolidays(new Date().getFullYear())}
+                    >
+                    <Globe className="h-3 w-3 mr-2"/> Sync API
+                    </Button>
+                </div>
+              </div>
+
+              {/* Toggle for Second Saturday */}
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border mb-4">
+                  <div className="space-y-0.5">
+                      <Label className="text-sm">Second Saturday Holiday</Label>
+                      <p className="text-[10px] text-slate-500">Automatically treat the 2nd Saturday of each month as a holiday.</p>
+                  </div>
+                  {/* Custom Tailwind Toggle so you don't need shadcn/switch */}
+                  <div 
+                      className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${enableSecondSaturdayHoliday ? 'bg-blue-600' : 'bg-slate-300'}`}
+                      onClick={() => handleSecondSatToggle(!enableSecondSaturdayHoliday)}
+                  >
+                      <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform ${enableSecondSaturdayHoliday ? 'translate-x-5' : ''}`} />
+                  </div>
               </div>
               
               <div className="space-y-2 mb-4 max-h-[150px] overflow-y-auto border rounded-md p-2 bg-slate-50">
@@ -1027,17 +1092,20 @@ const fetchPublicHolidays = async (year: number) => {
                       </p>
                       <p className="text-[10px] text-slate-500">{format(parseISO(holiday.date), "MMM dd, yyyy")}</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                       <Badge variant={holiday.is_working_day ? "destructive" : "default"}>
                         {holiday.is_working_day ? "Working Day" : "Holiday"}
                       </Badge>
-                      <Button variant="ghost" size="sm" onClick={() => toggleWorkingDay(holiday)}>
+                      <Button variant="ghost" size="sm" className="px-2" onClick={() => toggleWorkingDay(holiday)}>
                         Toggle
+                      </Button>
+                      <Button variant="ghost" size="sm" className="px-2 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => deleteHoliday(holiday.id)}>
+                        <Trash2 className="h-4 w-4"/>
                       </Button>
                     </div>
                   </div>
                 ))}
-                {holidays.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No holidays set for this period.</p>}
+                {holidays.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No custom/API holidays set.</p>}
               </div>
               
               <div className="grid grid-cols-5 gap-2">
@@ -1070,14 +1138,14 @@ const fetchPublicHolidays = async (year: number) => {
              const getDayStatusColor = (day: Date) => {
                 const dayStr = format(day, 'yyyy-MM-dd');
                 const record = userRecords.find(r => r.date === dayStr);
-                const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+                const holidayInfo = checkIfHoliday(day, dayStr);
                 
                 if (record) {
                     if (record.status === 'late') return 'bg-yellow-50 text-yellow-700 border-yellow-200 font-medium';
                     if (record.status === 'present') return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-medium';
                 }
                 
-                if (isHol) return 'bg-purple-50 text-purple-700 border-purple-200';
+                if (holidayInfo.isHoliday) return 'bg-purple-50 text-purple-700 border-purple-200';
                 return 'bg-slate-50 text-slate-400';
              };
 
@@ -1139,7 +1207,7 @@ const fetchPublicHolidays = async (year: number) => {
                              {monthDays.map(day => {
                                 const dayStr = format(day, 'yyyy-MM-dd');
                                 const record = userRecords.find(r => r.date === dayStr);
-                                const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+                                const holidayInfo = checkIfHoliday(day, dayStr);
                                 const color = getDayStatusColor(day);
                                 
                                 return (
@@ -1153,9 +1221,9 @@ const fetchPublicHolidays = async (year: number) => {
                                          <div className="text-[9px] leading-tight font-mono text-center">
                                             <div>{record.check_in ? format(parseISO(record.check_in), "HH:mm") : ""}</div>
                                          </div>
-                                      ) : isHol ? (
-                                         <div className="text-[8px] leading-tight text-purple-600 font-semibold text-center mt-1 truncate px-1" title={isHol.name}>
-                                            {isHol.name}
+                                      ) : holidayInfo.isHoliday ? (
+                                         <div className="text-[8px] leading-tight text-purple-600 font-semibold text-center mt-1 truncate px-1" title={holidayInfo.name}>
+                                            {holidayInfo.name}
                                          </div>
                                       ) : null}
                                    </div>
