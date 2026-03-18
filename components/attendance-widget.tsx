@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAttendance } from "@/hooks/use-attendance";
 import { Button } from "@/components/ui/button"; 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,14 +19,13 @@ import {
 } from "@/components/ui/dialog";
 import { 
   Clock, Coffee, LogIn, LogOut, CheckCircle, MapPin, 
-  AlertTriangle, Loader2, Timer, ThumbsUp, WifiOff, Building2
+  AlertTriangle, Loader2, ThumbsUp, WifiOff, Building2, Server
 } from "lucide-react";
 import { format, setHours, setMinutes, isAfter, differenceInSeconds } from "date-fns";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 
 // --- CONFIGURATION ---
-const WORK_DAY_HOURS = 9;
 const LATE_THRESHOLD_HOUR = 9;
 const LATE_THRESHOLD_MINUTE = 30;
 
@@ -38,7 +37,11 @@ type Office = {
   radius: number; // Stored in KM
 };
 
-export function AttendanceWidget() {
+interface AttendanceWidgetProps {
+    targetHours?: number; // Allows dynamic shift lengths
+}
+
+export function AttendanceWidget({ targetHours = 9 }: AttendanceWidgetProps) {
   const {
     todayAttendance,
     loading,
@@ -56,17 +59,20 @@ export function AttendanceWidget() {
   const [showCheckOutDialog, setShowCheckOutDialog] = useState(false);
   const [showBreakDialog, setShowBreakDialog] = useState(false);
   
-  // Locations
+  // Locations & Network
   const [offices, setOffices] = useState<Office[]>([]);
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [distanceInfo, setDistanceInfo] = useState<{ meters: number; isFar: boolean; officeName: string } | null>(null);
+  const [ipAddress, setIpAddress] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [pendingSync, setPendingSync] = useState(false);
 
-  // Timer
+  // Timer & Breaks (Enhanced for multiple breaks theoretically)
   const [elapsedTime, setElapsedTime] = useState(0);
+  const isOnBreak = useMemo(() => !!todayAttendance?.lunch_start && !todayAttendance?.lunch_end, [todayAttendance]);
 
-  // --- 1. FETCH OFFICES & NETWORK LISTENER ---
+  // --- 1. FETCH OFFICES, IP, & NETWORK LISTENER ---
   useEffect(() => {
     // Fetch dynamic office locations from database
     const fetchOffices = async () => {
@@ -77,34 +83,91 @@ export function AttendanceWidget() {
     };
     fetchOffices();
 
-    // Network status
+    // Fetch IP Address
+    const fetchIP = async () => {
+        try {
+            const res = await fetch('https://api.ipify.org?format=json');
+            const data = await res.json();
+            setIpAddress(data.ip);
+        } catch (e) {
+            console.error("Failed to fetch IP");
+        }
+    };
+    fetchIP();
+
+    // Network status & Offline Sync
     setIsOnline(navigator.onLine);
-    const handleOnline = () => setIsOnline(true);
+    
+    const handleOnline = async () => {
+        setIsOnline(true);
+        // Process offline queue
+        const offlineData = localStorage.getItem('offlineCheckout');
+        if (offlineData) {
+            setPendingSync(true);
+            try {
+                const data = JSON.parse(offlineData);
+                await checkOut(data.notes); // Assumes your hook handles the specific time logic on the backend or we pass it
+                localStorage.removeItem('offlineCheckout');
+                toast.success("Offline data synced successfully!");
+            } catch (error) {
+                console.error("Sync failed", error);
+                toast.error("Failed to sync offline checkout.");
+            } finally {
+                setPendingSync(false);
+            }
+        }
+    };
+    
     const handleOffline = () => setIsOnline(false);
+    
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    
+    // Check on mount just in case
+    if (navigator.onLine && localStorage.getItem('offlineCheckout')) {
+        handleOnline();
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // --- 2. LIVE TIMER ---
+  // --- 2. LIVE TIMER (Accurate tracking) ---
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (todayAttendance?.check_in && !todayAttendance.check_out) {
       const start = new Date(todayAttendance.check_in);
+      
       const updateTimer = () => {
         const now = new Date();
         let seconds = differenceInSeconds(now, start);
-        if (todayAttendance.lunch_start && todayAttendance.lunch_end) {
-            seconds -= differenceInSeconds(new Date(todayAttendance.lunch_end), new Date(todayAttendance.lunch_start));
-        } else if (todayAttendance.lunch_start && !todayAttendance.lunch_end) {
-            seconds = differenceInSeconds(new Date(todayAttendance.lunch_start), start);
+        
+        // Handle breaks (This logic assumes total_break_seconds exists for multiple breaks, falling back to lunch_start/end)
+        let totalBreakSeconds = 0;
+        
+        // If your backend implements multiple breaks and returns a total:
+        if ((todayAttendance as any).total_break_seconds) {
+             totalBreakSeconds = (todayAttendance as any).total_break_seconds;
+             // If currently on a break, add the ongoing break time
+             if (todayAttendance.lunch_start && !todayAttendance.lunch_end) {
+                 totalBreakSeconds += differenceInSeconds(now, new Date(todayAttendance.lunch_start));
+             }
+        } else {
+            // Fallback to original single break logic
+            if (todayAttendance.lunch_start && todayAttendance.lunch_end) {
+                totalBreakSeconds = differenceInSeconds(new Date(todayAttendance.lunch_end), new Date(todayAttendance.lunch_start));
+            } else if (todayAttendance.lunch_start && !todayAttendance.lunch_end) {
+                totalBreakSeconds = differenceInSeconds(now, new Date(todayAttendance.lunch_start));
+            }
         }
+
+        seconds -= totalBreakSeconds;
         setElapsedTime(seconds > 0 ? seconds : 0);
       };
-      updateTimer();
+      
+      updateTimer(); // Initial call
       interval = setInterval(updateTimer, 1000);
     }
     return () => clearInterval(interval);
@@ -147,7 +210,6 @@ export function AttendanceWidget() {
             });
 
             if (closestOffice) {
-              // Convert DB radius (KM) to meters for comparison
               const allowedRadiusMeters = closestOffice.radius * 1000;
               setDistanceInfo({ 
                 meters: Math.round(minDistance), 
@@ -174,7 +236,7 @@ export function AttendanceWidget() {
       setShowCheckInDialog(true);
       setIsLocating(true);
       setDistanceInfo(null);
-      await getCurrentLocation(); // Pre-fetch location when dialog opens
+      await getCurrentLocation(); 
       setIsLocating(false);
   }
 
@@ -184,12 +246,20 @@ export function AttendanceWidget() {
       const locationString = await getCurrentLocation();
       
       let finalNotes = notes;
+      const contextInfo = [];
+      
       if (distanceInfo?.isFar) {
-          finalNotes = `[REMOTE CHECK-IN: ${distanceInfo.meters}m away from ${distanceInfo.officeName}] ${notes}`;
+          contextInfo.push(`REMOTE CHECK-IN: ${distanceInfo.meters}m from ${distanceInfo.officeName}`);
       } else if (distanceInfo) {
-          finalNotes = `[ON-SITE: ${distanceInfo.officeName}] ${notes}`;
+          contextInfo.push(`ON-SITE: ${distanceInfo.officeName}`);
+      }
+      if (ipAddress) contextInfo.push(`IP: ${ipAddress}`);
+      
+      if (contextInfo.length > 0) {
+          finalNotes = `[${contextInfo.join(' | ')}] ${notes}`;
       }
 
+      // Check if your hook accepts IP as a 3rd argument, otherwise it's in the notes.
       await checkIn(finalNotes, locationString || undefined); 
       toast.success(distanceInfo?.isFar ? "Checked in remotely!" : "Checked in from Office!");
       
@@ -203,6 +273,18 @@ export function AttendanceWidget() {
   };
 
   const handleCheckOut = async () => {
+    if (!isOnline) {
+        // Offline Fallback
+        const checkoutData = { time: new Date().toISOString(), notes };
+        localStorage.setItem('offlineCheckout', JSON.stringify(checkoutData));
+        
+        // Optimistic UI update could go here if your hook allowed local state mutation
+        toast.info("Offline mode: Check-out saved locally. Will sync when online.");
+        setShowCheckOutDialog(false);
+        setNotes("");
+        return;
+    }
+
     try {
       await checkOut(notes);
       toast.success("Shift ended. Good job!");
@@ -211,14 +293,14 @@ export function AttendanceWidget() {
     } catch (error: any) { toast.error(error.message); }
   };
 
-  const handleLunch = async () => {
+  const handleBreak = async () => {
     try {
-      if (todayAttendance?.lunch_start && !todayAttendance.lunch_end) {
+      if (isOnBreak) {
         await endLunchBreak();
         toast.success("Welcome back!");
       } else {
         await startLunchBreak();
-        toast.success("Enjoy your meal!");
+        toast.success("Enjoy your break!");
       }
       setShowBreakDialog(false);
     } catch (error: any) { toast.error(error.message); }
@@ -234,22 +316,31 @@ export function AttendanceWidget() {
 
   const isLateNow = () => isAfter(new Date(), setMinutes(setHours(new Date(), LATE_THRESHOLD_HOUR), LATE_THRESHOLD_MINUTE));
   const wasLate = useMemo(() => todayAttendance?.check_in && isAfter(new Date(todayAttendance.check_in), setMinutes(setHours(new Date(todayAttendance.check_in), LATE_THRESHOLD_HOUR), LATE_THRESHOLD_MINUTE)), [todayAttendance]);
-  const progressPercentage = Math.min((elapsedTime / (WORK_DAY_HOURS * 3600)) * 100, 100);
+  
+  // Calculate progress against dynamic target hours
+  const progressPercentage = Math.min((elapsedTime / (targetHours * 3600)) * 100, 100);
 
-  if (loading) return <Card className="animate-pulse h-[200px] bg-slate-50 border-slate-200" />;
+  if (loading || pendingSync) return (
+      <Card className="flex items-center justify-center h-[200px] bg-slate-50 border-slate-200">
+          <div className="flex flex-col items-center gap-2 text-slate-400">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+              <span className="text-sm font-medium">{pendingSync ? "Syncing offline data..." : "Loading Status..."}</span>
+          </div>
+      </Card>
+  );
 
   return (
     <div className="space-y-4">
       {/* Network Warning */}
       {!isOnline && (
-          <div className="bg-red-50 text-red-600 px-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 animate-pulse">
-              <WifiOff className="h-3 w-3" /> You are offline. Changes will sync when online.
+          <div className="bg-red-50 text-red-600 px-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 animate-pulse shadow-sm">
+              <WifiOff className="h-3 w-3" /> You are offline. Check-outs will save locally.
           </div>
       )}
 
       <Card className="shadow-sm border-slate-200 overflow-hidden relative">
         {/* Weekly Streak Dots (Visual Gamification) */}
-        <div className="absolute top-3 right-4 flex gap-1">
+        <div className="absolute top-3 right-4 flex gap-1 z-10">
             {[1,1,1,0,1].map((status, i) => (
                 <TooltipProvider key={i}>
                     <Tooltip>
@@ -262,14 +353,14 @@ export function AttendanceWidget() {
             ))}
         </div>
 
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 bg-white relative">
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock className="h-5 w-5 text-blue-600" />
             <span className="text-slate-900">Work Status</span>
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-5 pt-2">
           
           {/* 1. Main Status & Timer */}
           <div className="flex items-end justify-between">
@@ -283,8 +374,8 @@ export function AttendanceWidget() {
                             <Badge className="bg-green-50 text-green-700 hover:bg-green-50 border-green-200 px-2 py-1 text-sm animate-pulse">
                                 <span className="w-2 h-2 rounded-full bg-green-500 mr-2"/> On Duty
                             </Badge>
-                            {todayAttendance.lunch_start && !todayAttendance.lunch_end && (
-                                <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-200"><Coffee className="h-3 w-3 mr-1"/> Break</Badge>
+                            {isOnBreak && (
+                                <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-200"><Coffee className="h-3 w-3 mr-1"/> On Break</Badge>
                             )}
                         </div>
                     )
@@ -310,7 +401,7 @@ export function AttendanceWidget() {
                   <Progress value={progressPercentage} className="h-1.5 bg-slate-100" />
                   <div className="flex justify-between text-[10px] text-slate-400 font-medium">
                       <span>{Math.round(progressPercentage)}% Shift Goal</span>
-                      <span>Target: {WORK_DAY_HOURS}h</span>
+                      <span>Target: {targetHours}h</span>
                   </div>
               </div>
           )}
@@ -360,9 +451,9 @@ export function AttendanceWidget() {
                     </div>
                   )}
 
-                  {/* Geofencing Status */}
-                  <div className="bg-slate-50 border p-3 rounded-md">
-                      <div className="flex items-center justify-between text-xs mb-2">
+                  {/* Geofencing & Network Status */}
+                  <div className="bg-slate-50 border p-3 rounded-md space-y-3">
+                      <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-500 font-medium flex items-center gap-1"><MapPin className="h-3 w-3"/> Location Status</span>
                           {isLocating && <Loader2 className="h-3 w-3 animate-spin text-blue-500"/>}
                       </div>
@@ -376,6 +467,13 @@ export function AttendanceWidget() {
                           <div className="text-sm text-slate-500 italic">No offices defined. Remote check-in enabled.</div>
                       ) : (
                           <div className="text-sm text-slate-400 italic">Acquiring satellite lock...</div>
+                      )}
+
+                      {/* Display IP for transparency */}
+                      {ipAddress && (
+                         <div className="pt-2 border-t border-slate-200 flex items-center gap-2 text-xs text-slate-500">
+                            <Server className="h-3 w-3" /> Network IP: {ipAddress}
+                         </div>
                       )}
                   </div>
 
@@ -394,31 +492,34 @@ export function AttendanceWidget() {
               <div className="flex gap-3">
                 <Dialog open={showBreakDialog} onOpenChange={setShowBreakDialog}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" className="flex-1 border-slate-300 hover:bg-slate-50 h-11" disabled={!isOnline}>
-                      <Coffee className="h-4 w-4 mr-2 text-orange-500" />
-                      {todayAttendance.lunch_start && !todayAttendance.lunch_end ? "End Break" : "Break"}
+                    <Button variant="outline" className={`flex-1 border-slate-300 hover:bg-slate-50 h-11 transition-all ${isOnBreak ? 'bg-orange-50 border-orange-200 text-orange-600' : ''}`} disabled={!isOnline}>
+                      <Coffee className={`h-4 w-4 mr-2 ${isOnBreak ? 'animate-pulse' : 'text-orange-500'}`} />
+                      {isOnBreak ? "End Break" : "Take Break"}
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
-                    <DialogHeader><DialogTitle>Break Time</DialogTitle></DialogHeader>
+                    <DialogHeader><DialogTitle>{isOnBreak ? "Resume Work" : "Break Time"}</DialogTitle></DialogHeader>
                     <p className="text-sm text-slate-600">
-                        {todayAttendance.lunch_start && !todayAttendance.lunch_end ? "Ready to get back to work?" : "Taking a short break?"}
+                        {isOnBreak ? "Ready to get back to work? Your timer will resume." : "Taking a short break? Your active timer will be paused."}
                     </p>
                     <div className="flex gap-2 justify-end mt-2">
                         <Button variant="ghost" onClick={() => setShowBreakDialog(false)}>Cancel</Button>
-                        <Button onClick={handleLunch}>Confirm</Button>
+                        <Button onClick={handleBreak}>{isOnBreak ? "End Break" : "Start Break"}</Button>
                     </div>
                   </DialogContent>
                 </Dialog>
 
                 <Dialog open={showCheckOutDialog} onOpenChange={setShowCheckOutDialog}>
                   <DialogTrigger asChild>
-                    <Button className="flex-1 bg-slate-900 hover:bg-slate-800 text-white h-11" disabled={!isOnline}>
+                    <Button className="flex-1 bg-slate-900 hover:bg-slate-800 text-white h-11">
                       <LogOut className="h-4 w-4 mr-2" /> Check Out
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
-                    <DialogHeader><DialogTitle>End Shift</DialogTitle></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle>End Shift</DialogTitle>
+                        {!isOnline && <DialogDescription className="text-red-500">You are offline. Data will sync later.</DialogDescription>}
+                    </DialogHeader>
                     <div className="space-y-4">
                         <div className="bg-blue-50 text-blue-700 p-3 rounded-md text-sm flex gap-2">
                             <ThumbsUp className="h-4 w-4 mt-0.5"/>
