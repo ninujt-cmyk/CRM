@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { 
   Calendar as CalendarIcon, Users, Clock, CheckCircle, XCircle, AlertCircle, 
-  Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, Printer, Building2, Globe, Plus, Trash2, ChevronLeft
+  Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, Printer, Building2, Globe, Plus, Trash2, ChevronLeft, Activity
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
