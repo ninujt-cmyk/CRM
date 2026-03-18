@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { format, differenceInDays, isBefore, startOfDay } from "date-fns";
+import { format, differenceInDays, isBefore } from "date-fns";
 import { 
   Calendar as CalendarIcon, Plus, CheckCircle, Clock, XCircle, 
   Briefcase, Palmtree, Baby, Stethoscope, AlertTriangle, HelpCircle, Activity
@@ -30,7 +30,6 @@ import { toast } from "sonner";
 import { createLeaveRequest } from "@/app/actions/leave";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-// Types
 interface LeaveRecord {
   id: string;
   leave_type: string;
@@ -41,28 +40,14 @@ interface LeaveRecord {
   created_at: string;
 }
 
-// Annual Allowances Configuration
-const LEAVE_ALLOWANCES: Record<string, number> = {
-  casual: 12,
-  sick: 8,
-  paid: 15,
-  emergency: 3,
-};
-
 export function LeaveManagement() {
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
+  const [allowances, setAllowances] = useState<Record<string, number>>({ casual: 12, sick: 8, paid: 15, emergency: 3 });
   const [loading, setLoading] = useState(true);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Form State
-  const [formData, setFormData] = useState({
-    type: "casual",
-    start: "",
-    end: "",
-    reason: ""
-  });
-
+  const [formData, setFormData] = useState({ type: "casual", start: "", end: "", reason: "" });
   const supabase = createClient();
 
   useEffect(() => {
@@ -73,13 +58,22 @@ export function LeaveManagement() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data } = await supabase
-      .from("leaves")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    // Fetch leaves & allowances simultaneously
+    const [leavesRes, policyRes] = await Promise.all([
+        supabase.from("leaves").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("leave_policies").select("*").eq("id", "default").single()
+    ]);
       
-    if (data) setLeaves(data);
+    if (leavesRes.data) setLeaves(leavesRes.data);
+    if (policyRes.data) {
+        setAllowances({
+            casual: policyRes.data.casual,
+            sick: policyRes.data.sick,
+            paid: policyRes.data.paid,
+            emergency: policyRes.data.emergency
+        });
+    }
+    
     setLoading(false);
   };
 
@@ -96,12 +90,10 @@ export function LeaveManagement() {
   }, [formData.start, formData.end]);
 
   const leaveBalances = useMemo(() => {
-    // Calculate taken/pending leaves (excluding rejected)
     const activeLeaves = leaves.filter(l => l.status !== 'rejected');
-    
     const balances: Record<string, { used: number; total: number; percent: number }> = {};
     
-    Object.keys(LEAVE_ALLOWANCES).forEach(type => {
+    Object.keys(allowances).forEach(type => {
       const typeLeaves = activeLeaves.filter(l => l.leave_type === type);
       const daysUsed = typeLeaves.reduce((acc, curr) => {
          return acc + (differenceInDays(new Date(curr.end_date), new Date(curr.start_date)) + 1);
@@ -109,18 +101,18 @@ export function LeaveManagement() {
       
       balances[type] = {
         used: daysUsed,
-        total: LEAVE_ALLOWANCES[type],
-        percent: Math.min(100, (daysUsed / LEAVE_ALLOWANCES[type]) * 100)
+        total: allowances[type],
+        percent: Math.min(100, (daysUsed / allowances[type]) * 100)
       };
     });
     
     return balances;
-  }, [leaves]);
+  }, [leaves, allowances]);
 
   const hasEnoughBalance = () => {
      if (calculatedDays === 0) return true;
      const balance = leaveBalances[formData.type];
-     if (!balance) return true; // Uncapped types (maternity, etc.)
+     if (!balance) return true; 
      return (balance.total - balance.used) >= calculatedDays;
   };
 
@@ -159,7 +151,6 @@ export function LeaveManagement() {
     }
   };
 
-  // Stats for the employee
   const stats = {
     pending: leaves.filter(l => l.status === 'pending').length,
     approved: leaves.filter(l => l.status === 'approved').length,
