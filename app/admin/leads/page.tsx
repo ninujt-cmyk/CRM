@@ -19,11 +19,9 @@ interface SearchParams {
   to?: string
 }
 
-// --- MAIN PAGE COMPONENT ---
 export default function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <div className="p-6 space-y-6">
-      {/* Header Area */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Lead Management</h1>
@@ -50,63 +48,67 @@ export default function LeadsPage({ searchParams }: { searchParams: SearchParams
   )
 }
 
-// --- DATA FETCHING COMPONENT ---
 async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const supabase = await createClient()
   
-  // 1. Base Query Construction
-  let query = supabase
-    .from("leads")
-    .select(`*, assigned_user:users!leads_assigned_to_fkey(id, full_name), assigner:users!leads_assigned_by_fkey(id, full_name)`)
-    .order("created_at", { ascending: false })
-    .limit(2000) // 🔴 THE FIX: Safe limit to prevent DB memory crashes
+  // 1. Base Queries
+  let query = supabase.from("leads").select(`*, assigned_user:users!leads_assigned_to_fkey(id, full_name), assigner:users!leads_assigned_by_fkey(id, full_name)`).order("created_at", { ascending: false }).limit(2000)
+  
+  // 🔴 NEW: Dynamic Count Query that respects filters!
+  let countQuery = supabase.from("leads").select("*", { count: "exact", head: true })
 
-  // 2. Filters
-  if (searchParams.status && searchParams.status !== 'all') query = query.eq("status", searchParams.status)
-  if (searchParams.priority && searchParams.priority !== 'all') query = query.eq("priority", searchParams.priority)
-  if (searchParams.assigned_to && searchParams.assigned_to !== 'all') {
-      if(searchParams.assigned_to === 'unassigned') query = query.is("assigned_to", null)
-      else query = query.eq("assigned_to", searchParams.assigned_to)
-  }
-  if (searchParams.source && searchParams.source !== 'all') query = query.ilike("source", `%${searchParams.source}%`)
-  if (searchParams.search) {
-    query = query.or(`name.ilike.%${searchParams.search}%,email.ilike.%${searchParams.search}%,phone.ilike.%${searchParams.search}%,company.ilike.%${searchParams.search}%`)
-  }
-
-  if (searchParams.date_range && searchParams.date_range !== 'all') {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0) 
-
-    if (searchParams.date_range === 'today') {
-      query = query.gte('created_at', today.toISOString())
-    } else if (searchParams.date_range === 'yesterday') {
-      const yesterday = new Date(today)
-      yesterday.setDate(yesterday.getDate() - 1)
-      query = query.gte('created_at', yesterday.toISOString()).lt('created_at', today.toISOString())
-    } else if (searchParams.date_range === 'this_month') {
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-      query = query.gte('created_at', startOfMonth.toISOString())
-    } else if (searchParams.date_range === 'custom' && searchParams.from) {
-      const fromDate = new Date(searchParams.from)
-      const toDate = searchParams.to ? new Date(searchParams.to) : new Date(fromDate)
-      toDate.setHours(23, 59, 59, 999)
-      query = query.gte('created_at', fromDate.toISOString()).lte('created_at', toDate.toISOString())
+  // 2. Apply Filters dynamically to BOTH queries
+  const applyFilters = (q: any) => {
+    if (searchParams.status && searchParams.status !== 'all') q = q.eq("status", searchParams.status)
+    if (searchParams.priority && searchParams.priority !== 'all') q = q.eq("priority", searchParams.priority)
+    if (searchParams.assigned_to && searchParams.assigned_to !== 'all') {
+        if(searchParams.assigned_to === 'unassigned') q = q.is("assigned_to", null)
+        else q = q.eq("assigned_to", searchParams.assigned_to)
     }
+    if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
+    if (searchParams.search) {
+      q = q.or(`name.ilike.%${searchParams.search}%,email.ilike.%${searchParams.search}%,phone.ilike.%${searchParams.search}%,company.ilike.%${searchParams.search}%`)
+    }
+
+    if (searchParams.date_range && searchParams.date_range !== 'all') {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) 
+
+      if (searchParams.date_range === 'today') {
+        q = q.gte('created_at', today.toISOString())
+      } else if (searchParams.date_range === 'yesterday') {
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        q = q.gte('created_at', yesterday.toISOString()).lt('created_at', today.toISOString())
+      } else if (searchParams.date_range === 'this_month') {
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+        q = q.gte('created_at', startOfMonth.toISOString())
+      } else if (searchParams.date_range === 'custom' && searchParams.from) {
+        const fromDate = new Date(searchParams.from)
+        const toDate = searchParams.to ? new Date(searchParams.to) : new Date(fromDate)
+        toDate.setHours(23, 59, 59, 999)
+        q = q.gte('created_at', fromDate.toISOString()).lte('created_at', toDate.toISOString())
+      }
+    }
+    return q
   }
+
+  query = applyFilters(query)
+  countQuery = applyFilters(countQuery)
 
   const todayDate = new Date().toISOString().split('T')[0]
 
   // 3. Parallel Fetching
   const [
     { data: leads },
-    { data: telecallers },
     { count: totalLeads },
+    { data: telecallers },
     { count: unassignedLeads },
     { data: attendanceData }
   ] = await Promise.all([
     query,
+    countQuery, // 🔴 Uses dynamic filtered count
     supabase.from("users").select("id, full_name").eq("role", "telecaller").eq("is_active", true),
-    supabase.from("leads").select("*", { count: "exact", head: true }),
     supabase.from("leads").select("*", { count: "exact", head: true }).is("assigned_to", null),
     supabase.from("attendance").select("user_id").eq("date", todayDate).not("check_in", "is", null)
   ])
@@ -116,14 +118,13 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
 
   return (
     <>
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatsCard title="Total Leads" value={totalLeads} icon={<FileSpreadsheet className="h-6 w-6 text-blue-600" />} color="bg-blue-50" />
-        <StatsCard title="Unassigned" value={unassignedLeads} icon={<UserPlus className="h-6 w-6 text-orange-600" />} color="bg-orange-50" />
-        <StatsCard title="Active Agents" value={`${attendanceData?.length || 0} / ${telecallers?.length || 0}`} icon={<UserPlus className="h-6 w-6 text-green-600" />} color="bg-green-50" />
+        {/* 🔴 Will now accurately show ONLY the leads currently in the table! */}
+        <StatsCard title="Total Filtered Leads" value={totalLeads} icon={<FileSpreadsheet className="h-6 w-6 text-blue-600" />} color="bg-blue-50" />
+        <StatsCard title="Company Unassigned Pool" value={unassignedLeads} icon={<UserPlus className="h-6 w-6 text-orange-600" />} color="bg-orange-50" />
+        <StatsCard title="Active Team Agents" value={`${attendanceData?.length || 0} / ${telecallers?.length || 0}`} icon={<UserPlus className="h-6 w-6 text-green-600" />} color="bg-green-50" />
       </div>
 
-      {/* Filters */}
       <Card className="shadow-sm">
         <CardHeader className="pb-3 border-b">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -135,7 +136,6 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         </CardContent>
       </Card>
 
-      {/* Main Table */}
       <Card className="shadow-sm">
         <CardHeader className="pb-3 border-b">
           <CardTitle className="flex items-center justify-between">
@@ -152,8 +152,6 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     </>
   )
 }
-
-// --- HELPERS & SKELETONS ---
 
 function StatsCard({ title, value, icon, color }: any) {
   return (
@@ -191,25 +189,17 @@ function LeadsPageSkeleton() {
       </div>
 
       <Card className="shadow-sm">
-        <CardHeader className="pb-3 border-b">
-          <Skeleton className="h-5 w-24" />
-        </CardHeader>
+        <CardHeader className="pb-3 border-b"><Skeleton className="h-5 w-24" /></CardHeader>
         <CardContent className="pt-4 grid grid-cols-4 gap-4">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-10 w-full" />)}
         </CardContent>
       </Card>
 
       <Card className="shadow-sm">
-        <CardHeader className="pb-3 border-b">
-          <Skeleton className="h-5 w-32" />
-        </CardHeader>
+        <CardHeader className="pb-3 border-b"><Skeleton className="h-5 w-32" /></CardHeader>
         <CardContent className="p-0">
           <div className="space-y-4 p-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex gap-4">
-                <Skeleton className="h-12 w-full rounded-md" />
-              </div>
-            ))}
+            {[1, 2, 3, 4, 5].map((i) => <div key={i} className="flex gap-4"><Skeleton className="h-12 w-full rounded-md" /></div>)}
           </div>
         </CardContent>
       </Card>
