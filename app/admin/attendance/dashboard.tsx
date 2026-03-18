@@ -1,28 +1,25 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, isSameDay, setHours, setMinutes, isAfter, eachDayOfInterval, differenceInMinutes, subDays, startOfWeek, endOfWeek, getDay, isWeekend } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, isSameDay, isAfter, eachDayOfInterval, subDays, getDay, isWeekend } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
   Calendar as CalendarIcon, Users, Clock, CheckCircle, XCircle, AlertCircle, 
-  MapPin, Coffee, TrendingUp, Activity, UserCheck, 
-  FileSpreadsheet, Search, Settings, ChevronRight, BarChart3, List, Edit2, Save, X, MessageSquare, Printer, Building2, Globe, Plus, Trash2, CheckSquare, ChevronLeft
+  Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, Printer, Building2, Globe, Plus, Trash2, ChevronLeft
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar } from "@/components/ui/calendar"; 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from "sonner";
 
 // --- TYPES ---
@@ -69,7 +66,14 @@ type Office = {
   radius: number;
 };
 
-const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
+type Holiday = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  name: string;
+  type: 'public' | 'custom';
+  is_working_day: boolean;
+};
+
 const ITEMS_PER_PAGE = 10;
 const MAX_SHIFT_HOURS = 9;
 
@@ -115,13 +119,19 @@ export function AdminAttendanceDashboard() {
   const [lateThresholdMinute, setLateThresholdMinute] = useState(30);
   const [currentPage, setCurrentPage] = useState(1);
   
-  // -- UPDATE: Load offices from DB --
+  // Offices
   const [offices, setOffices] = useState<Office[]>([]);
-  
   const [newOfficeName, setNewOfficeName] = useState("");
   const [newOfficeLat, setNewOfficeLat] = useState("");
   const [newOfficeLng, setNewOfficeLng] = useState("");
 
+  // Holidays
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [newHolidayName, setNewHolidayName] = useState("");
+  const [newHolidayDate, setNewHolidayDate] = useState("");
+  const [isFetchingHolidays, setIsFetchingHolidays] = useState(false);
+
+  // Modals & User Data
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [userMonthData, setUserMonthData] = useState<AttendanceRecord[]>([]);
@@ -146,7 +156,6 @@ export function AdminAttendanceDashboard() {
       if (!error && data && data.length > 0) {
         setOffices(data);
       } else {
-        // Fallback default if DB is empty
         setOffices([{ id: 'default-1', name: 'HQ (Default)', lat: 12.9716, lng: 77.5946, radius: 0.5 }]);
       }
     };
@@ -164,9 +173,8 @@ export function AdminAttendanceDashboard() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [dateRange, view]); // Re-fetch when dateRange or view changes
+  }, [dateRange, view]); 
 
-  // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, departmentFilter, statusFilter, view, dateRange]);
@@ -176,19 +184,19 @@ export function AdminAttendanceDashboard() {
     setLoading(true);
     try {
       const startDateStr = format(dateRange.start, "yyyy-MM-dd");
-      // Ensure end date covers the full range correctly
       const endDateStr = format(dateRange.end, "yyyy-MM-dd");
       const feedDateStr = format(new Date(), "yyyy-MM-dd"); 
       const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
 
-      const [usersRes, attendanceRes, feedRes, missingRes] = await Promise.all([
+      const [usersRes, attendanceRes, feedRes, missingRes, holidaysRes] = await Promise.all([
         supabase.from("users").select("*").eq("is_active", true).order("full_name"),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name, email, department)`)
           .gte("date", startDateStr)
           .lte("date", endDateStr)
           .order("date", { ascending: false }),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", feedDateStr),
-        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", yesterdayStr).not("check_in", "is", null).is("check_out", null)
+        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", yesterdayStr).not("check_in", "is", null).is("check_out", null),
+        supabase.from("holidays").select("*").gte("date", startDateStr).lte("date", endDateStr)
       ]);
 
       if (usersRes.error) throw usersRes.error;
@@ -196,6 +204,7 @@ export function AdminAttendanceDashboard() {
 
       setUsers(usersRes.data || []);
       setAttendanceData(attendanceRes.data || []);
+      if (holidaysRes.data) setHolidays(holidaysRes.data);
       
       setMissingCheckoutCount(missingRes.data?.length || 0);
       setMissingRecords(missingRes.data || []);
@@ -232,7 +241,6 @@ export function AdminAttendanceDashboard() {
   const openUserModal = async (user: User) => {
     setSelectedUser(user);
     setLoadingModal(true);
-    // Explicitly calculate month start/end based on current view date range
     const monthStart = format(startOfMonth(dateRange.start), "yyyy-MM-dd");
     const monthEnd = format(endOfMonth(dateRange.start), "yyyy-MM-dd");
 
@@ -333,7 +341,50 @@ export function AdminAttendanceDashboard() {
 
   // --- ACTIONS ---
   
-  // -- UPDATE: Add Office to Database --
+  // -- HOLIDAYS --
+  const addCustomHoliday = async () => {
+    if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
+    const { data, error } = await supabase.from('holidays').insert([{
+      date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
+    }]).select().single();
+    
+    if (error) return toast.error("Failed to add holiday");
+    setHolidays([...holidays, data]);
+    setNewHolidayName(""); setNewHolidayDate("");
+    toast.success("Holiday added!");
+  };
+  
+  const toggleWorkingDay = async (holiday: Holiday) => {
+    const { error } = await supabase.from('holidays').update({ is_working_day: !holiday.is_working_day }).eq('id', holiday.id);
+    if (!error) {
+      setHolidays(holidays.map(h => h.id === holiday.id ? { ...h, is_working_day: !h.is_working_day } : h));
+      toast.success("Holiday updated");
+    }
+  };
+  
+  const fetchPublicHolidays = async (year: number, countryCode: string = 'IN') => {
+    setIsFetchingHolidays(true);
+    try {
+      const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${countryCode}`);
+      const publicHolidays = await res.json();
+      
+      const formattedHolidays = publicHolidays.map((h: any) => ({
+        date: h.date, name: h.localName, type: 'public', is_working_day: false
+      }));
+  
+      const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
+      if (error) throw error;
+      
+      toast.success(`Imported public holidays for ${year}`);
+      loadData(); 
+    } catch (e) {
+      toast.error("Failed to fetch public holidays");
+    } finally {
+      setIsFetchingHolidays(false);
+    }
+  };
+
+  // -- OFFICES --
   const addOffice = async () => {
     if (!newOfficeName || !newOfficeLat || !newOfficeLng) {
       toast.error("Please fill in all fields");
@@ -347,38 +398,20 @@ export function AdminAttendanceDashboard() {
       radius: 0.5
     };
 
-    const { data, error } = await supabase
-      .from('office_locations')
-      .insert([newOffice])
-      .select()
-      .single();
-
-    if (error) {
-      console.error(error);
-      toast.error("Failed to save office");
-      return;
-    }
+    const { data, error } = await supabase.from('office_locations').insert([newOffice]).select().single();
+    if (error) { toast.error("Failed to save office"); return; }
 
     setOffices([...offices, data]);
-    setNewOfficeName(""); 
-    setNewOfficeLat(""); 
-    setNewOfficeLng("");
+    setNewOfficeName(""); setNewOfficeLat(""); setNewOfficeLng("");
     toast.success("Office location added");
   };
 
-  // -- UPDATE: Remove Office from Database --
   const removeOffice = async (id: string) => {
-    // Optimistic Update
     const prevOffices = [...offices];
     setOffices(offices.filter(o => o.id !== id));
-
-    const { error } = await supabase
-      .from('office_locations')
-      .delete()
-      .eq('id', id);
-
+    const { error } = await supabase.from('office_locations').delete().eq('id', id);
     if (error) {
-      setOffices(prevOffices); // Revert
+      setOffices(prevOffices);
       toast.error("Failed to delete office");
     } else {
       toast.success("Office removed");
@@ -468,12 +501,14 @@ export function AdminAttendanceDashboard() {
       const userRecords = processedData.filter(a => a.user_id === user.id);
       if (view === 'daily') {
         const record = userRecords.find(r => isSameDay(parseISO(r.date), dateRange.start));
-        const status = record ? record.status : 'absent';
+        const dayStr = format(dateRange.start, "yyyy-MM-dd");
+        const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
+        const status = record ? record.status : (isHoliday ? 'holiday' : 'absent');
         return matchesSearch && matchesDept && status === statusFilter;
       }
       return matchesSearch && matchesDept;
     });
-  }, [users, searchTerm, departmentFilter, statusFilter, processedData, view, dateRange]);
+  }, [users, searchTerm, departmentFilter, statusFilter, processedData, view, dateRange, holidays]);
 
   // --- PAGINATION LOGIC ---
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
@@ -484,27 +519,21 @@ export function AdminAttendanceDashboard() {
 
   const departments = Array.from(new Set(users.map(u => u.department).filter(Boolean)));
 
-  // --- CHART DATA (RESTORED) ---
+  // --- CHART DATA ---
   const chartData = useMemo(() => {
     const days = eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
     const trend = days.map(day => {
       const dayStr = format(day, "yyyy-MM-dd");
       const records = processedData.filter(r => r.date === dayStr);
+      const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+
       return {
         date: format(day, "MMM dd"),
         present: records.filter(r => r.status === 'present').length,
         late: records.filter(r => r.status === 'late').length,
-        absent: users.length - records.length
+        absent: isHol ? 0 : users.length - records.length
       };
     }).slice(-14);
-
-    const deptStats: any = {};
-    processedData.forEach(r => {
-      if (!r.user?.department) return;
-      if (!deptStats[r.user.department]) deptStats[r.user.department] = { name: r.user.department, value: 0 };
-      if (r.status !== 'absent') deptStats[r.user.department].value += 1;
-    });
-    const deptPie = Object.values(deptStats);
 
     const lateCounts: Record<string, number> = {};
     processedData.filter(r => r.status === 'late').forEach(r => {
@@ -513,16 +542,24 @@ export function AdminAttendanceDashboard() {
     });
     const topViolators = Object.entries(lateCounts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count).slice(0, 5);
 
-    return { trend, deptPie, topViolators };
-  }, [processedData, users.length, dateRange]);
+    return { trend, topViolators };
+  }, [processedData, users.length, dateRange, holidays]);
 
   const stats = useMemo(() => {
     if (view === 'monthly') {
        return { present: processedData.filter(r => r.status === 'present').length, late: processedData.filter(r => r.status === 'late').length, absent: (users.length * 30) - processedData.length };
     }
     const dailyRecords = processedData.filter(r => isSameDay(parseISO(r.date), dateRange.start));
-    return { present: dailyRecords.filter(r => r.status === 'present').length, late: dailyRecords.filter(r => r.status === 'late').length, absent: users.length - dailyRecords.length };
-  }, [processedData, users.length, view, dateRange]);
+    const dayStr = format(dateRange.start, "yyyy-MM-dd");
+    const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
+    
+    return { 
+      present: dailyRecords.filter(r => r.status === 'present').length, 
+      late: dailyRecords.filter(r => r.status === 'late').length, 
+      absent: isHoliday ? 0 : users.length - dailyRecords.length,
+      isHoliday: !!isHoliday
+    };
+  }, [processedData, users.length, view, dateRange, holidays]);
 
   const navigate = (dir: 'prev' | 'next') => {
     if (view === 'daily') {
@@ -539,27 +576,15 @@ export function AdminAttendanceDashboard() {
     setView(newView);
     const today = new Date();
     if (newView === 'monthly') {
-      // Set to full month range
       setDateRange({ start: startOfMonth(today), end: endOfMonth(today) });
     } else {
-      // Set to today only
       setDateRange({ start: today, end: today });
     }
   };
 
   const handlePrint = () => { window.print(); };
-  const handleExport = () => { setIsExporting(true); setTimeout(() => setIsExporting(false), 500); };
 
-  const getDayStatusColor = (day: Date) => {
-    const dayStr = format(day, 'yyyy-MM-dd');
-    const record = userMonthData.find(r => r.date === dayStr);
-    if (!record) return 'bg-slate-50 text-slate-300 border-slate-100'; 
-    if (record.status === 'late') return 'bg-yellow-50 text-yellow-700 border-yellow-200 font-medium';
-    if (record.status === 'present') return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-medium';
-    return 'bg-slate-50 text-slate-400';
-  };
-
-  // --- NEW: Render Heatmap for Monthly View ---
+  // --- Render Heatmap for Monthly View ---
   const renderMonthlyHeatmap = (userRecords: AttendanceRecord[]) => {
     const start = startOfMonth(dateRange.start);
     const end = endOfMonth(dateRange.start);
@@ -571,12 +596,15 @@ export function AdminAttendanceDashboard() {
            const dayStr = format(day, "yyyy-MM-dd");
            const record = userRecords.find(r => r.date === dayStr);
            const isWE = isWeekend(day);
+           const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
            
            let color = "bg-slate-100"; // default empty
            if(isWE) color = "bg-slate-50 border-dashed border-slate-200";
+           if(isHol) color = "bg-purple-200"; // Holiday
+           
            if(record?.status === 'present') color = "bg-emerald-500";
            if(record?.status === 'late') color = "bg-yellow-400";
-           if(!record && !isWE && isAfter(new Date(), day)) color = "bg-red-200"; // Absent in past
+           if(!record && !isWE && !isHol && isAfter(new Date(), day)) color = "bg-red-200"; // Absent in past
 
            return (
              <TooltipProvider key={dayStr}>
@@ -586,7 +614,7 @@ export function AdminAttendanceDashboard() {
                  </TooltipTrigger>
                  <TooltipContent className="text-xs">
                     <p className="font-bold">{format(day, "MMM dd")}</p>
-                    <p>{record ? `${record.status} (${record.check_in ? format(parseISO(record.check_in), "HH:mm") : "?"})` : isWE ? "Weekend" : "Absent"}</p>
+                    <p>{record ? `${record.status} (${record.check_in ? format(parseISO(record.check_in), "HH:mm") : "?"})` : isHol ? isHol.name : isWE ? "Weekend" : "Absent"}</p>
                  </TooltipContent>
                </Tooltip>
              </TooltipProvider>
@@ -661,7 +689,7 @@ export function AdminAttendanceDashboard() {
               <Card className="border-l-4 border-l-blue-500 shadow-sm print:border"><CardContent className="p-4 pt-6 flex justify-between items-center"><div><p className="text-sm font-medium text-slate-500">Total Staff</p><h2 className="text-2xl font-bold">{users.length}</h2></div><div className="p-2 bg-blue-50 rounded-full print:hidden"><Users className="h-6 w-6 text-blue-500" /></div></CardContent></Card>
               <Card className="border-l-4 border-l-green-500 shadow-sm print:border"><CardContent className="p-4 pt-6 flex justify-between items-center"><div><p className="text-sm font-medium text-slate-500">Present</p><h2 className="text-2xl font-bold text-green-600">{stats.present}</h2></div><div className="p-2 bg-green-50 rounded-full print:hidden"><CheckCircle className="h-6 w-6 text-green-500" /></div></CardContent></Card>
               <Card className="border-l-4 border-l-yellow-500 shadow-sm print:border"><CardContent className="p-4 pt-6 flex justify-between items-center"><div><p className="text-sm font-medium text-slate-500">Late</p><h2 className="text-2xl font-bold text-yellow-600">{stats.late}</h2></div><div className="p-2 bg-yellow-50 rounded-full print:hidden"><Clock className="h-6 w-6 text-yellow-500" /></div></CardContent></Card>
-              <Card className="border-l-4 border-l-red-500 shadow-sm print:border"><CardContent className="p-4 pt-6 flex justify-between items-center"><div><p className="text-sm font-medium text-slate-500">Absent</p><h2 className="text-2xl font-bold text-red-600">{stats.absent}</h2></div><div className="p-2 bg-red-50 rounded-full print:hidden"><XCircle className="h-6 w-6 text-red-500" /></div></CardContent></Card>
+              <Card className={`border-l-4 ${stats.isHoliday ? 'border-l-purple-500' : 'border-l-red-500'} shadow-sm print:border`}><CardContent className="p-4 pt-6 flex justify-between items-center"><div><p className="text-sm font-medium text-slate-500">{stats.isHoliday ? 'Holiday' : 'Absent'}</p><h2 className={`text-2xl font-bold ${stats.isHoliday ? 'text-purple-600' : 'text-red-600'}`}>{stats.isHoliday ? 'Yes' : stats.absent}</h2></div><div className={`p-2 ${stats.isHoliday ? 'bg-purple-50' : 'bg-red-50'} rounded-full print:hidden`}><XCircle className={`h-6 w-6 ${stats.isHoliday ? 'text-purple-500' : 'text-red-500'}`} /></div></CardContent></Card>
             </div>
           )}
 
@@ -683,7 +711,7 @@ export function AdminAttendanceDashboard() {
                       {view === 'daily' && (
                         <Select value={statusFilter} onValueChange={setStatusFilter}>
                           <SelectTrigger className="w-32 h-9 bg-white"><SelectValue placeholder="Status" /></SelectTrigger>
-                          <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="present">Present</SelectItem><SelectItem value="late">Late</SelectItem><SelectItem value="absent">Absent</SelectItem></SelectContent>
+                          <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="present">Present</SelectItem><SelectItem value="late">Late</SelectItem><SelectItem value="absent">Absent</SelectItem><SelectItem value="holiday">Holiday</SelectItem></SelectContent>
                         </Select>
                       )}
                     </div>
@@ -723,7 +751,10 @@ export function AdminAttendanceDashboard() {
 
                           if (view === 'daily') {
                             const record = userRecords.find(r => isSameDay(parseISO(r.date), dateRange.start));
-                            const status = record ? record.status : 'absent';
+                            const dayStr = format(dateRange.start, "yyyy-MM-dd");
+                            const isHoliday = holidays.find(h => h.date === dayStr && !h.is_working_day);
+                            const status = record ? record.status : (isHoliday ? 'holiday' : 'absent');
+                            
                             const progress = Math.min(100, (Number(record?.total_hours || 0) / 9) * 100);
                             const locationInfo = getLocationType(record?.location_check_in);
                             
@@ -737,12 +768,20 @@ export function AdminAttendanceDashboard() {
                                   <TooltipProvider>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Badge variant="outline" className={status === 'late' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : status === 'present' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}>
-                                          {status === 'late' ? 'Late' : status === 'present' ? 'Present' : 'Absent'}
+                                        <Badge variant="outline" className={
+                                            status === 'late' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 
+                                            status === 'present' ? 'bg-green-50 text-green-700 border-green-200' : 
+                                            status === 'holiday' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                            'bg-red-50 text-red-700 border-red-200'
+                                        }>
+                                          {status === 'late' ? 'Late' : status === 'present' ? 'Present' : status === 'holiday' ? 'Holiday' : 'Absent'}
                                         </Badge>
                                       </TooltipTrigger>
                                       {status === 'late' && record?.check_in && (
                                         <TooltipContent><p>Late by {calculateLateMinutes(record.check_in)} mins</p></TooltipContent>
+                                      )}
+                                      {status === 'holiday' && isHoliday && (
+                                        <TooltipContent><p>{isHoliday.name}</p></TooltipContent>
                                       )}
                                     </Tooltip>
                                   </TooltipProvider>
@@ -785,7 +824,6 @@ export function AdminAttendanceDashboard() {
                                    <Badge variant="outline" className={`${getScoreColor(score)} font-bold`}>{score}%</Badge>
                                 </TableCell>
                                 <TableCell>
-                                   {/* NEW: VISUAL HEATMAP IN TABLE */}
                                    {renderMonthlyHeatmap(userRecords)}
                                 </TableCell>
                                 <TableCell><span className="font-mono text-sm">{avgHrs}h</span></TableCell>
@@ -897,7 +935,7 @@ export function AdminAttendanceDashboard() {
         </TabsContent>
       </Tabs>
 
-      {/* --- SETTINGS DIALOG (Fixed from Popover) --- */}
+      {/* --- SETTINGS DIALOG --- */}
       <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
@@ -947,6 +985,49 @@ export function AdminAttendanceDashboard() {
                 <Button size="sm" className="col-span-4 h-8 mt-1" onClick={addOffice}><Plus className="h-3 w-3 mr-1"/> Add Location</Button>
               </div>
             </div>
+
+            {/* HOLIDAY MANAGEMENT */}
+            <div className="border-t pt-4 mt-4">
+              <div className="flex justify-between items-center mb-3">
+                <Label className="text-base">Holiday Management</Label>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={isFetchingHolidays}
+                  onClick={() => fetchPublicHolidays(new Date().getFullYear())}
+                >
+                  <Globe className="h-3 w-3 mr-2"/> Sync Public Holidays
+                </Button>
+              </div>
+              
+              <div className="space-y-2 mb-4 max-h-[150px] overflow-y-auto border rounded-md p-2 bg-slate-50">
+                {holidays.map(holiday => (
+                  <div key={holiday.id} className="flex justify-between items-center text-sm bg-white p-2 rounded shadow-sm border">
+                    <div>
+                      <p className="font-medium text-slate-800">
+                        {holiday.name} <Badge variant="secondary" className="text-[10px] ml-1">{holiday.type}</Badge>
+                      </p>
+                      <p className="text-[10px] text-slate-500">{format(parseISO(holiday.date), "MMM dd, yyyy")}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={holiday.is_working_day ? "destructive" : "default"}>
+                        {holiday.is_working_day ? "Working Day" : "Holiday"}
+                      </Badge>
+                      <Button variant="ghost" size="sm" onClick={() => toggleWorkingDay(holiday)}>
+                        Toggle
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {holidays.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No holidays set for this period.</p>}
+              </div>
+              
+              <div className="grid grid-cols-5 gap-2">
+                <Input type="date" className="col-span-2 h-8 text-xs" value={newHolidayDate} onChange={e => setNewHolidayDate(e.target.value)} />
+                <Input placeholder="Holiday Name" className="col-span-2 h-8 text-xs" value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} />
+                <Button size="sm" className="col-span-1 h-8" onClick={addCustomHoliday}>Add</Button>
+              </div>
+            </div>
           </div>
           <DialogFooter>
              <Button onClick={() => setShowSettingsModal(false)}>Done</Button>
@@ -971,9 +1052,14 @@ export function AdminAttendanceDashboard() {
              const getDayStatusColor = (day: Date) => {
                 const dayStr = format(day, 'yyyy-MM-dd');
                 const record = userRecords.find(r => r.date === dayStr);
-                if (!record) return 'bg-slate-50 text-slate-300 border-slate-100'; 
-                if (record.status === 'late') return 'bg-yellow-50 text-yellow-700 border-yellow-200 font-medium';
-                if (record.status === 'present') return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-medium';
+                const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
+                
+                if (record) {
+                    if (record.status === 'late') return 'bg-yellow-50 text-yellow-700 border-yellow-200 font-medium';
+                    if (record.status === 'present') return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-medium';
+                }
+                
+                if (isHol) return 'bg-purple-50 text-purple-700 border-purple-200';
                 return 'bg-slate-50 text-slate-400';
              };
 
@@ -1035,6 +1121,7 @@ export function AdminAttendanceDashboard() {
                              {monthDays.map(day => {
                                 const dayStr = format(day, 'yyyy-MM-dd');
                                 const record = userRecords.find(r => r.date === dayStr);
+                                const isHol = holidays.find(h => h.date === dayStr && !h.is_working_day);
                                 const color = getDayStatusColor(day);
                                 
                                 return (
@@ -1044,11 +1131,15 @@ export function AdminAttendanceDashboard() {
                                      className={`h-16 border rounded-lg p-1 flex flex-col justify-between cursor-pointer hover:ring-2 ring-blue-200 transition-all ${color}`}
                                    >
                                       <div className="text-right font-bold text-xs">{format(day, "d")}</div>
-                                      {record && (
+                                      {record ? (
                                          <div className="text-[9px] leading-tight font-mono text-center">
                                             <div>{record.check_in ? format(parseISO(record.check_in), "HH:mm") : ""}</div>
                                          </div>
-                                      )}
+                                      ) : isHol ? (
+                                         <div className="text-[8px] leading-tight text-purple-600 font-semibold text-center mt-1 truncate px-1" title={isHol.name}>
+                                            {isHol.name}
+                                         </div>
+                                      ) : null}
                                    </div>
                                 )
                              })}
