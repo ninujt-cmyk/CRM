@@ -362,27 +362,40 @@ export function AdminAttendanceDashboard() {
     }
   };
   
-  const fetchPublicHolidays = async (year: number, countryCode: string = 'IN') => {
-    setIsFetchingHolidays(true);
-    try {
-      const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${countryCode}`);
-      const publicHolidays = await res.json();
-      
-      const formattedHolidays = publicHolidays.map((h: any) => ({
-        date: h.date, name: h.localName, type: 'public', is_working_day: false
-      }));
-  
-      const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
-      if (error) throw error;
-      
-      toast.success(`Imported public holidays for ${year}`);
-      loadData(); 
-    } catch (e) {
-      toast.error("Failed to fetch public holidays");
-    } finally {
-      setIsFetchingHolidays(false);
-    }
-  };
+  const fetchPublicHolidays = async (year: number) => {
+  setIsFetchingHolidays(true);
+  try {
+    // Standard Indian Public Holidays (You can add/remove from this list)
+    // Note: Festival dates like Diwali or Holi change yearly, so you may need to update those manually or use the "Add Holiday" UI.
+    const indianHolidays = [
+      { date: `${year}-01-01`, name: "New Year's Day" },
+      { date: `${year}-01-26`, name: "Republic Day" },
+      { date: `${year}-05-01`, name: "Labour Day" },
+      { date: `${year}-08-15`, name: "Independence Day" },
+      { date: `${year}-10-02`, name: "Gandhi Jayanti" },
+      { date: `${year}-12-25`, name: "Christmas Day" }
+    ];
+
+    const formattedHolidays = indianHolidays.map((h) => ({
+      date: h.date, 
+      name: h.name, 
+      type: 'public', 
+      is_working_day: false
+    }));
+
+    // Upsert into Supabase (ignores duplicates if you set up the unique constraint)
+    const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
+    if (error) throw error;
+    
+    toast.success(`Imported standard Indian public holidays for ${year}`);
+    loadData(); // Refresh dashboard
+  } catch (e) {
+    console.error(e);
+    toast.error("Failed to sync public holidays");
+  } finally {
+    setIsFetchingHolidays(false);
+  }
+};
 
   // -- OFFICES --
   const addOffice = async () => {
