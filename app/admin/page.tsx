@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FileText, Users, Phone, Clock, Activity, PieChart } from "lucide-react"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic" 
 
@@ -11,8 +12,8 @@ export default function AdminDashboard() {
   return (
     <div className="p-6 space-y-8">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-2">Overview for your team</p>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900">Workspace Dashboard</h1>
+        <p className="text-gray-500 mt-2">Real-time overview of your company's performance</p>
       </div>
 
       <Suspense fallback={<DashboardSkeleton />}>
@@ -26,7 +27,24 @@ export default function AdminDashboard() {
 async function DashboardContent() {
   const supabase = await createClient()
 
-  // Parallel Data Fetching
+  // 1. MUST INITIALIZE USER SESSION FIRST IN SERVER COMPONENTS
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect("/auth/login")
+
+  // 2. Fetch the user's specific Tenant ID
+  const { data: profile } = await supabase
+    .from('users')
+    .select('tenant_id, role')
+    .eq('id', user.id)
+    .single()
+
+  const tenantId = profile?.tenant_id
+
+  if (!tenantId) {
+    return <div className="p-6 text-red-500">Error: Your account is not linked to a workspace.</div>
+  }
+
+  // 3. EXPLICITLY FILTER EVERY QUERY BY TENANT_ID (The Double-Lock)
   const [
     { count: totalLeads },
     { count: activeTelecallers },
@@ -35,12 +53,28 @@ async function DashboardContent() {
     { data: recentLeads },
     { data: leadStatuses }
   ] = await Promise.all([
-    supabase.from("leads").select("*", { count: "exact", head: true }),
-    supabase.from("users").select("*", { count: "exact", head: true }).eq("role", "telecaller").eq("is_active", true),
-    supabase.from("call_logs").select("*", { count: "exact", head: true }).gte("created_at", new Date().toISOString().split('T')[0]),
-    supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "follow_up"),
-    supabase.from("leads").select("id, name, created_at, status").order("created_at", { ascending: false }).limit(5),
+    supabase.from("leads").select("*", { count: "exact", head: true })
+      .eq('tenant_id', tenantId), // 🔴 Locked
+      
+    supabase.from("users").select("*", { count: "exact", head: true })
+      .eq('tenant_id', tenantId) // 🔴 Locked
+      .eq("role", "telecaller")
+      .eq("is_active", true),
+      
+    supabase.from("call_logs").select("*", { count: "exact", head: true })
+      .eq('tenant_id', tenantId) // 🔴 Locked
+      .gte("created_at", new Date().toISOString().split('T')[0]),
+      
+    supabase.from("leads").select("*", { count: "exact", head: true })
+      .eq('tenant_id', tenantId) // 🔴 Locked
+      .eq("status", "follow_up"),
+      
+    supabase.from("leads").select("id, name, created_at, status")
+      .eq('tenant_id', tenantId) // 🔴 Locked
+      .order("created_at", { ascending: false }).limit(5),
+      
     supabase.from("leads").select("status")
+      .eq('tenant_id', tenantId) // 🔴 Locked
   ])
 
   // Calculate Chart Data
@@ -63,13 +97,13 @@ async function DashboardContent() {
           title="Total Leads" 
           value={totalLeads || 0} 
           icon={<FileText className="h-4 w-4 text-blue-600" />} 
-          description="Visible to you"
+          description="In your workspace"
         />
         <StatsCard 
           title="Active Telecallers" 
           value={activeTelecallers || 0} 
           icon={<Users className="h-4 w-4 text-green-600" />} 
-          description="In your team"
+          description="In your workspace"
         />
         <StatsCard 
           title="Today's Calls" 
@@ -87,7 +121,7 @@ async function DashboardContent() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* RECENT ACTIVITY LIST */}
-        <Card className="col-span-4">
+        <Card className="col-span-4 shadow-sm border-slate-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" /> Recent Activity
@@ -97,7 +131,7 @@ async function DashboardContent() {
             <div className="space-y-4">
               {recentLeads && recentLeads.length > 0 ? (
                 recentLeads.map((lead) => (
-                  <div key={lead.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
+                  <div key={lead.id} className="flex items-center justify-between border-b border-slate-100 pb-4 last:border-0 last:pb-0">
                     <div className="flex flex-col">
                       <span className="font-medium text-sm text-gray-900">{lead.name || "Unnamed Lead"}</span>
                       <span className="text-xs text-gray-500">Added • {new Date(lead.created_at).toLocaleDateString()}</span>
@@ -118,7 +152,7 @@ async function DashboardContent() {
         </Card>
 
         {/* LEAD STATUS CHART */}
-        <Card className="col-span-3">
+        <Card className="col-span-3 shadow-sm border-slate-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <PieChart className="h-5 w-5" /> Lead Status Overview
@@ -154,18 +188,16 @@ async function DashboardContent() {
   )
 }
 
-// --- HELPER COMPONENTS ---
-
 function StatsCard({ title, value, icon, description }: any) {
   return (
-    <Card>
+    <Card className="shadow-sm border-slate-200">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        {icon}
+        <div className="p-2 bg-slate-50 rounded-full">{icon}</div>
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-xs text-slate-500 mt-1">{description}</p>
       </CardContent>
     </Card>
   )
@@ -179,7 +211,7 @@ function DashboardSkeleton() {
           <Card key={i}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <Skeleton className="h-4 w-[100px]" />
-              <Skeleton className="h-4 w-4 rounded-full" />
+              <Skeleton className="h-8 w-8 rounded-full" />
             </CardHeader>
             <CardContent>
               <Skeleton className="h-8 w-[60px] mb-2" />
