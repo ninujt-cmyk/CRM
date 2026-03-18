@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { format, differenceInDays } from "date-fns";
+import { useState, useMemo, useEffect } from "react";
+import { format, differenceInDays, startOfDay } from "date-fns";
 import { 
   CheckCircle, XCircle, Clock, Search, Filter, 
   Calendar, User, MoreHorizontal, FileText, Check, X,
-  AlertTriangle, Layers, ArrowUpDown
+  AlertTriangle, Layers, ArrowUpDown, Settings
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +32,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { approveLeave, rejectLeave } from "@/app/actions/leave";
+import { createClient } from "@/lib/supabase/client";
 
 // --- Types ---
 interface User {
@@ -59,12 +61,13 @@ interface AdminLeaveDashboardProps {
 }
 
 export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: AdminLeaveDashboardProps) {
+  const supabase = createClient();
   const [leaves, setLeaves] = useState<LeaveRecord[]>(initialLeaves);
   const [activeTab, setActiveTab] = useState("pending");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   
-  // Bulk Actions State
+  // Bulk Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   
   // Dialogs
@@ -73,6 +76,35 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
   });
   const [rejectionReason, setRejectionReason] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Leave Policy Settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [allowances, setAllowances] = useState({ casual: 12, sick: 8, paid: 15, emergency: 3 });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  // Fetch Policies on Mount
+  useEffect(() => {
+    const fetchPolicies = async () => {
+      const { data } = await supabase.from('leave_policies').select('*').eq('id', 'default').single();
+      if (data) setAllowances({ casual: data.casual, sick: data.sick, paid: data.paid, emergency: data.emergency });
+    };
+    fetchPolicies();
+  }, [supabase]);
+
+  // Save Policy Settings
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const { error } = await supabase.from('leave_policies').update(allowances).eq('id', 'default');
+      if (error) throw error;
+      toast.success("Leave policies updated for all employees.");
+      setShowSettings(false);
+    } catch (e) {
+      toast.error("Failed to update settings.");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   // --- Filtering & Sorting ---
   const filteredLeaves = useMemo(() => {
@@ -91,27 +123,29 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
       });
   }, [leaves, activeTab, searchTerm, sortOrder]);
 
-  // --- Overlap Detection (Advanced Feature) ---
   const checkOverlap = (startDate: string, endDate: string, currentLeaveId: string) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
-    const overlaps = leaves.filter(l => 
+    return leaves.filter(l => 
         l.id !== currentLeaveId && 
         l.status === 'approved' && 
         new Date(l.start_date) <= end && 
         new Date(l.end_date) >= start
     );
-    return overlaps;
   };
 
-  // --- Stats Calculation ---
+  // --- Stats Calculation (FIXED DATE LOGIC) ---
   const stats = {
     pending: leaves.filter((l) => l.status === "pending").length,
     approved: leaves.filter((l) => l.status === "approved").length,
     todayOnLeave: leaves.filter((l) => {
-      const today = new Date().toISOString().split("T")[0];
-      return l.status === "approved" && l.start_date <= today && l.end_date >= today;
+      if (l.status !== "approved") return false; // Only count approved leaves
+      
+      const today = startOfDay(new Date());
+      const lStart = startOfDay(new Date(l.start_date));
+      const lEnd = startOfDay(new Date(l.end_date));
+      
+      return lStart <= today && lEnd >= today;
     }).length,
   };
 
@@ -204,7 +238,7 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
         </Card>
         <Card className="border-l-4 border-l-blue-500 shadow-sm bg-blue-50/30">
           <CardHeader className="pb-4">
-            <CardDescription className="font-medium text-blue-800">On Leave Today</CardDescription>
+            <CardDescription className="font-medium text-blue-800">On Leave Today (Approved)</CardDescription>
             <CardTitle className="text-3xl font-bold text-blue-600 flex items-center gap-2">
                 {stats.todayOnLeave} <User className="h-5 w-5 opacity-50"/>
             </CardTitle>
@@ -221,16 +255,19 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
               <CardDescription>Review and manage employee time off</CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" onClick={() => setShowSettings(true)} className="bg-white">
+                <Settings className="h-4 w-4 text-slate-600" />
+              </Button>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search employees..."
-                  className="pl-9 w-[200px] lg:w-[300px] bg-white"
+                  className="pl-9 w-[200px] lg:w-[260px] bg-white"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Button variant="outline" size="icon" onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')} title={`Sort: ${sortOrder}`}>
+              <Button variant="outline" size="icon" onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')} title={`Sort: ${sortOrder}`} className="bg-white">
                   <ArrowUpDown className="h-4 w-4 text-slate-500" />
               </Button>
             </div>
@@ -431,6 +468,42 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
             <Button variant="outline" onClick={() => setRejectDialog({ isOpen: false, leaveId: null, isBulk: false })}>Cancel</Button>
             <Button variant="destructive" onClick={handleReject} disabled={!rejectionReason.trim() || isProcessing}>
               Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Policy Settings Dialog */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave Policy Settings</DialogTitle>
+            <DialogDescription>
+              Adjust the annual leave allowances for all employees.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <div className="space-y-2">
+               <Label>Casual Leave (Days)</Label>
+               <Input type="number" value={allowances.casual} onChange={e => setAllowances({...allowances, casual: Number(e.target.value)})} />
+            </div>
+            <div className="space-y-2">
+               <Label>Sick Leave (Days)</Label>
+               <Input type="number" value={allowances.sick} onChange={e => setAllowances({...allowances, sick: Number(e.target.value)})} />
+            </div>
+            <div className="space-y-2">
+               <Label>Paid Leave (Days)</Label>
+               <Input type="number" value={allowances.paid} onChange={e => setAllowances({...allowances, paid: Number(e.target.value)})} />
+            </div>
+            <div className="space-y-2">
+               <Label>Emergency Leave (Days)</Label>
+               <Input type="number" value={allowances.emergency} onChange={e => setAllowances({...allowances, emergency: Number(e.target.value)})} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSettings(false)}>Cancel</Button>
+            <Button onClick={handleSaveSettings} disabled={isSavingSettings}>
+              {isSavingSettings ? "Saving..." : "Save Policies"}
             </Button>
           </DialogFooter>
         </DialogContent>
