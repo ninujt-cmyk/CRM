@@ -68,7 +68,7 @@ type Office = {
 
 type Holiday = {
   id: string;
-  date: string; // YYYY-MM-DD
+  date: string; 
   name: string;
   type: 'public' | 'custom';
   is_working_day: boolean;
@@ -86,8 +86,7 @@ function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon
     Math.sin(dLat/2) * Math.sin(dLat/2) +
     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  const d = R * c; 
-  return d;
+  return R * c; 
 }
 
 function deg2rad(deg: number) {
@@ -99,6 +98,9 @@ export function AdminAttendanceDashboard() {
   const supabase = createClient();
 
   // --- STATE ---
+  // 🔴 EXPLICIT TENANT FILTER STATE
+  const [tenantId, setTenantId] = useState<string | null>(null);
+
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>({
     start: new Date(),
     end: new Date()
@@ -149,10 +151,30 @@ export function AdminAttendanceDashboard() {
   const [missingRecords, setMissingRecords] = useState<AttendanceRecord[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
 
-  // --- 1. FETCH OFFICES & LOCAL SETTINGS ON MOUNT ---
+  // --- 1. INITIALIZE TENANT ID ---
   useEffect(() => {
+    const initAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+        if (data?.tenant_id) {
+          setTenantId(data.tenant_id);
+        }
+      }
+    };
+    initAuth();
+
+    const savedSecondSat = localStorage.getItem('enableSecondSaturdayHoliday');
+    if (savedSecondSat) setEnableSecondSaturdayHoliday(JSON.parse(savedSecondSat));
+  }, [supabase]);
+
+  // --- 2. FETCH OFFICES & LOCAL SETTINGS ONCE TENANT IS KNOWN ---
+  useEffect(() => {
+    if (!tenantId) return;
+
     const fetchOffices = async () => {
-      const { data, error } = await supabase.from('office_locations').select('*');
+      // 🔴 FILTER OFFICES BY TENANT
+      const { data, error } = await supabase.from('office_locations').select('*').eq('tenant_id', tenantId);
       if (!error && data && data.length > 0) {
         setOffices(data);
       } else {
@@ -160,13 +182,12 @@ export function AdminAttendanceDashboard() {
       }
     };
     fetchOffices();
-
-    const savedSecondSat = localStorage.getItem('enableSecondSaturdayHoliday');
-    if (savedSecondSat) setEnableSecondSaturdayHoliday(JSON.parse(savedSecondSat));
-  }, []);
+  }, [tenantId, supabase]);
 
   // --- REAL-TIME SUBSCRIPTION ---
   useEffect(() => {
+    if (!tenantId) return;
+
     loadData();
     const channel = supabase
       .channel('attendance-dashboard-updates')
@@ -176,7 +197,8 @@ export function AdminAttendanceDashboard() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [dateRange, view]); 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange, view, tenantId]); 
 
   useEffect(() => {
     setCurrentPage(1);
@@ -184,22 +206,35 @@ export function AdminAttendanceDashboard() {
 
   // --- DATA LOADING ---
   const loadData = async () => {
+    if (!tenantId) return;
     setLoading(true);
+
     try {
       const startDateStr = format(dateRange.start, "yyyy-MM-dd");
       const endDateStr = format(dateRange.end, "yyyy-MM-dd");
       const feedDateStr = format(new Date(), "yyyy-MM-dd"); 
       const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
 
+      // 🔴 ALL QUERIES EXPLICITLY FILTERED BY tenantId
       const [usersRes, attendanceRes, feedRes, missingRes, holidaysRes] = await Promise.all([
-        supabase.from("users").select("*").eq("is_active", true).order("full_name"),
+        supabase.from("users").select("*").eq("is_active", true).eq('tenant_id', tenantId).order("full_name"),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name, email, department)`)
+          .eq('tenant_id', tenantId)
           .gte("date", startDateStr)
           .lte("date", endDateStr)
           .order("date", { ascending: false }),
-        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", feedDateStr),
-        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`).eq("date", yesterdayStr).not("check_in", "is", null).is("check_out", null),
-        supabase.from("holidays").select("*").gte("date", format(startOfMonth(dateRange.start), "yyyy-MM-dd")).lte("date", format(endOfMonth(dateRange.end), "yyyy-MM-dd"))
+        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`)
+          .eq('tenant_id', tenantId)
+          .eq("date", feedDateStr),
+        supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name)`)
+          .eq('tenant_id', tenantId)
+          .eq("date", yesterdayStr)
+          .not("check_in", "is", null)
+          .is("check_out", null),
+        supabase.from("holidays").select("*")
+          .eq('tenant_id', tenantId)
+          .gte("date", format(startOfMonth(dateRange.start), "yyyy-MM-dd"))
+          .lte("date", format(endOfMonth(dateRange.end), "yyyy-MM-dd"))
       ]);
 
       if (usersRes.error) throw usersRes.error;
@@ -280,29 +315,17 @@ export function AdminAttendanceDashboard() {
     return Math.max(0, checkInMinutes - thresholdMinutes);
   };
 
-  // HOLIDAY CHECKER LOGIC
   const checkIfHoliday = (dateObj: Date, dateStr: string) => {
-    // 1. Check Explicit Database Holidays (Takes priority, allows overrides)
     const dbHoliday = holidays.find(h => h.date === dateStr);
     if (dbHoliday) {
       if (!dbHoliday.is_working_day) return { isHoliday: true, name: dbHoliday.name };
-      // If admin explicitly marked it as a working day, override weekends!
       if (dbHoliday.is_working_day) return { isHoliday: false, name: "" }; 
     }
-
-    // 2. Check Sundays
-    if (getDay(dateObj) === 0) {
-      return { isHoliday: true, name: "Sunday" };
-    }
-
-    // 3. Check Second Saturdays
+    if (getDay(dateObj) === 0) return { isHoliday: true, name: "Sunday" };
     if (enableSecondSaturdayHoliday && getDay(dateObj) === 6) {
       const dateNum = getDate(dateObj);
-      if (dateNum >= 8 && dateNum <= 14) {
-        return { isHoliday: true, name: "Second Saturday" };
-      }
+      if (dateNum >= 8 && dateNum <= 14) return { isHoliday: true, name: "Second Saturday" };
     }
-
     return { isHoliday: false, name: "" };
   };
 
@@ -370,7 +393,6 @@ export function AdminAttendanceDashboard() {
 
   // --- ACTIONS ---
   
-  // -- HOLIDAYS --
   const handleSecondSatToggle = (checked: boolean) => {
     setEnableSecondSaturdayHoliday(checked);
     localStorage.setItem('enableSecondSaturdayHoliday', JSON.stringify(checked));
@@ -379,8 +401,10 @@ export function AdminAttendanceDashboard() {
 
   const addCustomHoliday = async () => {
     if (!newHolidayName || !newHolidayDate) return toast.error("Fill all fields");
+    
+    // 🔴 Inject Tenant ID to keep it isolated
     const { data, error } = await supabase.from('holidays').insert([{
-      date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
+      tenant_id: tenantId, date: newHolidayDate, name: newHolidayName, type: 'custom', is_working_day: false
     }]).select().single();
     
     if (error) return toast.error("Failed to add holiday");
@@ -414,22 +438,16 @@ export function AdminAttendanceDashboard() {
       const res = await fetch(`https://calendarific.com/api/v2/holidays?api_key=${API_KEY}&country=IN&year=${year}`);
       const data = await res.json();
   
-      if (data.meta.code !== 200) {
-        throw new Error(data.meta.error_detail || "API fetch failed");
-      }
+      if (data.meta.code !== 200) throw new Error(data.meta.error_detail || "API fetch failed");
   
       const holidaysList = data.response.holidays;
       const majorHolidays = holidaysList.filter((h: any) => 
-        h.type.includes("National holiday") || 
-        h.type.includes("Gazetted Holiday") ||
-        h.type.includes("Restricted Holiday")
+        h.type.includes("National holiday") || h.type.includes("Gazetted Holiday") || h.type.includes("Restricted Holiday")
       );
   
+      // 🔴 Inject Tenant ID into API fetched holidays
       const formattedHolidays = majorHolidays.map((h: any) => ({
-        date: h.date.iso.split('T')[0], 
-        name: h.name, 
-        type: 'public', 
-        is_working_day: false
+        tenant_id: tenantId, date: h.date.iso.split('T')[0], name: h.name, type: 'public', is_working_day: false
       }));
   
       const { error } = await supabase.from('holidays').upsert(formattedHolidays, { onConflict: 'date' });
@@ -445,20 +463,11 @@ export function AdminAttendanceDashboard() {
     }
   };
 
-  // -- OFFICES --
   const addOffice = async () => {
-    if (!newOfficeName || !newOfficeLat || !newOfficeLng) {
-      toast.error("Please fill in all fields");
-      return;
-    }
+    if (!newOfficeName || !newOfficeLat || !newOfficeLng) return toast.error("Please fill in all fields");
 
-    const newOffice = {
-      name: newOfficeName,
-      lat: parseFloat(newOfficeLat),
-      lng: parseFloat(newOfficeLng),
-      radius: 0.5
-    };
-
+    // 🔴 Inject Tenant ID to isolate Office Location
+    const newOffice = { tenant_id: tenantId, name: newOfficeName, lat: parseFloat(newOfficeLat), lng: parseFloat(newOfficeLng), radius: 0.5 };
     const { data, error } = await supabase.from('office_locations').insert([newOffice]).select().single();
     if (error) { toast.error("Failed to save office"); return; }
 
@@ -471,12 +480,8 @@ export function AdminAttendanceDashboard() {
     const prevOffices = [...offices];
     setOffices(offices.filter(o => o.id !== id));
     const { error } = await supabase.from('office_locations').delete().eq('id', id);
-    if (error) {
-      setOffices(prevOffices);
-      toast.error("Failed to delete office");
-    } else {
-      toast.success("Office removed");
-    }
+    if (error) { setOffices(prevOffices); toast.error("Failed to delete office"); } 
+    else toast.success("Office removed");
   };
 
   const handleEdit = (record: AttendanceRecord) => {
@@ -648,7 +653,6 @@ export function AdminAttendanceDashboard() {
 
   const handlePrint = () => { window.print(); };
 
-  // --- Render Heatmap for Monthly View ---
   const renderMonthlyHeatmap = (userRecords: AttendanceRecord[]) => {
     const start = startOfMonth(dateRange.start);
     const end = endOfMonth(dateRange.start);
@@ -663,13 +667,13 @@ export function AdminAttendanceDashboard() {
            
            const holidayInfo = checkIfHoliday(day, dayStr);
            
-           let color = "bg-slate-100"; // default empty
+           let color = "bg-slate-100"; 
            if(isWE) color = "bg-slate-50 border-dashed border-slate-200";
-           if(holidayInfo.isHoliday) color = "bg-purple-200"; // Holiday priority
+           if(holidayInfo.isHoliday) color = "bg-purple-200"; 
            
            if(record?.status === 'present') color = "bg-emerald-500";
            if(record?.status === 'late') color = "bg-yellow-400";
-           if(!record && !isWE && !holidayInfo.isHoliday && isAfter(new Date(), day)) color = "bg-red-200"; // Absent in past
+           if(!record && !isWE && !holidayInfo.isHoliday && isAfter(new Date(), day)) color = "bg-red-200"; 
 
            return (
              <TooltipProvider key={dayStr}>
@@ -689,10 +693,13 @@ export function AdminAttendanceDashboard() {
     );
   };
 
+  if (!tenantId) {
+    return <div className="flex h-screen items-center justify-center"><AlertCircle className="h-8 w-8 text-slate-300 animate-pulse" /></div>
+  }
+
   return (
     <div className="p-6 space-y-6 bg-slate-50/50 min-h-screen print:p-0 print:bg-white">
       
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Attendance Manager</h1>
@@ -700,7 +707,6 @@ export function AdminAttendanceDashboard() {
         </div>
         
         <div className="flex flex-wrap gap-2 items-center">
-          
           <Button variant="outline" size="icon" onClick={() => setShowSettingsModal(true)}>
              <Settings className="h-4 w-4 text-slate-600"/>
           </Button>
@@ -719,7 +725,6 @@ export function AdminAttendanceDashboard() {
         </div>
       </div>
 
-      {/* MISSING CHECKOUT ALERT */}
       {missingCheckoutCount > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between print:hidden">
            <div className="flex items-center gap-3">
@@ -733,7 +738,6 @@ export function AdminAttendanceDashboard() {
         </div>
       )}
 
-      {/* TABS LAYOUT */}
       <Tabs defaultValue="roster" className="w-full">
         <div className="flex justify-between items-center mb-4 print:hidden">
            <TabsList className="bg-white border">
@@ -747,7 +751,6 @@ export function AdminAttendanceDashboard() {
            </div>
         </div>
 
-        {/* --- TAB 1: ROSTER VIEW --- */}
         <TabsContent value="roster" className="space-y-6">
           {view === 'daily' && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 print:grid-cols-4">
@@ -902,7 +905,6 @@ export function AdminAttendanceDashboard() {
                     </TableBody>
                   </Table>
                   
-                  {/* PAGINATION CONTROLS */}
                   {filteredUsers.length > ITEMS_PER_PAGE && (
                     <div className="p-4 border-t flex items-center justify-between">
                        <span className="text-sm text-slate-500">Page {currentPage} of {totalPages}</span>
@@ -959,7 +961,6 @@ export function AdminAttendanceDashboard() {
           </div>
         </TabsContent>
 
-        {/* --- TAB 2: ANALYTICS VIEW --- */}
         <TabsContent value="analytics" className="space-y-6 print:hidden">
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card className="shadow-sm">
@@ -1001,7 +1002,6 @@ export function AdminAttendanceDashboard() {
         </TabsContent>
       </Tabs>
 
-      {/* --- SETTINGS DIALOG --- */}
       <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
         <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1010,7 +1010,6 @@ export function AdminAttendanceDashboard() {
           </DialogHeader>
           
           <div className="space-y-6 py-4">
-            {/* LATE THRESHOLD */}
             <div>
               <div className="flex justify-between mb-3">
                 <Label className="text-base">Late Threshold</Label>
@@ -1028,7 +1027,6 @@ export function AdminAttendanceDashboard() {
               </div>
             </div>
 
-            {/* OFFICE LOCATIONS */}
             <div className="border-t pt-4">
               <Label className="text-base mb-3 block">Office Locations</Label>
               <div className="space-y-2 mb-4 max-h-[150px] overflow-y-auto border rounded-md p-2 bg-slate-50">
@@ -1052,7 +1050,6 @@ export function AdminAttendanceDashboard() {
               </div>
             </div>
 
-            {/* HOLIDAY MANAGEMENT */}
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between items-center mb-3">
                 <Label className="text-base">Holiday Management</Label>
@@ -1068,17 +1065,12 @@ export function AdminAttendanceDashboard() {
                 </div>
               </div>
 
-              {/* Toggle for Second Saturday */}
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border mb-4">
                   <div className="space-y-0.5">
                       <Label className="text-sm">Second Saturday Holiday</Label>
                       <p className="text-[10px] text-slate-500">Automatically treat the 2nd Saturday of each month as a holiday.</p>
                   </div>
-                  {/* Custom Tailwind Toggle so you don't need shadcn/switch */}
-                  <div 
-                      className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${enableSecondSaturdayHoliday ? 'bg-blue-600' : 'bg-slate-300'}`}
-                      onClick={() => handleSecondSatToggle(!enableSecondSaturdayHoliday)}
-                  >
+                  <div className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${enableSecondSaturdayHoliday ? 'bg-blue-600' : 'bg-slate-300'}`} onClick={() => handleSecondSatToggle(!enableSecondSaturdayHoliday)}>
                       <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform ${enableSecondSaturdayHoliday ? 'translate-x-5' : ''}`} />
                   </div>
               </div>
@@ -1096,12 +1088,8 @@ export function AdminAttendanceDashboard() {
                       <Badge variant={holiday.is_working_day ? "destructive" : "default"}>
                         {holiday.is_working_day ? "Working Day" : "Holiday"}
                       </Badge>
-                      <Button variant="ghost" size="sm" className="px-2" onClick={() => toggleWorkingDay(holiday)}>
-                        Toggle
-                      </Button>
-                      <Button variant="ghost" size="sm" className="px-2 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => deleteHoliday(holiday.id)}>
-                        <Trash2 className="h-4 w-4"/>
-                      </Button>
+                      <Button variant="ghost" size="sm" className="px-2" onClick={() => toggleWorkingDay(holiday)}>Toggle</Button>
+                      <Button variant="ghost" size="sm" className="px-2 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => deleteHoliday(holiday.id)}><Trash2 className="h-4 w-4"/></Button>
                     </div>
                   </div>
                 ))}
@@ -1121,7 +1109,6 @@ export function AdminAttendanceDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* --- EMPLOYEE MODAL --- */}
       <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           {selectedUser && (() => {
@@ -1129,7 +1116,6 @@ export function AdminAttendanceDashboard() {
              const lateCount = userRecords.filter(r => r.status === 'late').length;
              const totalHrs = userRecords.reduce((acc, r) => acc + (Number(r.total_hours) || 0), 0);
              
-             // Calendar generation
              const monthStart = startOfMonth(dateRange.start);
              const monthEnd = endOfMonth(dateRange.start);
              const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -1239,7 +1225,6 @@ export function AdminAttendanceDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* --- EDIT DIALOG --- */}
       <Dialog open={!!editingRecord} onOpenChange={(o) => !o && setEditingRecord(null)}>
          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -1266,7 +1251,6 @@ export function AdminAttendanceDashboard() {
          </DialogContent>
       </Dialog>
 
-      {/* --- REVIEW MISSING CHECKOUTS DIALOG --- */}
       <Dialog open={showReviewModal} onOpenChange={setShowReviewModal}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
