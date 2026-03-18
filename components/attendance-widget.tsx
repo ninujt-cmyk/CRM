@@ -23,14 +23,20 @@ import {
 } from "lucide-react";
 import { format, setHours, setMinutes, isAfter, differenceInSeconds } from "date-fns";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 
 // --- CONFIGURATION ---
 const WORK_DAY_HOURS = 9;
 const LATE_THRESHOLD_HOUR = 9;
 const LATE_THRESHOLD_MINUTE = 30;
-// Example: Corporate Office Coordinates (Bangalore). Set to null to disable geofencing.
-const OFFICE_COORDS = { lat: 12.9716, lng: 77.5946 }; 
-const MAX_DISTANCE_METERS = 200; // Allowed radius
+
+type Office = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radius: number; // Stored in KM
+};
 
 export function AttendanceWidget() {
   const {
@@ -42,23 +48,36 @@ export function AttendanceWidget() {
     endLunchBreak,
   } = useAttendance();
 
+  const supabase = createClient();
+
   // --- STATE ---
   const [notes, setNotes] = useState("");
   const [showCheckInDialog, setShowCheckInDialog] = useState(false);
   const [showCheckOutDialog, setShowCheckOutDialog] = useState(false);
   const [showBreakDialog, setShowBreakDialog] = useState(false);
   
-  // Location & Network
+  // Locations
+  const [offices, setOffices] = useState<Office[]>([]);
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [distanceInfo, setDistanceInfo] = useState<{ meters: number; isFar: boolean } | null>(null);
+  const [distanceInfo, setDistanceInfo] = useState<{ meters: number; isFar: boolean; officeName: string } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
 
   // Timer
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  // --- 1. NETWORK LISTENER ---
+  // --- 1. FETCH OFFICES & NETWORK LISTENER ---
   useEffect(() => {
+    // Fetch dynamic office locations from database
+    const fetchOffices = async () => {
+      const { data, error } = await supabase.from('office_locations').select('*');
+      if (!error && data) {
+        setOffices(data);
+      }
+    };
+    fetchOffices();
+
+    // Network status
     setIsOnline(navigator.onLine);
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -91,7 +110,7 @@ export function AttendanceWidget() {
     return () => clearInterval(interval);
   }, [todayAttendance]);
 
-  // --- 3. GEOLOCATION & GEOFENCING ---
+  // --- 3. DYNAMIC GEOLOCATION & GEOFENCING ---
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3; // Earth radius in meters
     const φ1 = lat1 * Math.PI/180;
@@ -114,10 +133,28 @@ export function AttendanceWidget() {
         (position) => {
           const { latitude, longitude } = position.coords;
           
-          // Geofencing Check
-          if (OFFICE_COORDS) {
-            const dist = calculateDistance(latitude, longitude, OFFICE_COORDS.lat, OFFICE_COORDS.lng);
-            setDistanceInfo({ meters: Math.round(dist), isFar: dist > MAX_DISTANCE_METERS });
+          // Geofencing Check against all offices
+          if (offices.length > 0) {
+            let minDistance = Infinity;
+            let closestOffice: Office | null = null;
+
+            offices.forEach(office => {
+              const dist = calculateDistance(latitude, longitude, office.lat, office.lng);
+              if (dist < minDistance) {
+                minDistance = dist;
+                closestOffice = office;
+              }
+            });
+
+            if (closestOffice) {
+              // Convert DB radius (KM) to meters for comparison
+              const allowedRadiusMeters = closestOffice.radius * 1000;
+              setDistanceInfo({ 
+                meters: Math.round(minDistance), 
+                isFar: minDistance > allowedRadiusMeters,
+                officeName: closestOffice.name
+              });
+            }
           }
 
           resolve(`${latitude},${longitude}`);
@@ -146,10 +183,11 @@ export function AttendanceWidget() {
     try {
       const locationString = await getCurrentLocation();
       
-      // Strict Geofencing Rule (Optional: Block check-in if too far)
       let finalNotes = notes;
       if (distanceInfo?.isFar) {
-          finalNotes = `[REMOTE CHECK-IN: ${distanceInfo.meters}m away] ${notes}`;
+          finalNotes = `[REMOTE CHECK-IN: ${distanceInfo.meters}m away from ${distanceInfo.officeName}] ${notes}`;
+      } else if (distanceInfo) {
+          finalNotes = `[ON-SITE: ${distanceInfo.officeName}] ${notes}`;
       }
 
       await checkIn(finalNotes, locationString || undefined); 
@@ -332,8 +370,10 @@ export function AttendanceWidget() {
                       {!isLocating && distanceInfo ? (
                           <div className={`flex items-center gap-2 text-sm font-medium ${distanceInfo.isFar ? "text-orange-600" : "text-green-600"}`}>
                               {distanceInfo.isFar ? <Building2 className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>}
-                              {distanceInfo.isFar ? `Remote (${distanceInfo.meters}m from Office)` : "You are at the Office"}
+                              {distanceInfo.isFar ? `Remote (${distanceInfo.meters}m from ${distanceInfo.officeName})` : `You are at ${distanceInfo.officeName}`}
                           </div>
+                      ) : !isLocating && offices.length === 0 ? (
+                          <div className="text-sm text-slate-500 italic">No offices defined. Remote check-in enabled.</div>
                       ) : (
                           <div className="text-sm text-slate-400 italic">Acquiring satellite lock...</div>
                       )}
