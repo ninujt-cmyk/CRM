@@ -14,18 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -81,36 +73,37 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
   const [showSettings, setShowSettings] = useState(false);
   const [allowances, setAllowances] = useState({ casual: 12, sick: 8, paid: 15, emergency: 3 });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // 🔴 FIX: Track the actual database ID of the current tenant's policy
+  const [policyId, setPolicyId] = useState<string | null>(null);
 
-  // 🔴 FIX: Fetch Policies dynamically based on Tenant RLS
+  // Fetch Policies on Mount
   useEffect(() => {
     const fetchPolicies = async () => {
-      // RLS will automatically ensure we only get OUR company's policy
+      // 🔴 FIX: RLS automatically restricts this to the current tenant! No more 'default' hardcoding.
       const { data } = await supabase.from('leave_policies').select('*').limit(1).maybeSingle();
       if (data) {
-          setAllowances({ casual: data.casual, sick: data.sick, paid: data.paid, emergency: data.emergency });
+          setAllowances({ casual: data.casual || 12, sick: data.sick || 8, paid: data.paid || 15, emergency: data.emergency || 3 });
+          setPolicyId(data.id);
       }
     };
     fetchPolicies();
   }, [supabase]);
 
-  // 🔴 FIX: Save Policy Settings without shared 'default' ID
+  // Save Policy Settings
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
-      // Check if we already have a policy
-      const { data: existing } = await supabase.from('leave_policies').select('id').limit(1).maybeSingle();
-      
-      if (existing) {
-        // Update our existing row
-        const { error } = await supabase.from('leave_policies').update(allowances).eq('id', existing.id);
-        if (error) throw error;
+      if (policyId) {
+          // Update existing tenant policy
+          const { error } = await supabase.from('leave_policies').update(allowances).eq('id', policyId);
+          if (error) throw error;
       } else {
-        // Insert a new row (The database trigger will automatically attach the tenant_id!)
-        const { error } = await supabase.from('leave_policies').insert([allowances]);
-        if (error) throw error;
+          // Insert new policy for tenant (auto-injector handles the tenant_id mapping)
+          const { data, error } = await supabase.from('leave_policies').insert([allowances]).select('id').single();
+          if (error) throw error;
+          if (data) setPolicyId(data.id);
       }
-
       toast.success("Leave policies updated for your workspace.");
       setShowSettings(false);
     } catch (e) {
@@ -149,12 +142,12 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
     );
   };
 
-  // --- Stats Calculation (FIXED DATE LOGIC) ---
+  // --- Stats Calculation ---
   const stats = {
     pending: leaves.filter((l) => l.status === "pending").length,
     approved: leaves.filter((l) => l.status === "approved").length,
     todayOnLeave: leaves.filter((l) => {
-      if (l.status !== "approved") return false; 
+      if (l.status !== "approved") return false;
       const today = startOfDay(new Date());
       const lStart = startOfDay(new Date(l.start_date));
       const lEnd = startOfDay(new Date(l.end_date));
@@ -235,7 +228,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
 
   return (
     <div className="space-y-6 relative">
-      {/* --- Stats Cards --- */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border-l-4 border-l-amber-500 shadow-sm">
           <CardHeader className="pb-4">
@@ -259,7 +251,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
         </Card>
       </div>
 
-      {/* --- Main Content --- */}
       <Card className="shadow-sm border-slate-200">
         <CardHeader className="pb-4 border-b bg-slate-50">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -321,7 +312,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                     return (
                       <div key={leave.id} className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
                         
-                        {/* Checkbox & User Info */}
                         <div className="flex items-center gap-4 min-w-[250px]">
                           {activeTab === 'pending' && (
                              <input 
@@ -337,7 +327,7 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="font-semibold text-sm text-slate-900">{leave.user?.full_name || "Unknown User"}</p>
+                            <p className="font-semibold text-sm text-slate-900">{leave.user?.full_name}</p>
                             <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-xs font-medium text-slate-500 capitalize">{leave.leave_type} Leave</span>
                                 <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{leave.user?.role}</span>
@@ -345,7 +335,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                           </div>
                         </div>
 
-                        {/* Date, Reason & Warnings */}
                         <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                           <div>
                             <div className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-1">
@@ -354,7 +343,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                               <Badge variant="secondary" className="text-[10px] ml-1 bg-slate-100 text-slate-600">{days} Day{days > 1 ? 's' : ''}</Badge>
                             </div>
                             
-                            {/* Overlap Warning */}
                             {activeTab === 'pending' && overlaps.length > 0 && (
                                 <TooltipProvider>
                                     <Tooltip>
@@ -382,27 +370,18 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                           </div>
                         </div>
 
-                        {/* Actions / Status */}
                         <div className="flex items-center gap-2 justify-end min-w-[140px]">
                           {leave.status === "pending" ? (
                             <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
                               <Button 
-                                size="sm" 
-                                variant="ghost" 
-                                className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 bg-white shadow-sm"
-                                onClick={() => handleApprove(leave.id)}
-                                disabled={isProcessing}
-                                title="Approve"
+                                size="sm" variant="ghost" className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 bg-white shadow-sm"
+                                onClick={() => handleApprove(leave.id)} disabled={isProcessing} title="Approve"
                               >
                                 <Check className="h-4 w-4" />
                               </Button>
                               <Button 
-                                size="sm" 
-                                variant="ghost" 
-                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white shadow-sm"
-                                onClick={() => setRejectDialog({ isOpen: true, leaveId: leave.id })}
-                                disabled={isProcessing}
-                                title="Reject"
+                                size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white shadow-sm"
+                                onClick={() => setRejectDialog({ isOpen: true, leaveId: leave.id })} disabled={isProcessing} title="Reject"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -418,9 +397,7 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => toast.info(`Details: ${leave.reason}`)}>
-                                View Full Details
-                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => toast.info(`Details: ${leave.reason}`)}>View Full Details</DropdownMenuItem>
                               {leave.rejection_reason && (
                                 <DropdownMenuItem className="text-red-600 font-medium focus:bg-red-50 focus:text-red-700">
                                   Reason: {leave.rejection_reason}
@@ -439,7 +416,6 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
         </CardContent>
       </Card>
 
-      {/* --- Floating Bulk Action Bar --- */}
       {selectedIds.size > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5">
               <div className="flex items-center gap-2">
@@ -447,77 +423,44 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                   <span className="font-medium">{selectedIds.size} Requests Selected</span>
               </div>
               <div className="flex gap-2 border-l border-slate-700 pl-6">
-                  <Button variant="outline" size="sm" className="bg-transparent border-slate-600 hover:bg-slate-800 hover:text-white" onClick={() => setSelectedIds(new Set())}>
-                      Cancel
-                  </Button>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white border-0" onClick={() => setRejectDialog({ isOpen: true, leaveId: null, isBulk: true })}>
-                      Reject
-                  </Button>
-                  <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white border-0" onClick={handleBulkApprove} disabled={isProcessing}>
-                      {isProcessing ? "Processing..." : "Approve All"}
-                  </Button>
+                  <Button variant="outline" size="sm" className="bg-transparent border-slate-600 hover:bg-slate-800 hover:text-white" onClick={() => setSelectedIds(new Set())}>Cancel</Button>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white border-0" onClick={() => setRejectDialog({ isOpen: true, leaveId: null, isBulk: true })}>Reject</Button>
+                  <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white border-0" onClick={handleBulkApprove} disabled={isProcessing}>{isProcessing ? "Processing..." : "Approve All"}</Button>
               </div>
           </div>
       )}
 
-      {/* Reject Dialog */}
       <Dialog open={rejectDialog.isOpen} onOpenChange={(open) => !open && setRejectDialog({ isOpen: false, leaveId: null, isBulk: false })}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{rejectDialog.isBulk ? `Reject ${selectedIds.size} Requests` : "Reject Leave Application"}</DialogTitle>
-            <DialogDescription>
-              Please provide a reason for rejecting {rejectDialog.isBulk ? 'these requests' : 'this request'}. The employee will see this note.
-            </DialogDescription>
+            <DialogDescription>Please provide a reason for rejecting {rejectDialog.isBulk ? 'these requests' : 'this request'}. The employee will see this note.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <Textarea
-              placeholder="e.g. Too many people off this week..."
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-              className="min-h-[100px]"
-            />
+            <Textarea placeholder="e.g. Too many people off this week..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="min-h-[100px]" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectDialog({ isOpen: false, leaveId: null, isBulk: false })}>Cancel</Button>
-            <Button variant="destructive" onClick={handleReject} disabled={!rejectionReason.trim() || isProcessing}>
-              Confirm Rejection
-            </Button>
+            <Button variant="destructive" onClick={handleReject} disabled={!rejectionReason.trim() || isProcessing}>Confirm Rejection</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Leave Policy Settings Dialog */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Leave Policy Settings</DialogTitle>
-            <DialogDescription>
-              Adjust the annual leave allowances for all employees in your workspace.
-            </DialogDescription>
+            <DialogDescription>Adjust the annual leave allowances for your workspace.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-               <Label>Casual Leave (Days)</Label>
-               <Input type="number" value={allowances.casual} onChange={e => setAllowances({...allowances, casual: Number(e.target.value)})} />
-            </div>
-            <div className="space-y-2">
-               <Label>Sick Leave (Days)</Label>
-               <Input type="number" value={allowances.sick} onChange={e => setAllowances({...allowances, sick: Number(e.target.value)})} />
-            </div>
-            <div className="space-y-2">
-               <Label>Paid Leave (Days)</Label>
-               <Input type="number" value={allowances.paid} onChange={e => setAllowances({...allowances, paid: Number(e.target.value)})} />
-            </div>
-            <div className="space-y-2">
-               <Label>Emergency Leave (Days)</Label>
-               <Input type="number" value={allowances.emergency} onChange={e => setAllowances({...allowances, emergency: Number(e.target.value)})} />
-            </div>
+            <div className="space-y-2"><Label>Casual Leave (Days)</Label><Input type="number" value={allowances.casual} onChange={e => setAllowances({...allowances, casual: Number(e.target.value)})} /></div>
+            <div className="space-y-2"><Label>Sick Leave (Days)</Label><Input type="number" value={allowances.sick} onChange={e => setAllowances({...allowances, sick: Number(e.target.value)})} /></div>
+            <div className="space-y-2"><Label>Paid Leave (Days)</Label><Input type="number" value={allowances.paid} onChange={e => setAllowances({...allowances, paid: Number(e.target.value)})} /></div>
+            <div className="space-y-2"><Label>Emergency Leave (Days)</Label><Input type="number" value={allowances.emergency} onChange={e => setAllowances({...allowances, emergency: Number(e.target.value)})} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSettings(false)}>Cancel</Button>
-            <Button onClick={handleSaveSettings} disabled={isSavingSettings}>
-              {isSavingSettings ? "Saving..." : "Save Policies"}
-            </Button>
+            <Button onClick={handleSaveSettings} disabled={isSavingSettings}>{isSavingSettings ? "Saving..." : "Save Policies"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
