@@ -136,7 +136,7 @@ export default function WorkspaceSettingsPage() {
                   Client ID <KeyRound className="h-3 w-3 text-slate-400" />
                 </Label>
                 <Input 
-                  placeholder="e.g. Help_call_services" 
+                  placeholder="e.g. Hanva" 
                   value={formData.fonada_client_id}
                   onChange={(e) => setFormData(prev => ({ ...prev, fonada_client_id: e.target.value }))}
                   className="font-mono text-sm bg-slate-50"
