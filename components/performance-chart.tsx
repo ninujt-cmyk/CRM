@@ -19,7 +19,23 @@ export function PerformanceChart({ startDate, endDate, telecallerId }: Performan
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        // 1. Fetch data for ENTIRE range (Select ONLY timestamp to save bandwidth)
+        // 🔴 1. Securely fetch the logged-in user's Tenant ID
+        const { data: { user } } = await supabase.auth.getUser()
+        let tenantId = null
+        let role = null
+        
+        if (user) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('tenant_id, role')
+            .eq('id', user.id)
+            .single()
+            
+          tenantId = profile?.tenant_id
+          role = profile?.role
+        }
+
+        // 2. Fetch data for ENTIRE range (Select ONLY timestamp to save bandwidth)
         let leadsQuery = supabase
           .from("leads")
           .select("created_at")
@@ -32,6 +48,12 @@ export function PerformanceChart({ startDate, endDate, telecallerId }: Performan
           .gte("created_at", startDate)
           .lte("created_at", `${endDate}T23:59:59`)
 
+        // 🔴 3. APPLY STRICT TENANT ISOLATION (Defense in Depth)
+        if (tenantId && role !== 'super_admin') {
+          leadsQuery = leadsQuery.eq('tenant_id', tenantId)
+          callsQuery = callsQuery.eq('tenant_id', tenantId)
+        }
+
         if (telecallerId) {
           const ids = telecallerId.split(',')
           leadsQuery = leadsQuery.in("assigned_to", ids)
@@ -41,7 +63,7 @@ export function PerformanceChart({ startDate, endDate, telecallerId }: Performan
         // Execute queries in parallel
         const [{ data: leadsRaw }, { data: callsRaw }] = await Promise.all([leadsQuery, callsQuery])
 
-        // 2. Initialize Date Map (to ensure days with 0 data still show up on chart)
+        // 4. Initialize Date Map (to ensure days with 0 data still show up on chart)
         const dateMap = new Map<string, { leads: number; calls: number }>()
         const start = new Date(startDate)
         const end = new Date(endDate)
@@ -50,7 +72,7 @@ export function PerformanceChart({ startDate, endDate, telecallerId }: Performan
           dateMap.set(d.toISOString().split("T")[0], { leads: 0, calls: 0 })
         }
 
-        // 3. Aggregate Data
+        // 5. Aggregate Data
         leadsRaw?.forEach((item) => {
           const dateKey = item.created_at.split("T")[0]
           if (dateMap.has(dateKey)) dateMap.get(dateKey)!.leads += 1
@@ -61,7 +83,7 @@ export function PerformanceChart({ startDate, endDate, telecallerId }: Performan
           if (dateMap.has(dateKey)) dateMap.get(dateKey)!.calls += 1
         })
 
-        // 4. Format for Recharts
+        // 6. Format for Recharts
         const chartData = Array.from(dateMap.entries()).map(([date, counts]) => ({
           date: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
           ...counts,
