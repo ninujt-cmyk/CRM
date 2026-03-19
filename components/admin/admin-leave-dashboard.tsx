@@ -82,24 +82,39 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
   const [allowances, setAllowances] = useState({ casual: 12, sick: 8, paid: 15, emergency: 3 });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
-  // Fetch Policies on Mount
+  // 🔴 FIX: Fetch Policies dynamically based on Tenant RLS
   useEffect(() => {
     const fetchPolicies = async () => {
-      const { data } = await supabase.from('leave_policies').select('*').eq('id', 'default').single();
-      if (data) setAllowances({ casual: data.casual, sick: data.sick, paid: data.paid, emergency: data.emergency });
+      // RLS will automatically ensure we only get OUR company's policy
+      const { data } = await supabase.from('leave_policies').select('*').limit(1).maybeSingle();
+      if (data) {
+          setAllowances({ casual: data.casual, sick: data.sick, paid: data.paid, emergency: data.emergency });
+      }
     };
     fetchPolicies();
   }, [supabase]);
 
-  // Save Policy Settings
+  // 🔴 FIX: Save Policy Settings without shared 'default' ID
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
-      const { error } = await supabase.from('leave_policies').update(allowances).eq('id', 'default');
-      if (error) throw error;
-      toast.success("Leave policies updated for all employees.");
+      // Check if we already have a policy
+      const { data: existing } = await supabase.from('leave_policies').select('id').limit(1).maybeSingle();
+      
+      if (existing) {
+        // Update our existing row
+        const { error } = await supabase.from('leave_policies').update(allowances).eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        // Insert a new row (The database trigger will automatically attach the tenant_id!)
+        const { error } = await supabase.from('leave_policies').insert([allowances]);
+        if (error) throw error;
+      }
+
+      toast.success("Leave policies updated for your workspace.");
       setShowSettings(false);
     } catch (e) {
+      console.error(e);
       toast.error("Failed to update settings.");
     } finally {
       setIsSavingSettings(false);
@@ -112,8 +127,8 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
       .filter((leave) => {
         const matchesTab = activeTab === "all" ? true : leave.status === activeTab;
         const matchesSearch = 
-          leave.user?.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          leave.leave_type.toLowerCase().includes(searchTerm.toLowerCase());
+          leave.user?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          leave.leave_type?.toLowerCase().includes(searchTerm.toLowerCase());
         return matchesTab && matchesSearch;
       })
       .sort((a, b) => {
@@ -139,12 +154,10 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
     pending: leaves.filter((l) => l.status === "pending").length,
     approved: leaves.filter((l) => l.status === "approved").length,
     todayOnLeave: leaves.filter((l) => {
-      if (l.status !== "approved") return false; // Only count approved leaves
-      
+      if (l.status !== "approved") return false; 
       const today = startOfDay(new Date());
       const lStart = startOfDay(new Date(l.start_date));
       const lEnd = startOfDay(new Date(l.end_date));
-      
       return lStart <= today && lEnd >= today;
     }).length,
   };
@@ -324,7 +337,7 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="font-semibold text-sm text-slate-900">{leave.user?.full_name}</p>
+                            <p className="font-semibold text-sm text-slate-900">{leave.user?.full_name || "Unknown User"}</p>
                             <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-xs font-medium text-slate-500 capitalize">{leave.leave_type} Leave</span>
                                 <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{leave.user?.role}</span>
@@ -479,7 +492,7 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
           <DialogHeader>
             <DialogTitle>Leave Policy Settings</DialogTitle>
             <DialogDescription>
-              Adjust the annual leave allowances for all employees.
+              Adjust the annual leave allowances for all employees in your workspace.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-4">
