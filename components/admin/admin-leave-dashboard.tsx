@@ -50,9 +50,10 @@ interface LeaveRecord {
 interface AdminLeaveDashboardProps {
   leaves: LeaveRecord[];
   currentUserId: string;
+  tenantId?: string; // 🔴 NEW: Secure Tenant Prop
 }
 
-export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: AdminLeaveDashboardProps) {
+export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId, tenantId }: AdminLeaveDashboardProps) {
   const supabase = createClient();
   const [leaves, setLeaves] = useState<LeaveRecord[]>(initialLeaves);
   const [activeTab, setActiveTab] = useState("pending");
@@ -73,34 +74,35 @@ export function AdminLeaveDashboard({ leaves: initialLeaves, currentUserId }: Ad
   const [showSettings, setShowSettings] = useState(false);
   const [allowances, setAllowances] = useState({ casual: 12, sick: 8, paid: 15, emergency: 3 });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  
-  // 🔴 FIX: Track the actual database ID of the current tenant's policy
   const [policyId, setPolicyId] = useState<string | null>(null);
 
   // Fetch Policies on Mount
   useEffect(() => {
     const fetchPolicies = async () => {
-      // 🔴 FIX: RLS automatically restricts this to the current tenant! No more 'default' hardcoding.
-      const { data } = await supabase.from('leave_policies').select('*').limit(1).maybeSingle();
+      // 🔴 STRICT FILE-LEVEL FILTERING FOR POLICIES
+      let query = supabase.from('leave_policies').select('*');
+      if (tenantId) query = query.eq('tenant_id', tenantId);
+
+      const { data } = await query.limit(1).maybeSingle();
       if (data) {
           setAllowances({ casual: data.casual || 12, sick: data.sick || 8, paid: data.paid || 15, emergency: data.emergency || 3 });
           setPolicyId(data.id);
       }
     };
     fetchPolicies();
-  }, [supabase]);
+  }, [supabase, tenantId]);
 
   // Save Policy Settings
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
       if (policyId) {
-          // Update existing tenant policy
           const { error } = await supabase.from('leave_policies').update(allowances).eq('id', policyId);
           if (error) throw error;
       } else {
-          // Insert new policy for tenant (auto-injector handles the tenant_id mapping)
-          const { data, error } = await supabase.from('leave_policies').insert([allowances]).select('id').single();
+          // Explicitly attach the tenant_id from the file level just to be perfectly safe
+          const payload = tenantId ? { ...allowances, tenant_id: tenantId } : allowances;
+          const { data, error } = await supabase.from('leave_policies').insert([payload]).select('id').single();
           if (error) throw error;
           if (data) setPolicyId(data.id);
       }
