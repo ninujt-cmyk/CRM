@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { AlertCircle, Loader2 } from "lucide-react"
+import { AlertCircle, Loader2, Building2 } from "lucide-react"
 
 interface UserFormProps {
   initialData?: {
@@ -18,6 +18,7 @@ interface UserFormProps {
     phone: string
     role: string
     manager_id: string | null
+    tenant_id?: string | null // Added for Super Admin editing
   }
   isEditing?: boolean
 }
@@ -32,50 +33,73 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     phone: initialData?.phone || "",
     role: initialData?.role || "telecaller",
     manager_id: initialData?.manager_id || "none",
-    password: "", // Only for new users
+    tenant_id: initialData?.tenant_id || "none", // Added to form state
+    password: "", 
   })
   
   const [admins, setAdmins] = useState<{ id: string; full_name: string }[]>([])
+  
+  // 🔴 NEW: Super Admin State
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
+  const [tenants, setTenants] = useState<{ id: string; name: string }[]>([])
+  
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchAdmins = async () => {
-      const { data, error } = await supabase
+    const initForm = async () => {
+      // 1. Get the current user's role to determine if they are a Super Admin
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase.from("users").select("role").eq("id", user.id).single()
+        if (profile) {
+          setCurrentUserRole(profile.role)
+          
+          // 2. If Super Admin, fetch all available organizations (tenants)
+          if (profile.role === "super_admin") {
+            const { data: orgData } = await supabase.from("organizations").select("id, name").order("name")
+            if (orgData) setTenants(orgData)
+          }
+        }
+      }
+
+      // 3. Fetch managers for the assignment dropdown
+      const { data: adminData } = await supabase
         .from("users")
         .select("id, full_name")
         .in("role", ["admin", "tenant_admin", "team_leader", "super_admin"])
-        .eq("is_active", true) // Optional: Only show active managers
-        .order("full_name", { ascending: true }) // Sort A-Z for easier finding
+        .eq("is_active", true) 
+        .order("full_name", { ascending: true }) 
       
-      if (data) {
-        setAdmins(data)
-      } else if (error) {
-        console.error("Error fetching managers:", error)
-      }
+      if (adminData) setAdmins(adminData)
     }
     
-    fetchAdmins()
-  }, [])
+    initForm()
+  }, [supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError(null)
 
+    // Prepare payload
+    const payload = {
+      email: formData.email,
+      full_name: formData.full_name,
+      phone: formData.phone,
+      role: formData.role,
+      password: formData.password, // Ignored in PATCH usually
+      manager_id: formData.manager_id === "none" || formData.manager_id === "" ? null : formData.manager_id,
+      // Pass tenant_id ONLY if super_admin selected one
+      tenant_id: formData.tenant_id === "none" || formData.tenant_id === "" ? undefined : formData.tenant_id
+    }
+
     try {
       if (isEditing && initialData) {
-        // ✅ NEW: Call the API Route instead of direct Supabase update
         const response = await fetch(`/api/admin/users/${initialData.id}`, {
-          method: "PATCH", // Using PATCH for updates
+          method: "PATCH", 
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            full_name: formData.full_name,
-            phone: formData.phone,
-            role: formData.role,
-            // Ensure we send NULL if "none" is selected, otherwise send the UUID
-            manager_id: formData.manager_id === "none" || formData.manager_id === "" ? null : formData.manager_id
-          })
+          body: JSON.stringify(payload)
         })
 
         if (!response.ok) {
@@ -87,28 +111,10 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         router.push("/admin/users")
         router.refresh()
       } else {
-        // Create new user
-        // Note: In a real app, you might use a server action or an admin API to create users without logging them in.
-        // Here we'll use the client-side signUp, but this logs the current user out if not careful.
-        // Ideally, we should use a backend function. 
-        // For this task, we'll assume the user is an Admin creating another user.
-        // Supabase `signUp` on client side logs the new user in. 
-        // To avoid this, we should use `supabase.auth.admin.createUser` which requires service_role key (backend).
-        // OR use a secondary client?
-        // Since we are in the browser, we can't use service_role safely.
-        // We will use a workaround: Call an API route.
-        
         const response = await fetch("/api/admin/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: formData.email,
-            password: formData.password,
-            full_name: formData.full_name,
-            phone: formData.phone,
-            role: formData.role,
-            manager_id: formData.manager_id === "none" ? null : formData.manager_id
-          })
+          body: JSON.stringify(payload)
         })
         
         if (!response.ok) {
@@ -138,6 +144,36 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          
+          {/* 🔴 NEW: Super Admin Tenant Selection */}
+          {currentUserRole === 'super_admin' && (
+            <div className="grid gap-2 p-4 bg-indigo-50 border border-indigo-100 rounded-lg mb-4">
+              <Label htmlFor="tenant" className="flex items-center gap-2 text-indigo-900">
+                <Building2 className="h-4 w-4" />
+                Assign to Workspace (Super Admin Only)
+              </Label>
+              <Select 
+                value={formData.tenant_id} 
+                onValueChange={(value) => setFormData({ ...formData, tenant_id: value })}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Select a workspace..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-slate-400 italic">Inherit My Workspace</SelectItem>
+                  {tenants.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-indigo-600 mt-1">
+                Select the company this user belongs to. Leave default to add them to your current active workspace.
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-2">
             <Label htmlFor="full_name">Full Name</Label>
             <Input
@@ -156,7 +192,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
-              disabled={isEditing} // Email cannot be changed easily
+              disabled={isEditing} 
             />
           </div>
 
@@ -193,7 +229,6 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
-                {/* These values MUST match your database exactly */}
                 <SelectItem value="telecaller">Telecaller</SelectItem>
                 <SelectItem value="team_leader">Team Leader</SelectItem>
                 <SelectItem value="kyc_team">KYC Team</SelectItem>
