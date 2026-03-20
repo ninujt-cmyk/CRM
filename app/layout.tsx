@@ -12,6 +12,9 @@ import PWAWrapper from "@/components/pwa-client-wrapper"
 // ✅ IMPORT THE TENANT PROVIDER
 import { TenantProvider } from "@/context/tenant-provider"
 
+// ✅ IMPORT THE THEME PROVIDER
+import { ThemeProvider } from "@/components/theme-provider"
+
 const geistSans = Inter({
   subsets: ["latin"],
   display: "swap",
@@ -83,7 +86,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    {/* ✅ ADDED suppressHydrationWarning TO PREVENT NEXT-THEMES MISMATCH */}
+    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
       <head>
         <meta name="application-name" content="Hanva CRM" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -105,21 +109,29 @@ export default function RootLayout({
       <body className="font-sans">
         <ErrorBoundary>
           
-          {/* ✅ WRAP THE ENTIRE APP IN THE TENANT PROVIDER */}
-          <TenantProvider>
-            
-            {/* Main content */}
-            {children}
+          {/* ✅ WRAP WITH THEME PROVIDER */}
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {/* ✅ WRAP THE ENTIRE APP IN THE TENANT PROVIDER */}
+            <TenantProvider>
+              
+              {/* Main content */}
+              {children}
 
-            <PWAWrapper />
+              <PWAWrapper />
 
-            {/* Toast notifications */}
-            <Toaster position="top-right" richColors closeButton duration={4000} />
+              {/* Toast notifications */}
+              <Toaster position="top-right" richColors closeButton duration={4000} />
 
-            <Analytics />
+              <Analytics />
 
-          </TenantProvider>
-          
+            </TenantProvider>
+          </ThemeProvider>
+
         </ErrorBoundary>
       </body>
     </html>
