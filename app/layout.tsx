@@ -9,10 +9,8 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { Suspense } from "react"
 import PWAWrapper from "@/components/pwa-client-wrapper"
 
-// ✅ IMPORT THE TENANT PROVIDER
+// Providers
 import { TenantProvider } from "@/context/tenant-provider"
-
-// ✅ IMPORT THE THEME PROVIDER
 import { ThemeProvider } from "@/components/theme-provider"
 
 const geistSans = Inter({
@@ -86,8 +84,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    {/* ✅ ADDED suppressHydrationWarning TO PREVENT NEXT-THEMES MISMATCH */}
-    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html 
+      lang="en" 
+      suppressHydrationWarning 
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+    >
       <head>
         <meta name="application-name" content="Hanva CRM" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -109,14 +110,13 @@ export default function RootLayout({
       <body className="font-sans">
         <ErrorBoundary>
           
-          {/* ✅ WRAP WITH THEME PROVIDER */}
+          {/* ✅ WRAPPED IN THEME PROVIDER FIRST, THEN TENANT PROVIDER */}
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
             enableSystem
             disableTransitionOnChange
           >
-            {/* ✅ WRAP THE ENTIRE APP IN THE TENANT PROVIDER */}
             <TenantProvider>
               
               {/* Main content */}
