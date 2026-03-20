@@ -7,15 +7,24 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Search, PlusCircle, CheckCircle } from "lucide-react"
+import { Loader2, Search, PlusCircle, CheckCircle, Plus, Trash2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 interface DisbursementModalProps {
     onSuccess: () => void; // Function to refresh parent data
 }
 
-// DSA Options
+// Options
 const DSA_OPTIONS = ["RKPL", "Star Power", "Profincare", "DRRT", "URBAN"]
+const BANK_OPTIONS = ["ICICI Bank", "HDFC Bank", "IDFC Bank", "Axis Bank", "Finnable", "Incred", "L&T", "Other"]
+
+const DEFAULT_DISBURSEMENT = {
+    application_number: "",
+    bank_name: "",
+    disbursed_date: new Date().toISOString().split('T')[0],
+    loan_amount: "",
+    disbursed_amount: ""
+}
 
 export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
     const [open, setOpen] = useState(false)
@@ -25,24 +34,23 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
     const { toast } = useToast()
     const supabase = createClient()
 
-    // Form State
+    // UI State
     const [phoneSearch, setPhoneSearch] = useState("")
     const [isLeadFound, setIsLeadFound] = useState(false)
     const [showForm, setShowForm] = useState(false)
     
-    const [formData, setFormData] = useState({
+    // 1. Shared Lead State (Applies to all disbursements for this phone number)
+    const [sharedData, setSharedData] = useState({
         id: "", // Lead ID if found
         name: "",
         phone: "",
-        loan_amount: "",
-        disbursed_amount: "",
-        bank_name: "",
-        assigned_to: "", // Telecaller ID
-        application_number: "",
-        disbursed_date: new Date().toISOString().split('T')[0], // Default to today
         location: "", // Maps to 'city'
-        dsa_name: ""  // Maps to 'DSA' column
+        dsa_name: "", // Maps to 'DSA' column
+        assigned_to: "", // Telecaller ID
     })
+
+    // 2. Dynamic Disbursements Array (Up to 6)
+    const [disbursements, setDisbursements] = useState([{ ...DEFAULT_DISBURSEMENT }])
 
     // Fetch Telecallers for the dropdown
     useEffect(() => {
@@ -50,7 +58,7 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
             const { data } = await supabase
                 .from('users')
                 .select('id, full_name')
-                .in('role', ['telecaller', 'team_leader']) // Added team_leader just in case
+                .in('role', ['telecaller', 'team_leader'])
                 .eq('is_active', true)
             
             if (data) setTelecallers(data)
@@ -62,19 +70,15 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
         setPhoneSearch("")
         setShowForm(false)
         setIsLeadFound(false)
-        setFormData({
+        setSharedData({
             id: "",
             name: "",
             phone: "",
-            loan_amount: "",
-            disbursed_amount: "",
-            bank_name: "",
-            assigned_to: "",
-            application_number: "",
-            disbursed_date: new Date().toISOString().split('T')[0],
             location: "",
-            dsa_name: ""
+            dsa_name: "",
+            assigned_to: ""
         })
+        setDisbursements([{ ...DEFAULT_DISBURSEMENT }])
     }
 
     const handleSearch = async () => {
@@ -84,8 +88,8 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
         }
 
         setSearchLoading(true)
-        // Reset form data but keep phone search
-        setFormData(prev => ({ ...prev, id: "", name: "", loan_amount: "", disbursed_amount: "", bank_name: "", assigned_to: "", application_number: "", location: "", dsa_name: "" }))
+        resetForm()
+        setPhoneSearch(phoneSearch) // Restore search term after reset
         
         // Search for existing lead
         const { data, error } = await supabase
@@ -94,74 +98,113 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
             .eq('phone', phoneSearch)
             .single()
 
-        setShowForm(true) // Show form regardless of result
+        setShowForm(true)
 
         if (data) {
             setIsLeadFound(true)
             
-            // Format existing date if available, else today
-            const existingDate = data.disbursed_at ? new Date(data.disbursed_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
-
-            setFormData({
+            // Populate Shared Data
+            setSharedData({
                 id: data.id,
                 name: data.name || "",
                 phone: data.phone,
-                loan_amount: data.loan_amount || "",
-                disbursed_amount: data.disbursed_amount || "", 
-                bank_name: data.bank_name || "",
-                assigned_to: data.assigned_to || "",
-                application_number: data.application_number || "",
-                disbursed_date: existingDate,
                 location: data.city || "",
-                dsa_name: data.DSA || "" // Load existing DSA if available
+                dsa_name: data.DSA || "",
+                assigned_to: data.assigned_to || ""
             })
+
+            // Populate First Disbursement Entry
+            const existingDate = data.disbursed_at ? new Date(data.disbursed_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+            setDisbursements([{
+                application_number: data.application_number || "",
+                bank_name: data.bank_name || "",
+                disbursed_date: existingDate,
+                loan_amount: data.loan_amount || "",
+                disbursed_amount: data.disbursed_amount || ""
+            }])
+
             toast({ title: "Lead Found", description: "Details fetched from database.", className: "bg-green-50" })
         } else {
             setIsLeadFound(false)
-            // Pre-fill phone, leave rest blank for creation
-            setFormData(prev => ({ ...prev, phone: phoneSearch, id: "" }))
+            setSharedData(prev => ({ ...prev, phone: phoneSearch }))
             toast({ title: "New Lead", description: "Number not found. Please enter details.", className: "bg-blue-50" })
         }
 
         setSearchLoading(false)
     }
 
+    // --- Dynamic Array Handlers ---
+    const addDisbursement = () => {
+        if (disbursements.length < 6) {
+            setDisbursements([...disbursements, { ...DEFAULT_DISBURSEMENT }])
+        } else {
+            toast({ title: "Limit Reached", description: "You can only add up to 6 banks at a time.", variant: "destructive" })
+        }
+    }
+
+    const removeDisbursement = (indexToRemove: number) => {
+        setDisbursements(disbursements.filter((_, index) => index !== indexToRemove))
+    }
+
+    const handleDisbursementChange = (index: number, field: string, value: string) => {
+        const newArr = [...disbursements]
+        newArr[index] = { ...newArr[index], [field]: value }
+        setDisbursements(newArr)
+    }
+
+    // --- Submit Handler ---
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
 
         try {
-            const payload = {
-                name: formData.name,
-                phone: formData.phone,
-                loan_amount: Number(formData.loan_amount) || 0,
-                disbursed_amount: Number(formData.disbursed_amount) || 0,
-                bank_name: formData.bank_name,
-                assigned_to: formData.assigned_to,
+            // Generate payloads for all disbursement blocks
+            const payloads = disbursements.map(d => ({
+                name: sharedData.name,
+                phone: sharedData.phone,
+                city: sharedData.location,
+                DSA: sharedData.dsa_name,
+                assigned_to: sharedData.assigned_to,
                 status: 'DISBURSED', 
-                disbursed_at: new Date(formData.disbursed_date).toISOString(),
-                application_number: formData.application_number,
-                city: formData.location, // Saving location to 'city' column
-                DSA: formData.dsa_name // Saving DSA name to 'DSA' column
-            }
+                
+                // Block-specific data
+                bank_name: d.bank_name,
+                application_number: d.application_number,
+                disbursed_at: new Date(d.disbursed_date).toISOString(),
+                loan_amount: Number(d.loan_amount) || 0,
+                disbursed_amount: Number(d.disbursed_amount) || 0,
+            }))
 
-            let error;
+            if (isLeadFound && sharedData.id) {
+                // 1. Update the originally found lead row with the FIRST disbursement data
+                const { error: updateError } = await supabase
+                    .from('leads')
+                    .update(payloads[0])
+                    .eq('id', sharedData.id)
+                
+                if (updateError) throw updateError
 
-            if (isLeadFound && formData.id) {
-                // Update existing
-                const result = await supabase.from('leads').update(payload).eq('id', formData.id)
-                error = result.error
+                // 2. Insert any ADDITIONAL disbursements as new rows
+                if (payloads.length > 1) {
+                    const newPayloads = payloads.slice(1)
+                    const { error: insertError } = await supabase
+                        .from('leads')
+                        .insert(newPayloads)
+                    
+                    if (insertError) throw insertError
+                }
             } else {
-                // Insert new
-                const result = await supabase.from('leads').insert([payload])
-                error = result.error
+                // Brand new lead - insert all blocks as new rows
+                const { error: insertError } = await supabase
+                    .from('leads')
+                    .insert(payloads)
+                
+                if (insertError) throw insertError
             }
 
-            if (error) throw error
-
-            toast({ title: "Success", description: "Disbursement recorded successfully." })
-            onSuccess() // Refresh parent
-            setOpen(false) // Close modal
+            toast({ title: "Success", description: `Successfully recorded ${disbursements.length} disbursement(s).` })
+            onSuccess() 
+            setOpen(false) 
             resetForm()
 
         } catch (error: any) {
@@ -180,7 +223,7 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
                     Create Disbursement
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Record Disbursement</DialogTitle>
                 </DialogHeader>
@@ -210,7 +253,7 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
 
                     {/* Main Form */}
                     {showForm && (
-                        <form onSubmit={handleSubmit} className="space-y-4 border-t pt-4">
+                        <form onSubmit={handleSubmit} className="space-y-6 border-t pt-4">
                              <div className="flex items-center gap-2 mb-2">
                                 {isLeadFound ? (
                                     <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded flex items-center gap-1">
@@ -223,150 +266,176 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="name">Customer Name *</Label>
-                                    <Input 
-                                        id="name" 
-                                        required 
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                    />
+                            {/* --- SHARED DETAILS SECTION --- */}
+                            <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-4">
+                                <h3 className="text-sm font-bold text-slate-800 mb-2">Customer & Assignment Details</h3>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Customer Name *</Label>
+                                        <Input 
+                                            required 
+                                            value={sharedData.name}
+                                            onChange={(e) => setSharedData({...sharedData, name: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Phone</Label>
+                                        <Input 
+                                            value={sharedData.phone}
+                                            disabled // Locked to search result
+                                            className="bg-slate-100 text-slate-500"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="phone">Phone</Label>
-                                    <Input 
-                                        id="phone" 
-                                        value={formData.phone}
-                                        disabled // Locked to search result
-                                        className="bg-slate-50"
-                                    />
+
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Location (City) *</Label>
+                                        <Input 
+                                            required
+                                            placeholder="City"
+                                            value={sharedData.location}
+                                            onChange={(e) => setSharedData({...sharedData, location: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>DSA Name *</Label>
+                                        <Select 
+                                            value={sharedData.dsa_name} 
+                                            onValueChange={(val) => setSharedData({...sharedData, dsa_name: val})}
+                                            required
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Select DSA" /></SelectTrigger>
+                                            <SelectContent>
+                                                {DSA_OPTIONS.map((dsa) => (
+                                                    <SelectItem key={dsa} value={dsa}>{dsa}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Assigned Telecaller *</Label>
+                                        <Select 
+                                            value={sharedData.assigned_to} 
+                                            onValueChange={(val) => setSharedData({...sharedData, assigned_to: val})}
+                                            required
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Select Agent" /></SelectTrigger>
+                                            <SelectContent>
+                                                {telecallers.map(user => (
+                                                    <SelectItem key={user.id} value={user.id}>{user.full_name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="app_no">Application Number *</Label>
-                                    <Input 
-                                        id="app_no" 
-                                        required
-                                        placeholder="APP-12345"
-                                        value={formData.application_number}
-                                        onChange={(e) => setFormData({...formData, application_number: e.target.value})}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="location">Location (City) *</Label>
-                                    <Input 
-                                        id="location" 
-                                        required
-                                        placeholder="City"
-                                        value={formData.location}
-                                        onChange={(e) => setFormData({...formData, location: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="bank">Bank Selection *</Label>
-                                    <Select 
-                                        value={formData.bank_name} 
-                                        onValueChange={(val) => setFormData({...formData, bank_name: val})}
-                                        required
+                            {/* --- DYNAMIC DISBURSEMENTS SECTION --- */}
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-sm font-bold text-slate-800">Bank Disbursements</h3>
+                                    <Button 
+                                        type="button" 
+                                        variant="outline" 
+                                        size="sm" 
+                                        onClick={addDisbursement}
+                                        disabled={disbursements.length >= 6}
+                                        className="gap-1 h-8 text-xs bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
                                     >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select Bank" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="ICICI Bank">ICICI Bank</SelectItem>
-                                            <SelectItem value="HDFC Bank">HDFC Bank</SelectItem>
-                                            <SelectItem value="IDFC Bank">IDFC Bank</SelectItem>
-                                            <SelectItem value="Axis Bank">Axis Bank</SelectItem>
-                                            <SelectItem value="Finnable">Finnable</SelectItem>
-                                            <SelectItem value="Incred">Incred</SelectItem>
-                                            <SelectItem value="L&T">L&T</SelectItem>
-                                            <SelectItem value="Other">Other</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                        <Plus className="h-3 w-3" /> Add Another Bank
+                                    </Button>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="date">Disbursement Date *</Label>
-                                    <Input 
-                                        id="date" 
-                                        type="date"
-                                        required
-                                        value={formData.disbursed_date}
-                                        onChange={(e) => setFormData({...formData, disbursed_date: e.target.value})}
-                                    />
-                                </div>
+
+                                {disbursements.map((entry, index) => (
+                                    <div key={index} className="relative bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
+                                        
+                                        {/* Remove Button for extra blocks */}
+                                        {disbursements.length > 1 && (
+                                            <Button 
+                                                type="button" 
+                                                variant="ghost" 
+                                                size="icon" 
+                                                className="absolute top-2 right-2 h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                                onClick={() => removeDisbursement(index)}
+                                            >
+                                                <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                        )}
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Application Number *</Label>
+                                                <Input 
+                                                    required
+                                                    placeholder="APP-12345"
+                                                    value={entry.application_number}
+                                                    onChange={(e) => handleDisbursementChange(index, 'application_number', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2 pr-6"> {/* Padding right to avoid delete button overlap */}
+                                                <Label>Bank Selection *</Label>
+                                                <Select 
+                                                    value={entry.bank_name} 
+                                                    onValueChange={(val) => handleDisbursementChange(index, 'bank_name', val)}
+                                                    required
+                                                >
+                                                    <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {BANK_OPTIONS.map(bank => (
+                                                            <SelectItem key={bank} value={bank}>{bank}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Date *</Label>
+                                                <Input 
+                                                    type="date"
+                                                    required
+                                                    value={entry.disbursed_date}
+                                                    onChange={(e) => handleDisbursementChange(index, 'disbursed_date', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Requested (₹)</Label>
+                                                <Input 
+                                                    type="number"
+                                                    placeholder="0"
+                                                    value={entry.loan_amount}
+                                                    onChange={(e) => handleDisbursementChange(index, 'loan_amount', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-green-700 font-bold">Disbursed (₹) *</Label>
+                                                <Input 
+                                                    type="number"
+                                                    required
+                                                    placeholder="0"
+                                                    className="border-green-200 focus-visible:ring-green-500 font-semibold bg-green-50/30"
+                                                    value={entry.disbursed_amount}
+                                                    onChange={(e) => handleDisbursementChange(index, 'disbursed_amount', e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
 
-                            {/* DSA SELECTION FIELD */}
-                            <div className="space-y-2">
-                                <Label htmlFor="dsa">DSA Name *</Label>
-                                <Select 
-                                    value={formData.dsa_name} 
-                                    onValueChange={(val) => setFormData({...formData, dsa_name: val})}
-                                    required
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select DSA" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {DSA_OPTIONS.map((dsa) => (
-                                            <SelectItem key={dsa} value={dsa}>{dsa}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="loan_amount">Requested Amount</Label>
-                                    <Input 
-                                        id="loan_amount" 
-                                        type="number"
-                                        value={formData.loan_amount}
-                                        onChange={(e) => setFormData({...formData, loan_amount: e.target.value})}
-                                    />
+                            <div className="flex justify-between items-center pt-4 border-t">
+                                <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded">
+                                    Total Rows: {disbursements.length} / 6
+                                </span>
+                                <div className="flex gap-2">
+                                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+                                    <Button type="submit" disabled={loading} className="bg-green-600 hover:bg-green-700 text-white min-w-[140px]">
+                                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save All"}
+                                    </Button>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="disbursed_amount" className="text-green-700 font-bold">Disbursed Amount *</Label>
-                                    <Input 
-                                        id="disbursed_amount" 
-                                        type="number"
-                                        required
-                                        className="border-green-200 focus-visible:ring-green-500 font-semibold"
-                                        value={formData.disbursed_amount}
-                                        onChange={(e) => setFormData({...formData, disbursed_amount: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="assign">Assigned Telecaller *</Label>
-                                <Select 
-                                    value={formData.assigned_to} 
-                                    onValueChange={(val) => setFormData({...formData, assigned_to: val})}
-                                    required
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Telecaller" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {telecallers.map(user => (
-                                            <SelectItem key={user.id} value={user.id}>{user.full_name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="flex justify-end gap-2 pt-2">
-                                <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                                <Button type="submit" disabled={loading} className="bg-green-600 hover:bg-green-700 text-white">
-                                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Disbursement"}
-                                </Button>
                             </div>
                         </form>
                     )}
