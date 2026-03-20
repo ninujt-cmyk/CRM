@@ -233,27 +233,30 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       </ScrollArea>
 
       {/* User & Logout */}
-      <div className="p-4 border-t border-slate-100/50 mt-auto dark:border-slate-800/50">
+      <div className="p-4 border-t border-slate-100/50 mt-auto dark:border-slate-800/50 flex flex-col gap-3">
+        
         {!isCollapsed && (
-          <div className="group flex items-center gap-3 px-3 mb-4 p-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default">
+          <div className="group flex items-center justify-between px-3 py-2 rounded-2xl bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-300">
             
-            {/* Avatar */}
-            <div className="relative shrink-0">
-              <Avatar className="h-10 w-10 border-2 border-white dark:border-slate-800 shadow-md group-hover:scale-105 transition-transform duration-300">
-                <AvatarImage src="/placeholder-user.jpg" />
-                <AvatarFallback className="bg-blue-600 text-white font-bold">TA</AvatarFallback>
-              </Avatar>
-              <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
+            <div className="flex items-center gap-3 overflow-hidden">
+              {/* Avatar */}
+              <div className="relative shrink-0">
+                <Avatar className="h-9 w-9 border-2 border-white dark:border-slate-800 shadow-sm">
+                  <AvatarImage src="/placeholder-user.jpg" />
+                  <AvatarFallback className="bg-blue-600 text-white font-bold text-xs">TA</AvatarFallback>
+                </Avatar>
+                <span className="absolute bottom-0 right-0 h-2.5 w-2.5 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
+              </div>
+
+              {/* Profile Text */}
+              <div className="flex flex-col overflow-hidden">
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Agent Profile</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">Online & Ready</span>
+              </div>
             </div>
 
-            {/* Profile Text */}
-            <div className="flex flex-col overflow-hidden flex-1">
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Agent Profile</span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">Online & Ready</span>
-            </div>
-
-            {/* 🔴 NEW: THEME TOGGLE ICON */}
-            <div className="shrink-0">
+            {/* 🔴 THEME TOGGLE ICON (Properly spaced) */}
+            <div className="shrink-0 z-10">
                 <ThemeToggle isCollapsed={false} />
             </div>
 
@@ -262,7 +265,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         
         {/* If Collapsed, show Theme Toggle ABOVE the Logout button */}
         {isCollapsed && (
-            <div className="flex justify-center mb-4">
+            <div className="flex justify-center">
                 <ThemeToggle isCollapsed={true} />
             </div>
         )}
