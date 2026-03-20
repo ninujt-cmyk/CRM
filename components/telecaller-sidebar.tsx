@@ -18,6 +18,7 @@ import {
   TooltipTrigger 
 } from "@/components/ui/tooltip"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 // Modernized & Unique Lucide Icons for Telecallers
 import {
@@ -232,29 +233,46 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       </ScrollArea>
 
       {/* User & Logout */}
-      <div className="p-4 border-t border-slate-100/50 mt-auto">
+      <div className="p-4 border-t border-slate-100/50 mt-auto dark:border-slate-800/50">
         {!isCollapsed && (
-          <div className="group flex items-center gap-3 px-3 mb-4 p-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default">
-            <div className="relative">
-              <Avatar className="h-10 w-10 border-2 border-white shadow-md group-hover:scale-105 transition-transform duration-300">
+          <div className="group flex items-center gap-3 px-3 mb-4 p-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default">
+            
+            {/* Avatar */}
+            <div className="relative shrink-0">
+              <Avatar className="h-10 w-10 border-2 border-white dark:border-slate-800 shadow-md group-hover:scale-105 transition-transform duration-300">
                 <AvatarImage src="/placeholder-user.jpg" />
                 <AvatarFallback className="bg-blue-600 text-white font-bold">TA</AvatarFallback>
               </Avatar>
-              <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></span>
+              <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
             </div>
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-bold text-slate-800 truncate">Agent Profile</span>
-              <span className="text-[10px] text-slate-500 truncate font-medium">Online & Ready</span>
+
+            {/* Profile Text */}
+            <div className="flex flex-col overflow-hidden flex-1">
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Agent Profile</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">Online & Ready</span>
             </div>
+
+            {/* 🔴 NEW: THEME TOGGLE ICON */}
+            <div className="shrink-0">
+                <ThemeToggle isCollapsed={false} />
+            </div>
+
           </div>
         )}
         
+        {/* If Collapsed, show Theme Toggle ABOVE the Logout button */}
+        {isCollapsed && (
+            <div className="flex justify-center mb-4">
+                <ThemeToggle isCollapsed={true} />
+            </div>
+        )}
+
         <LogoutButton 
           variant="outline"
           size={isCollapsed ? "icon" : "default"}
           className={cn(
-            "w-full transition-all duration-300 ease-out border-slate-200 shadow-sm",
-            "hover:shadow-red-100 hover:border-red-200 hover:bg-red-50 hover:text-red-600 hover:-translate-y-0.5",
+            "w-full transition-all duration-300 ease-out border-slate-200 dark:border-slate-700 shadow-sm",
+            "hover:shadow-red-100 dark:hover:shadow-red-900/20 hover:border-red-200 dark:hover:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/50 hover:text-red-600 dark:hover:text-red-400 hover:-translate-y-0.5",
             isCollapsed ? "rounded-2xl h-11 w-11 mx-auto flex" : "rounded-xl h-11 justify-center gap-2 font-semibold"
           )}
           showText={!isCollapsed}
