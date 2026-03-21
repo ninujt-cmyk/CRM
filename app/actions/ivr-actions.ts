@@ -11,7 +11,6 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
         if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
 
-        // 1. CHECK WALLET BALANCE (Ensure they have > 0 credits to start)
         const { data: wallet } = await supabase
             .from('tenant_wallets')
             .select('credits_balance')
@@ -22,7 +21,6 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             throw new Error("Insufficient credits. Please recharge your wallet to launch campaigns.");
         }
 
-        // 2. FETCH FONADA CREDENTIALS FOR THIS CAMPAIGN
         const { data: config } = await supabase
             .from('ivr_campaign_configs')
             .select('*')
@@ -32,13 +30,22 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         if (!config) throw new Error("Campaign configuration not found.");
 
-        // 3. BUILD THE EXACT FONADA PAYLOAD
+        // 🔴 BULLETPROOF FIX: Clean numbers and map BOTH keys
+        const cleanPhoneDetails = phoneNumbers.map(phone => {
+            // Strip everything except numbers, and grab the last 10
+            const cleanNumber = phone.replace(/\D/g, '').slice(-10);
+            return {
+                phoneNumber: cleanNumber, // What the docs say
+                Phone: cleanNumber        // What the "header" field says
+            };
+        });
+
         const payload = {
             leadName: leadBatchName,
             campaignId: config.fonada_campaign_id,
             userId: config.fonada_user_id,
             ukey: config.fonada_ukey,
-            header: "Phone",
+            header: "Phone", // Fonada uses this to look for the "Phone" key in the array
             retryInfo: {
                 retryType: "R",
                 retryOnFail: 1,
@@ -51,15 +58,11 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                 retryTimeOnNoAns: 5,
                 noOfRetry: 1
             },
-            // Format phone numbers into the array of objects Fonada requires
-            phoneNumberDetails: phoneNumbers.map(phone => ({
-                phoneNumber: phone.replace(/^\+?91/, '').slice(-10) // Ensure 10 digits
-            }))
+            phoneNumberDetails: cleanPhoneDetails
         };
 
-        console.log("🚀 Launching IVR Payload to Fonada:", JSON.stringify(payload).substring(0, 200) + "...");
+        console.log("🚀 Launching IVR Payload to Fonada:", JSON.stringify(payload).substring(0, 300) + "...");
 
-        // 4. SEND TO FONADA
         const res = await fetch("https://mltj.ivrobd.com/api/v1/astrixdispatcher/v6/lead?isDND=false", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -67,14 +70,20 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         });
 
         const responseText = await res.text();
+        console.log("📡 Fonada Response:", responseText); // Log this so we can see what Fonada says!
         
         if (!res.ok) {
-            console.error("Fonada Error Response:", responseText);
             throw new Error("Telecom provider rejected the campaign. Please contact support.");
         }
 
-        // 5. LOG THE CAMPAIGN HISTORY
-        // (Note: The actual credit deduction happens per-call in your Webhook!)
+        // Verify if Fonada returned a success status inside the JSON
+        try {
+            const jsonRes = JSON.parse(responseText);
+            if (jsonRes.status === "error" || jsonRes.status === false) {
+                 throw new Error(jsonRes.message || "Fonada rejected the data payload.");
+            }
+        } catch (e) {}
+
         await supabase.from('ivr_campaign_history').insert({
             tenant_id: profile.tenant_id,
             campaign_name: config.campaign_name,
