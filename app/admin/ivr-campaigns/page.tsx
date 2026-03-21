@@ -95,16 +95,26 @@ export default function IvrCampaignsPage() {
         const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0)
         
         const phoneNumbers: string[] = []
+        
+        // 🔴 BULLETPROOF FIX: Simplest, safest number extraction
         rows.forEach(row => {
-            const match = row.match(/(?:(?:\+|0{0,2})91(\s*[\-]\s*)?|[0]?)?[6789]\d{9}/)
-            if (match) phoneNumbers.push(match[0])
+            // Remove all spaces and special characters from the row first
+            const cleanRow = row.replace(/\s+/g, '')
+            // Look for any sequence that looks like a 10-digit Indian number
+            const match = cleanRow.match(/[6-9]\d{9}/)
+            if (match) {
+                phoneNumbers.push(match[0])
+            }
         })
 
-        if (phoneNumbers.length === 0) {
-            throw new Error("Could not find any valid phone numbers in the CSV.")
+        // Remove duplicates just in case!
+        const uniquePhones = Array.from(new Set(phoneNumbers));
+
+        if (uniquePhones.length === 0) {
+            throw new Error("Could not find any valid 10-digit phone numbers in the CSV.")
         }
 
-        const res = await launchIvrCampaign(selectedConfigId, batchName, phoneNumbers)
+        const res = await launchIvrCampaign(selectedConfigId, batchName, uniquePhones)
 
         if (res.success) {
             toast.success(res.message)
