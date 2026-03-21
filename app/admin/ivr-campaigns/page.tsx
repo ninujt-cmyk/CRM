@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -83,6 +83,22 @@ export default function IvrCampaignsPage() {
     document.body.removeChild(link);
   }
 
+  // 🔴 NEW: Auto-generate batch name based on date and history
+  const generateBatchName = () => {
+    const today = new Date()
+    const day = today.getDate()
+    const month = today.toLocaleString('default', { month: 'long' }).toLowerCase() // e.g., "march"
+    
+    // Count how many campaigns were launched today to get the suffix number
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    
+    const todaysCampaigns = history.filter(h => new Date(h.created_at) >= startOfToday)
+    const nextNum = todaysCampaigns.length + 1
+
+    setBatchName(`${day}${month}${nextNum}`)
+  }
+
   const handleLaunch = async () => {
     if (!selectedConfigId || !batchName || !csvFile) {
         return toast.error("Please fill all fields and select a CSV file.")
@@ -96,18 +112,15 @@ export default function IvrCampaignsPage() {
         
         const phoneNumbers: string[] = []
         
-        // 🔴 BULLETPROOF FIX: Simplest, safest number extraction
+        // BULLETPROOF FIX: Simplest, safest number extraction
         rows.forEach(row => {
-            // Remove all spaces and special characters from the row first
             const cleanRow = row.replace(/\s+/g, '')
-            // Look for any sequence that looks like a 10-digit Indian number
             const match = cleanRow.match(/[6-9]\d{9}/)
             if (match) {
                 phoneNumbers.push(match[0])
             }
         })
 
-        // Remove duplicates just in case!
         const uniquePhones = Array.from(new Set(phoneNumbers));
 
         if (uniquePhones.length === 0) {
@@ -120,7 +133,7 @@ export default function IvrCampaignsPage() {
             toast.success(res.message)
             setBatchName("")
             setCsvFile(null)
-            fetchData() // Refresh history, balance, AND used credits
+            fetchData() 
         } else {
             toast.error(res.error)
         }
@@ -144,9 +157,7 @@ export default function IvrCampaignsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* ============================================== */}
-        {/* LEFT COLUMN: Launch Form & Wallet Balance      */}
-        {/* ============================================== */}
+        {/* LEFT COLUMN: Launch Form & Wallet Balance */}
         <div className="md:col-span-1 space-y-6">
           
           {/* CAMPAIGN LAUNCHER */}
@@ -168,9 +179,19 @@ export default function IvrCampaignsPage() {
                 </Select>
               </div>
 
+              {/* 🔴 UPDATED: Lead Batch Name with Auto-Generate Button */}
               <div className="space-y-2">
-                <Label>Lead Batch Name</Label>
-                <Input placeholder="e.g. March 21st Follow-ups" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
+                <div className="flex items-center justify-between">
+                    <Label>Lead Batch Name</Label>
+                    <button 
+                        type="button" 
+                        onClick={generateBatchName}
+                        className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors"
+                    >
+                        <Wand2 className="w-3 h-3" /> Auto-Generate
+                    </button>
+                </div>
+                <Input placeholder="e.g. 21march1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
               </div>
 
               <div className="space-y-2">
@@ -197,12 +218,10 @@ export default function IvrCampaignsPage() {
             </CardContent>
           </Card>
 
-          {/* WALLET BALANCE CARD (Updated with Used Credits) */}
+          {/* WALLET BALANCE CARD */}
           <Card className="bg-gradient-to-br from-slate-900 to-indigo-900 text-white shadow-xl">
             <CardContent className="p-6 space-y-6">
               <div className="flex justify-between items-center">
-                  
-                  {/* Available Credits */}
                   <div className="text-center w-1/2 border-r border-white/20">
                     <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Available</p>
                     <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-emerald-400">
@@ -210,8 +229,6 @@ export default function IvrCampaignsPage() {
                       {balance.toLocaleString()}
                     </h2>
                   </div>
-
-                  {/* Used Credits */}
                   <div className="text-center w-1/2">
                     <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
                     <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400">
@@ -219,7 +236,6 @@ export default function IvrCampaignsPage() {
                       {usedCredits.toLocaleString()}
                     </h2>
                   </div>
-
               </div>
 
               <div className="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 w-full text-center">
@@ -231,9 +247,7 @@ export default function IvrCampaignsPage() {
 
         </div>
 
-        {/* ============================================== */}
-        {/* RIGHT COLUMN: History Tables                   */}
-        {/* ============================================== */}
+        {/* RIGHT COLUMN: History Tables */}
         <div className="md:col-span-2 space-y-6">
           
           {/* CAMPAIGN HISTORY */}
