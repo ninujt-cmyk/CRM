@@ -40,12 +40,19 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             status: 'launched'
         }).select('id').single();
 
-        if (batchError || !batchRecord) {
-            throw new Error("Failed to initialize campaign batch in database.");
+        // 🔥 NEW: Actually log and throw the exact Supabase error
+        if (batchError) {
+            console.error("🚨 SUPABASE BATCH INSERT ERROR:", batchError);
+            throw new Error(`Database Error: ${batchError.message}`);
+        }
+
+        if (!batchRecord) {
+            throw new Error("Database Error: Insert succeeded but returned no record ID.");
         }
 
         const batchId = batchRecord.id;
 
+        
         // 🔴 STEP 2: INJECT TENANT ID AND BATCH ID INTO THE DIALER LIST
         const cleanPhoneDetails = phoneNumbers.map(phone => {
             const cleanNumber = phone.replace(/\D/g, '').slice(-10);
