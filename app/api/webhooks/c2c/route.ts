@@ -103,7 +103,8 @@ export async function POST(request: NextRequest) {
 
     // Save Call Log
     if (finalLeadId) {
-        await supabaseAdmin.from("call_logs").insert({
+        // 🔥 Modified to capture the created call_log row for the ledger reference
+        const { data: callLog } = await supabaseAdmin.from("call_logs").insert({
             tenant_id: tenantId, // 🔴 Inject Tenant ID into the new row
             lead_id: finalLeadId,
             user_id: agent.id,
@@ -112,7 +113,33 @@ export async function POST(request: NextRequest) {
             disposition: customerDisposition, 
             recording_url: recordingUrl,
             notes: `C2C Auto-Dial. Customer Status: ${customerDisposition}. Duration: ${duration}s.`
-        });
+        }).select().single();
+
+        // 🔴 NEW: DYNAMIC CREDIT DEDUCTION
+        if (duration > 0 && callLog) {
+            // 1. Fetch this specific company's billing rules
+            const { data: settings } = await supabaseAdmin.from('tenant_settings')
+                .select('billing_pulse_seconds, credits_per_pulse')
+                .eq('tenant_id', tenantId)
+                .single();
+
+            const pulseSecs = settings?.billing_pulse_seconds || 15;
+            const creditsPerPulse = settings?.credits_per_pulse || 1;
+
+            // 2. The Math (e.g., 41s / 15s = 2.73 -> rounds up to 3 pulses)
+            const pulses = Math.ceil(duration / pulseSecs); 
+            const totalCreditsToDeduct = pulses * creditsPerPulse;
+
+            // 3. Deduct from Ledger
+            await supabaseAdmin.from("wallet_ledger").insert({
+                tenant_id: tenantId,
+                credits: -Math.abs(totalCreditsToDeduct), // Force negative
+                transaction_type: 'C2C_CALL',
+                description: `C2C Call to ${dbCustomerPhone} (${duration}s = ${pulses} pulses)`,
+                reference_id: callLog.id
+            });
+            console.log(`🪙 [WALLET] Deducted ${totalCreditsToDeduct} credits from Tenant ${tenantId}`);
+        }
 
         // 🔥 THE LOGIC: If duration is < 5s OR Customer didn't answer
         if (duration < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition)) {
