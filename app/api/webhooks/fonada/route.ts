@@ -18,10 +18,13 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // 1. Extract Fields (Based on your Fonada mappings)
-    // We assume you mapped your internal tenant/batch IDs to 'accountcode' or 'userfield' during the API launch
-    const tenantId = body.tenant_id || body.accountcode; 
-    const batchId = body.batch_id || body.userfield; 
+    // 1. Extract Fields (Defensively handle empty strings from Fonada)
+    // We assume you mapped your internal tenant/batch IDs to 'accountcode' or 'userfield'
+    const rawTenantId = body.tenant_id || body.accountcode;
+    const tenantId = typeof rawTenantId === 'string' && rawTenantId.trim() !== '' ? rawTenantId.trim() : null;
+
+    const rawBatchId = body.batch_id || body.userfield;
+    const batchId = typeof rawBatchId === 'string' && rawBatchId.trim() !== '' ? rawBatchId.trim() : null;
 
     const mobileNumber = body.dst;
     const billsec = parseInt(body.billsec || "0");
@@ -31,6 +34,7 @@ export async function POST(request: NextRequest) {
     // Concatenate digits pressed if multiple levels exist
     const digitsPressed = [body.digit_1, body.digit_2, body.digit_3].filter(Boolean).join(',') || null;
 
+    // We can't log anything if we don't know who the tenant is, or who they called.
     if (!tenantId || !mobileNumber) {
       console.error("🚨 Missing required routing context (tenantId or mobile).", body);
       return NextResponse.json({ status: "ignored", reason: "Missing routing context" });
@@ -57,14 +61,14 @@ export async function POST(request: NextRequest) {
             credits: -Math.abs(creditsToDeduct),
             transaction_type: 'IVR_CAMPAIGN',
             description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
-            reference_id: batchId 
+            reference_id: batchId || null 
         });
     }
 
-   // 3. LOG THE INDIVIDUAL CALL
+    // 3. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
-        tenant_id: tenantId,
-        batch_id: batchId, // ⚠️ If this is null, the frontend won't find it!
+        tenant_id: tenantId || null,
+        batch_id: batchId || null, // Forced to null to avoid UUID empty string crashes
         mobile_number: mobileNumber,
         attempt_num: parseInt(body.attempt_num || "1"),
         start_date: body.start_date || null,
