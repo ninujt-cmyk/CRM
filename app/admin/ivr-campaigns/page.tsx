@@ -1,3 +1,4 @@
+// app/admin/ivr-campaigns/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -11,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall 
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -28,6 +29,7 @@ export default function IvrCampaignsPage() {
   
   // Wallet State
   const [balance, setBalance] = useState<number>(0)
+  const [usedCredits, setUsedCredits] = useState<number>(0)
   const [ledger, setLedger] = useState<any[]>([])
 
   const supabase = createClient()
@@ -44,11 +46,22 @@ export default function IvrCampaignsPage() {
     const { data: wallet } = await supabase.from('tenant_wallets').select('credits_balance').maybeSingle()
     if (wallet) setBalance(wallet.credits_balance)
 
+    // Fetch ledger for history table
     const { data: lData } = await supabase.from('wallet_ledger')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50)
     if (lData) setLedger(lData)
+
+    // 3. Calculate Total Used Credits (Sum of all negative ledger transactions)
+    const { data: usageData } = await supabase.from('wallet_ledger')
+      .select('credits')
+      .lt('credits', 0) // Only get deductions
+    
+    if (usageData) {
+      const totalUsed = usageData.reduce((acc, row) => acc + Math.abs(row.credits), 0)
+      setUsedCredits(totalUsed)
+    }
   }
 
   useEffect(() => { fetchData() }, [])
@@ -67,11 +80,9 @@ export default function IvrCampaignsPage() {
     setIsUploading(true)
 
     try {
-        // Simple manual CSV parsing
         const text = await csvFile.text()
         const rows = text.split('\n').map(row => row.trim()).filter(row => row.length > 0)
         
-        // Extract anything that looks like a 10-digit Indian phone number
         const phoneNumbers: string[] = []
         rows.forEach(row => {
             const match = row.match(/(?:(?:\+|0{0,2})91(\s*[\-]\s*)?|[0]?)?[6789]\d{9}/)
@@ -88,7 +99,7 @@ export default function IvrCampaignsPage() {
             toast.success(res.message)
             setBatchName("")
             setCsvFile(null)
-            fetchData() // Refresh both history table AND wallet balance!
+            fetchData() // Refresh history, balance, AND used credits
         } else {
             toast.error(res.error)
         }
@@ -154,18 +165,33 @@ export default function IvrCampaignsPage() {
             </CardContent>
           </Card>
 
-          {/* WALLET BALANCE CARD (Moved here to fill left-side empty space) */}
+          {/* WALLET BALANCE CARD (Updated with Used Credits) */}
           <Card className="bg-gradient-to-br from-slate-900 to-indigo-900 text-white shadow-xl">
-            <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
-              <div>
-                <p className="text-indigo-200 font-semibold uppercase tracking-wider text-xs mb-1">Available Credits</p>
-                <h2 className="text-4xl font-black flex items-center justify-center gap-2">
-                  <Coins className="h-8 w-8 text-amber-400" />
-                  {balance.toLocaleString()}
-                </h2>
+            <CardContent className="p-6 space-y-6">
+              <div className="flex justify-between items-center">
+                  
+                  {/* Available Credits */}
+                  <div className="text-center w-1/2 border-r border-white/20">
+                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Available</p>
+                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-emerald-400">
+                      <Coins className="h-6 w-6" />
+                      {balance.toLocaleString()}
+                    </h2>
+                  </div>
+
+                  {/* Used Credits */}
+                  <div className="text-center w-1/2">
+                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
+                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400">
+                      <TrendingDown className="h-6 w-6" />
+                      {usedCredits.toLocaleString()}
+                    </h2>
+                  </div>
+
               </div>
-              <div className="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 w-full">
-                 <p className="text-xs text-indigo-100 font-medium">To recharge your account,</p>
+
+              <div className="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 w-full text-center">
+                 <p className="text-xs text-indigo-100 font-medium">Need more credits?</p>
                  <p className="text-sm font-bold text-white mt-1">Contact your Account Manager</p>
               </div>
             </CardContent>
@@ -221,7 +247,7 @@ export default function IvrCampaignsPage() {
             </CardContent>
           </Card>
 
-          {/* LEDGER HISTORY TABLE (Stacked to maintain layout) */}
+          {/* LEDGER HISTORY TABLE */}
           <Card className="shadow-sm border-slate-200">
             <CardHeader className="bg-slate-50 border-b pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
