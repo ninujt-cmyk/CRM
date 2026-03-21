@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -70,6 +70,17 @@ export default function IvrCampaignsPage() {
     if (e.target.files && e.target.files[0]) {
       setCsvFile(e.target.files[0])
     }
+  }
+
+  const handleDownloadSample = () => {
+    const csvContent = "data:text/csv;charset=utf-8,Phone\n9876543210\n";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "sample_contacts.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   const handleLaunch = async () => {
@@ -153,7 +164,18 @@ export default function IvrCampaignsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2"><FileSpreadsheet className="w-4 h-4 text-slate-400"/> Contact List (.csv)</Label>
+                <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-slate-400"/> Contact List (.csv)
+                    </Label>
+                    <button 
+                        type="button" 
+                        onClick={handleDownloadSample}
+                        className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors"
+                    >
+                        <Download className="w-3 h-3" /> Sample CSV
+                    </button>
+                </div>
                 <Input type="file" accept=".csv" onChange={handleFileChange} className="cursor-pointer bg-white" />
                 <p className="text-[10px] text-slate-500">File should contain valid 10-digit mobile numbers.</p>
               </div>
