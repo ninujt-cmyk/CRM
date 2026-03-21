@@ -61,10 +61,10 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    // 3. LOG THE INDIVIDUAL CALL
-    await supabaseAdmin.from("ivr_call_logs").insert({
+   // 3. LOG THE INDIVIDUAL CALL
+    const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
-        batch_id: batchId,
+        batch_id: batchId, // ⚠️ If this is null, the frontend won't find it!
         mobile_number: mobileNumber,
         attempt_num: parseInt(body.attempt_num || "1"),
         start_date: body.start_date || null,
@@ -79,6 +79,11 @@ export async function POST(request: NextRequest) {
         digits_pressed: digitsPressed,
         credits_used: creditsToDeduct
     });
+
+    if (insertError) {
+        console.error("❌ [DB ERROR] Failed to insert call log:", insertError);
+        return NextResponse.json({ status: "error", message: insertError.message }, { status: 500 });
+    }
 
     console.log(`✅ [FONADA] Logged ${mobileNumber} | BillSec: ${billsec} | Credits: ${creditsToDeduct}`);
     return NextResponse.json({ status: "success" });
