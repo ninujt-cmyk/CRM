@@ -10,46 +10,36 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(request: NextRequest) {
-  console.log("🔔 [FONADA WEBHOOK HIT] IVR Call ended, analyzing CDR data.");
+  console.log("🔔 [FONADA WEBHOOK] Incoming CDR Data");
 
   try {
     const rawBody = await request.text();
     let body: any = {};
-    if (rawBody) {
-      try { body = JSON.parse(rawBody); } 
-      catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
-    }
+    try { body = JSON.parse(rawBody); } 
+    catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    console.log("📋 [FONADA PAYLOAD]:", body);
+    // 1. Extract Fields (Based on your Fonada mappings)
+    // We assume you mapped your internal tenant/batch IDs to 'accountcode' or 'userfield' during the API launch
+    const tenantId = body.tenant_id || body.accountcode; 
+    const batchId = body.batch_id || body.userfield; 
 
-    // Extract mapped variables (See instructions below on how to map these in Fonada)
-    const phone = body.phone || body.dst || "";
-    const duration = parseInt(body.duration || body.billsec || "0");
-    const status = (body.status || body.disposition || "UNKNOWN").toUpperCase();
+    const mobileNumber = body.dst;
+    const billsec = parseInt(body.billsec || "0");
+    const duration = parseInt(body.duration || "0");
+    const disposition = body.disposition || "UNKNOWN";
     
-    // We need tenant context to bill them. You MUST pass this in Fonada's Static Data Fields.
-    const tenantId = body.tenant_id; 
-    const campaignId = body.campaign_id || null;
+    // Concatenate digits pressed if multiple levels exist
+    const digitsPressed = [body.digit_1, body.digit_2, body.digit_3].filter(Boolean).join(',') || null;
 
-    if (!phone || !tenantId) {
-        return NextResponse.json({ status: "ignored", reason: "Missing phone or tenant_id" });
+    if (!tenantId || !mobileNumber) {
+      console.error("🚨 Missing required routing context (tenantId or mobile).", body);
+      return NextResponse.json({ status: "ignored", reason: "Missing routing context" });
     }
 
-    let dbPhone = phone.replace(/^\+?91/, '').slice(-10);
+    let creditsToDeduct = 0;
 
-    // 1. Save the Call Log
-    const { data: callLog } = await supabaseAdmin.from("call_logs").insert({
-        tenant_id: tenantId,
-        call_type: "ivr_campaign",
-        duration_seconds: duration,
-        disposition: status,
-        notes: `IVR Auto-Dial. Campaign ID: ${campaignId}. Status: ${status}.`,
-        // Store raw metadata if you need to debug later
-        metadata: body 
-    }).select().single();
-
-    // 2. DYNAMIC CREDIT DEDUCTION (Only if answered and duration > 0)
-    if (duration > 0 && status === "ANSWERED" && callLog) {
+    // 2. DYNAMIC BILLING MATH (Only if call answered)
+    if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings')
             .select('billing_pulse_seconds, credits_per_pulse')
             .eq('tenant_id', tenantId)
@@ -58,25 +48,43 @@ export async function POST(request: NextRequest) {
         const pulseSecs = settings?.billing_pulse_seconds || 15;
         const creditsPerPulse = settings?.credits_per_pulse || 1;
 
-        const pulses = Math.ceil(duration / pulseSecs); 
-        const totalCreditsToDeduct = pulses * creditsPerPulse;
+        const pulses = Math.ceil(billsec / pulseSecs); 
+        creditsToDeduct = pulses * creditsPerPulse;
 
         // Deduct from Ledger
         await supabaseAdmin.from("wallet_ledger").insert({
             tenant_id: tenantId,
-            credits: -Math.abs(totalCreditsToDeduct),
+            credits: -Math.abs(creditsToDeduct),
             transaction_type: 'IVR_CAMPAIGN',
-            description: `IVR Call to ${dbPhone} (${duration}s = ${pulses} pulses)`,
-            reference_id: callLog.id
+            description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
+            reference_id: batchId 
         });
-        
-        console.log(`🪙 [WALLET] Deducted ${totalCreditsToDeduct} credits from Tenant ${tenantId} for IVR Call.`);
     }
 
-    return NextResponse.json({ status: "success", message: "IVR Call logged successfully" });
+    // 3. LOG THE INDIVIDUAL CALL
+    await supabaseAdmin.from("ivr_call_logs").insert({
+        tenant_id: tenantId,
+        batch_id: batchId,
+        mobile_number: mobileNumber,
+        attempt_num: parseInt(body.attempt_num || "1"),
+        start_date: body.start_date || null,
+        answer_date: body.answer_date || null,
+        end_date: body.end_date || null,
+        call_duration: duration,
+        bill_seconds: billsec,
+        disposition: disposition,
+        hangup_cause: body.hangup_cause || null,
+        hangup_code: body.hangup_code || null,
+        clid: body.clid || null,
+        digits_pressed: digitsPressed,
+        credits_used: creditsToDeduct
+    });
+
+    console.log(`✅ [FONADA] Logged ${mobileNumber} | BillSec: ${billsec} | Credits: ${creditsToDeduct}`);
+    return NextResponse.json({ status: "success" });
 
   } catch (error) {
-    console.error("🔥 [CRITICAL ERROR] Fonada Webhook failed:", error);
-    return NextResponse.json({ status: "error", message: "Internal Server Error" }, { status: 500 });
+    console.error("🔥 [CRITICAL] Fonada Webhook failed:", error);
+    return NextResponse.json({ status: "error" }, { status: 500 });
   }
 }
