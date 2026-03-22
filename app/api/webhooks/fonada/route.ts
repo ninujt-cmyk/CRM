@@ -9,7 +9,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Helper function to verify a string is a real Supabase UUID
 const isValidUUID = (id: string) => {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 };
@@ -23,20 +22,20 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // 1. Extract & Validate Fields
-    let rawTenantId = body.tenant_id || body.accountcode;
-    let tenantId = typeof rawTenantId === 'string' ? rawTenantId.trim() : null;
-    
-    // 🔥 FIX: If Fonada sends us their "104186^..." garbage, clear it out.
+    // 🔴 1. THE FIX: Grab IDs from the Webhook URL Query Parameters first!
+    const searchParams = request.nextUrl.searchParams;
+    let tenantId = searchParams.get('tenant_id') || body.tenant_id || body.accountcode;
+    let batchId = searchParams.get('batch_id') || body.batch_id || body.userfield;
+
+    // Clean up strings
+    tenantId = typeof tenantId === 'string' ? tenantId.trim() : null;
+    batchId = typeof batchId === 'string' ? batchId.trim() : null;
+
+    // Validate UUIDs (Ignore Fonada's weird string if it sneaks through)
     if (tenantId && !isValidUUID(tenantId)) {
-        console.log(`⚠️ Invalid Tenant UUID format detected: ${tenantId}`);
+        console.log(`⚠️ Invalid Tenant UUID format ignored: ${tenantId}`);
         tenantId = null;
     }
-
-    let rawBatchId = body.batch_id || body.userfield;
-    let batchId = typeof rawBatchId === 'string' ? rawBatchId.trim() : null;
-    
-    // 🔥 FIX: Same for batch ID
     if (batchId && !isValidUUID(batchId)) {
         batchId = null;
     }
@@ -47,9 +46,8 @@ export async function POST(request: NextRequest) {
     const disposition = body.disposition || "UNKNOWN";
     const digitsPressed = [body.digit_1, body.digit_2, body.digit_3].filter(Boolean).join(',') || null;
 
-    // Halt if we don't have a valid tenant ID to bill against!
     if (!tenantId || !mobileNumber) {
-      console.error("🚨 Missing or invalid routing context.", { tenantId: rawTenantId, mobile: mobileNumber });
+      console.error("🚨 Missing or invalid routing context.", { urlTenant: searchParams.get('tenant_id'), bodyTenant: body.accountcode, mobile: mobileNumber });
       return NextResponse.json({ status: "ignored", reason: "Missing or invalid tenant ID" });
     }
 
