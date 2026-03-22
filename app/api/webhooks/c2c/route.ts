@@ -148,6 +148,9 @@ export async function POST(request: NextRequest) {
                 reference_id: callLog.id
             });
 
+            // 🔴 ADD THIS ONE LINE: Save the billing data back to the Call Log for fast reporting!
+            await supabaseAdmin.from("call_logs").update({ talk_time_seconds: billsec, credits_used: totalCreditsToDeduct }).eq("id", callLog.id);
+
             if (ledgerError) {
                  console.error("🚨 [LEDGER ERROR] Failed to deduct credits:", ledgerError);
             } else {
