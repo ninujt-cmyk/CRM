@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw, AlertTriangle
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw, AlertTriangle, BarChart
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -33,9 +34,9 @@ export default function IvrCampaignsPage() {
   const [usedCredits, setUsedCredits] = useState<number>(0)
   const [ledger, setLedger] = useState<any[]>([])
 
-  // 🔴 NEW: Low Balance Alert State
+  // Low Balance Alert State
   const [showLowBalanceModal, setShowLowBalanceModal] = useState(false)
-  const alertShownRef = useRef(false) // Ensures it only pops up once per visit
+  const alertShownRef = useRef(false) 
 
   const supabase = createClient()
 
@@ -54,7 +55,7 @@ export default function IvrCampaignsPage() {
         if (wallet) {
             setBalance(wallet.credits_balance || 0)
             
-            // 🔴 TRIGGER ALERT IF < 1000 CREDITS
+            // TRIGGER ALERT IF < 1000 CREDITS
             if ((wallet.credits_balance || 0) < 1000 && !alertShownRef.current) {
                 setShowLowBalanceModal(true)
                 alertShownRef.current = true // Mark as shown
@@ -180,16 +181,31 @@ export default function IvrCampaignsPage() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
             <Megaphone className="h-8 w-8 text-purple-600" /> IVR Auto-Dial Campaigns
           </h1>
           <p className="text-slate-500 mt-1">Select a campaign and upload your contact list to launch automated blasts.</p>
         </div>
-        <Button variant="outline" onClick={fetchData} disabled={isRefreshing} className="gap-2 bg-white">
-            <RefreshCw className={`w-4 h-4 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} /> Sync Data
-        </Button>
+        
+        {/* 🔴 NEW: Action Bar with Report Buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+            <Link href="/admin/ivr-reports">
+                <Button variant="outline" className="gap-2 bg-white text-purple-700 hover:text-purple-800 hover:bg-purple-50 border-purple-200 shadow-sm">
+                    <BarChart className="w-4 h-4" /> IVR Reports
+                </Button>
+            </Link>
+            <Link href="/admin/c2c-reports">
+                <Button variant="outline" className="gap-2 bg-white text-blue-700 hover:text-blue-800 hover:bg-blue-50 border-blue-200 shadow-sm">
+                    <PhoneCall className="w-4 h-4" /> C2C Reports
+                </Button>
+            </Link>
+            <div className="w-px h-8 bg-slate-200 hidden md:block"></div>
+            <Button variant="outline" onClick={fetchData} disabled={isRefreshing} className="gap-2 bg-white shadow-sm">
+                <RefreshCw className={`w-4 h-4 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} /> Sync Data
+            </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -375,7 +391,7 @@ export default function IvrCampaignsPage() {
         </div>
       </div>
 
-      {/* 🔴 NEW: LOW BALANCE MODAL */}
+      {/* LOW BALANCE MODAL */}
       <Dialog open={showLowBalanceModal} onOpenChange={setShowLowBalanceModal}>
         <DialogContent className="sm:max-w-md border-rose-200 bg-rose-50 shadow-2xl">
           <DialogHeader>
