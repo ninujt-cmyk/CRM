@@ -9,6 +9,11 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Helper function to verify a string is a real Supabase UUID
+const isValidUUID = (id: string) => {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+};
+
 export async function POST(request: NextRequest) {
   console.log("🔔 [FONADA WEBHOOK] Incoming CDR Data");
 
@@ -18,31 +23,39 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // 1. Extract Fields (Defensively handle empty strings from Fonada)
-    // We assume you mapped your internal tenant/batch IDs to 'accountcode' or 'userfield'
-    const rawTenantId = body.tenant_id || body.accountcode;
-    const tenantId = typeof rawTenantId === 'string' && rawTenantId.trim() !== '' ? rawTenantId.trim() : null;
+    // 1. Extract & Validate Fields
+    let rawTenantId = body.tenant_id || body.accountcode;
+    let tenantId = typeof rawTenantId === 'string' ? rawTenantId.trim() : null;
+    
+    // 🔥 FIX: If Fonada sends us their "104186^..." garbage, clear it out.
+    if (tenantId && !isValidUUID(tenantId)) {
+        console.log(`⚠️ Invalid Tenant UUID format detected: ${tenantId}`);
+        tenantId = null;
+    }
 
-    const rawBatchId = body.batch_id || body.userfield;
-    const batchId = typeof rawBatchId === 'string' && rawBatchId.trim() !== '' ? rawBatchId.trim() : null;
+    let rawBatchId = body.batch_id || body.userfield;
+    let batchId = typeof rawBatchId === 'string' ? rawBatchId.trim() : null;
+    
+    // 🔥 FIX: Same for batch ID
+    if (batchId && !isValidUUID(batchId)) {
+        batchId = null;
+    }
 
     const mobileNumber = body.dst;
     const billsec = parseInt(body.billsec || "0");
     const duration = parseInt(body.duration || "0");
     const disposition = body.disposition || "UNKNOWN";
-    
-    // Concatenate digits pressed if multiple levels exist
     const digitsPressed = [body.digit_1, body.digit_2, body.digit_3].filter(Boolean).join(',') || null;
 
-    // We can't log anything if we don't know who the tenant is, or who they called.
+    // Halt if we don't have a valid tenant ID to bill against!
     if (!tenantId || !mobileNumber) {
-      console.error("🚨 Missing required routing context (tenantId or mobile).", body);
-      return NextResponse.json({ status: "ignored", reason: "Missing routing context" });
+      console.error("🚨 Missing or invalid routing context.", { tenantId: rawTenantId, mobile: mobileNumber });
+      return NextResponse.json({ status: "ignored", reason: "Missing or invalid tenant ID" });
     }
 
     let creditsToDeduct = 0;
 
-    // 2. DYNAMIC BILLING MATH (Only if call answered)
+    // 2. DYNAMIC BILLING MATH
     if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings')
             .select('billing_pulse_seconds, credits_per_pulse')
@@ -55,7 +68,6 @@ export async function POST(request: NextRequest) {
         const pulses = Math.ceil(billsec / pulseSecs); 
         creditsToDeduct = pulses * creditsPerPulse;
 
-        // Deduct from Ledger
         await supabaseAdmin.from("wallet_ledger").insert({
             tenant_id: tenantId,
             credits: -Math.abs(creditsToDeduct),
@@ -67,8 +79,8 @@ export async function POST(request: NextRequest) {
 
     // 3. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
-        tenant_id: tenantId || null,
-        batch_id: batchId || null, // Forced to null to avoid UUID empty string crashes
+        tenant_id: tenantId,
+        batch_id: batchId, 
         mobile_number: mobileNumber,
         attempt_num: parseInt(body.attempt_num || "1"),
         start_date: body.start_date || null,
