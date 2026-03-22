@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw, AlertTriangle
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -32,6 +33,10 @@ export default function IvrCampaignsPage() {
   const [usedCredits, setUsedCredits] = useState<number>(0)
   const [ledger, setLedger] = useState<any[]>([])
 
+  // 🔴 NEW: Low Balance Alert State
+  const [showLowBalanceModal, setShowLowBalanceModal] = useState(false)
+  const alertShownRef = useRef(false) // Ensures it only pops up once per visit
+
   const supabase = createClient()
 
   const fetchData = async () => {
@@ -46,7 +51,15 @@ export default function IvrCampaignsPage() {
 
         // 2. Fetch Wallet Data
         const { data: wallet } = await supabase.from('tenant_wallets').select('credits_balance').maybeSingle()
-        if (wallet) setBalance(wallet.credits_balance || 0)
+        if (wallet) {
+            setBalance(wallet.credits_balance || 0)
+            
+            // 🔴 TRIGGER ALERT IF < 1000 CREDITS
+            if ((wallet.credits_balance || 0) < 1000 && !alertShownRef.current) {
+                setShowLowBalanceModal(true)
+                alertShownRef.current = true // Mark as shown
+            }
+        }
 
         // 3. Fetch Ledger
         const { data: lData } = await supabase.from('wallet_ledger')
@@ -72,18 +85,14 @@ export default function IvrCampaignsPage() {
   useEffect(() => { 
     fetchData() 
     
-    // 🔴 THE MAGIC: Realtime Listeners for Live Wallet Updates!
     const channel = supabase.channel('live-wallet-sync')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'wallet_ledger' }, (payload) => {
-          // Add new transaction to the top of the table instantly
           setLedger(prev => [payload.new, ...prev].slice(0, 50))
-          // Increase lifetime used credits if it's a deduction
           if (payload.new.credits < 0) {
               setUsedCredits(prev => prev + Math.abs(payload.new.credits))
           }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tenant_wallets' }, (payload) => {
-          // Instantly update the big balance number
           setBalance(payload.new.credits_balance)
       })
       .subscribe()
@@ -238,19 +247,19 @@ export default function IvrCampaignsPage() {
           </Card>
 
           {/* WALLET BALANCE CARD */}
-          <Card className="bg-gradient-to-br from-slate-900 to-indigo-900 text-white shadow-xl overflow-hidden relative">
+          <Card className={`bg-gradient-to-br ${balance < 1000 ? 'from-rose-900 to-amber-900' : 'from-slate-900 to-indigo-900'} text-white shadow-xl overflow-hidden relative transition-colors duration-500`}>
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
             <CardContent className="p-6 space-y-6 relative z-10">
               <div className="flex justify-between items-center">
                   <div className="text-center w-1/2 border-r border-white/20">
-                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Available Credits</p>
-                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-emerald-400 transition-all duration-500">
+                    <p className="text-white/70 font-medium uppercase tracking-wider text-[10px] mb-1">Available Credits</p>
+                    <h2 className={`text-3xl font-black flex items-center justify-center gap-1.5 transition-all duration-500 ${balance < 1000 ? 'text-amber-400' : 'text-emerald-400'}`}>
                       <Coins className="h-6 w-6" />
                       {balance.toLocaleString()}
                     </h2>
                   </div>
                   <div className="text-center w-1/2">
-                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
+                    <p className="text-white/70 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
                     <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400 transition-all duration-500">
                       <TrendingDown className="h-6 w-6" />
                       {usedCredits.toLocaleString()}
@@ -259,7 +268,7 @@ export default function IvrCampaignsPage() {
               </div>
 
               <div className="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 w-full text-center">
-                 <p className="text-xs text-indigo-100 font-medium">Need more credits?</p>
+                 <p className="text-xs text-white/80 font-medium">Need more credits?</p>
                  <p className="text-sm font-bold text-white mt-1">Contact your Account Manager</p>
               </div>
             </CardContent>
@@ -365,6 +374,29 @@ export default function IvrCampaignsPage() {
 
         </div>
       </div>
+
+      {/* 🔴 NEW: LOW BALANCE MODAL */}
+      <Dialog open={showLowBalanceModal} onOpenChange={setShowLowBalanceModal}>
+        <DialogContent className="sm:max-w-md border-rose-200 bg-rose-50 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700 font-bold text-xl">
+              <AlertTriangle className="h-6 w-6" />
+              Low Wallet Balance
+            </DialogTitle>
+            <DialogDescription className="text-rose-600/90 font-medium">
+              Your workspace balance has dropped to <strong className="text-rose-800">{balance.toLocaleString()} credits</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-white p-5 rounded-lg border border-rose-100 text-center space-y-4 shadow-sm">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              If your balance reaches zero, active IVR campaigns and Click-to-Call dialing will automatically pause. Please reach out to your Account Manager to top up your virtual wallet.
+            </p>
+            <Button onClick={() => setShowLowBalanceModal(false)} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-6 shadow-md transition-all">
+              I Understand
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
