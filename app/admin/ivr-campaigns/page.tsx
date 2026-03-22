@@ -1,4 +1,3 @@
-// app/admin/ivr-campaigns/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -12,13 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
 
 export default function IvrCampaignsPage() {
   const [isUploading, setIsUploading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [batchName, setBatchName] = useState("")
   const [selectedConfigId, setSelectedConfigId] = useState("")
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -35,36 +35,62 @@ export default function IvrCampaignsPage() {
   const supabase = createClient()
 
   const fetchData = async () => {
-    // 1. Fetch Campaign Data
-    const { data: cData } = await supabase.from('ivr_campaign_configs').select('id, campaign_name')
-    if (cData) setConfigs(cData)
+    setIsRefreshing(true)
+    try {
+        // 1. Fetch Campaign Data
+        const { data: cData } = await supabase.from('ivr_campaign_configs').select('id, campaign_name')
+        if (cData) setConfigs(cData)
 
-    const { data: hData } = await supabase.from('ivr_campaign_history').select('*').order('created_at', { ascending: false }).limit(20)
-    if (hData) setHistory(hData)
+        const { data: hData } = await supabase.from('ivr_campaign_history').select('*').order('created_at', { ascending: false }).limit(20)
+        if (hData) setHistory(hData)
 
-    // 2. Fetch Wallet Data
-    const { data: wallet } = await supabase.from('tenant_wallets').select('credits_balance').maybeSingle()
-    if (wallet) setBalance(wallet.credits_balance)
+        // 2. Fetch Wallet Data
+        const { data: wallet } = await supabase.from('tenant_wallets').select('credits_balance').maybeSingle()
+        if (wallet) setBalance(wallet.credits_balance || 0)
 
-    // Fetch ledger for history table
-    const { data: lData } = await supabase.from('wallet_ledger')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50)
-    if (lData) setLedger(lData)
+        // 3. Fetch Ledger
+        const { data: lData } = await supabase.from('wallet_ledger')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50)
+        if (lData) setLedger(lData)
 
-    // 3. Calculate Total Used Credits (Sum of all negative ledger transactions)
-    const { data: usageData } = await supabase.from('wallet_ledger')
-      .select('credits')
-      .lt('credits', 0) // Only get deductions
-    
-    if (usageData) {
-      const totalUsed = usageData.reduce((acc, row) => acc + Math.abs(row.credits), 0)
-      setUsedCredits(totalUsed)
+        // 4. Calculate Total Used Credits
+        const { data: usageData } = await supabase.from('wallet_ledger')
+          .select('credits')
+          .lt('credits', 0) 
+        
+        if (usageData) {
+          const totalUsed = usageData.reduce((acc, row) => acc + Math.abs(row.credits), 0)
+          setUsedCredits(totalUsed)
+        }
+    } finally {
+        setIsRefreshing(false)
     }
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { 
+    fetchData() 
+    
+    // 🔴 THE MAGIC: Realtime Listeners for Live Wallet Updates!
+    const channel = supabase.channel('live-wallet-sync')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'wallet_ledger' }, (payload) => {
+          // Add new transaction to the top of the table instantly
+          setLedger(prev => [payload.new, ...prev].slice(0, 50))
+          // Increase lifetime used credits if it's a deduction
+          if (payload.new.credits < 0) {
+              setUsedCredits(prev => prev + Math.abs(payload.new.credits))
+          }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tenant_wallets' }, (payload) => {
+          // Instantly update the big balance number
+          setBalance(payload.new.credits_balance)
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -83,20 +109,18 @@ export default function IvrCampaignsPage() {
     document.body.removeChild(link);
   }
 
-  // 🔴 NEW: Auto-generate batch name based on date and history
   const generateBatchName = () => {
     const today = new Date()
     const day = today.getDate()
-    const month = today.toLocaleString('default', { month: 'long' }).toLowerCase() // e.g., "march"
+    const month = today.toLocaleString('default', { month: 'short' }).toLowerCase()
     
-    // Count how many campaigns were launched today to get the suffix number
     const startOfToday = new Date()
     startOfToday.setHours(0, 0, 0, 0)
     
     const todaysCampaigns = history.filter(h => new Date(h.created_at) >= startOfToday)
     const nextNum = todaysCampaigns.length + 1
 
-    setBatchName(`${day}${month}${nextNum}`)
+    setBatchName(`${day}${month}_batch${nextNum}`)
   }
 
   const handleLaunch = async () => {
@@ -112,7 +136,6 @@ export default function IvrCampaignsPage() {
         
         const phoneNumbers: string[] = []
         
-        // BULLETPROOF FIX: Simplest, safest number extraction
         rows.forEach(row => {
             const cleanRow = row.replace(/\s+/g, '')
             const match = cleanRow.match(/[6-9]\d{9}/)
@@ -148,11 +171,16 @@ export default function IvrCampaignsPage() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-          <Megaphone className="h-8 w-8 text-purple-600" /> IVR Auto-Dial Campaigns
-        </h1>
-        <p className="text-slate-500 mt-1">Select a campaign and upload your contact list to launch automated blasts.</p>
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+            <Megaphone className="h-8 w-8 text-purple-600" /> IVR Auto-Dial Campaigns
+          </h1>
+          <p className="text-slate-500 mt-1">Select a campaign and upload your contact list to launch automated blasts.</p>
+        </div>
+        <Button variant="outline" onClick={fetchData} disabled={isRefreshing} className="gap-2 bg-white">
+            <RefreshCw className={`w-4 h-4 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} /> Sync Data
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -179,19 +207,14 @@ export default function IvrCampaignsPage() {
                 </Select>
               </div>
 
-              {/* 🔴 UPDATED: Lead Batch Name with Auto-Generate Button */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <Label>Lead Batch Name</Label>
-                    <button 
-                        type="button" 
-                        onClick={generateBatchName}
-                        className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors"
-                    >
+                    <button type="button" onClick={generateBatchName} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors">
                         <Wand2 className="w-3 h-3" /> Auto-Generate
                     </button>
                 </div>
-                <Input placeholder="e.g. 21march1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
+                <Input placeholder="e.g. 21march_batch1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
               </div>
 
               <div className="space-y-2">
@@ -199,11 +222,7 @@ export default function IvrCampaignsPage() {
                     <Label className="flex items-center gap-2">
                         <FileSpreadsheet className="w-4 h-4 text-slate-400"/> Contact List (.csv)
                     </Label>
-                    <button 
-                        type="button" 
-                        onClick={handleDownloadSample}
-                        className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors"
-                    >
+                    <button type="button" onClick={handleDownloadSample} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors">
                         <Download className="w-3 h-3" /> Sample CSV
                     </button>
                 </div>
@@ -211,7 +230,7 @@ export default function IvrCampaignsPage() {
                 <p className="text-[10px] text-slate-500">File should contain valid 10-digit mobile numbers.</p>
               </div>
 
-              <Button onClick={handleLaunch} disabled={isUploading} className="w-full bg-purple-600 hover:bg-purple-700">
+              <Button onClick={handleLaunch} disabled={isUploading} className="w-full bg-purple-600 hover:bg-purple-700 shadow-md">
                  {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <UploadCloud className="w-4 h-4 mr-2"/>}
                  Launch Campaign
               </Button>
@@ -219,19 +238,20 @@ export default function IvrCampaignsPage() {
           </Card>
 
           {/* WALLET BALANCE CARD */}
-          <Card className="bg-gradient-to-br from-slate-900 to-indigo-900 text-white shadow-xl">
-            <CardContent className="p-6 space-y-6">
+          <Card className="bg-gradient-to-br from-slate-900 to-indigo-900 text-white shadow-xl overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <CardContent className="p-6 space-y-6 relative z-10">
               <div className="flex justify-between items-center">
                   <div className="text-center w-1/2 border-r border-white/20">
-                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Available</p>
-                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-emerald-400">
+                    <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Available Credits</p>
+                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-emerald-400 transition-all duration-500">
                       <Coins className="h-6 w-6" />
                       {balance.toLocaleString()}
                     </h2>
                   </div>
                   <div className="text-center w-1/2">
                     <p className="text-indigo-200 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
-                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400">
+                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400 transition-all duration-500">
                       <TrendingDown className="h-6 w-6" />
                       {usedCredits.toLocaleString()}
                     </h2>
@@ -250,6 +270,56 @@ export default function IvrCampaignsPage() {
         {/* RIGHT COLUMN: History Tables */}
         <div className="md:col-span-2 space-y-6">
           
+          {/* LEDGER HISTORY TABLE */}
+          <Card className="shadow-sm border-slate-200">
+            <CardHeader className="bg-slate-50 border-b pb-4">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-slate-600" /> Wallet Ledger (Live)
+                </CardTitle>
+                <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Live Sync
+                </div>
+              </div>
+              <CardDescription>Recent credit deductions and recharges.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 max-h-[300px] overflow-auto">
+              <Table>
+                <TableHeader className="bg-slate-100 sticky top-0 z-10 shadow-sm">
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Credits</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ledger.map((tx) => (
+                    <TableRow key={tx.id} className="animate-in fade-in slide-in-from-top-2 duration-500">
+                      <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                        {new Date(tx.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </TableCell>
+                      <TableCell>
+                        {tx.transaction_type === 'RECHARGE' && <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-0"><ArrowUpRight className="w-3 h-3 mr-1"/> Recharge</Badge>}
+                        {tx.transaction_type === 'C2C_CALL' && <Badge variant="outline" className="text-blue-700 bg-blue-50"><PhoneCall className="w-3 h-3 mr-1"/> C2C Call</Badge>}
+                        {tx.transaction_type === 'IVR_CAMPAIGN' && <Badge variant="outline" className="text-purple-700 bg-purple-50"><Megaphone className="w-3 h-3 mr-1"/> IVR Call</Badge>}
+                      </TableCell>
+                      <TableCell className="text-xs font-medium text-slate-700">{tx.description}</TableCell>
+                      <TableCell className={`text-right font-black text-sm ${tx.credits > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
+                        {tx.credits > 0 ? '+' : ''}{tx.credits}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {ledger.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-10 text-slate-400">No transactions found.</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
           {/* CAMPAIGN HISTORY */}
           <Card className="shadow-sm">
             <CardHeader className="bg-slate-50 border-b">
@@ -288,51 +358,6 @@ export default function IvrCampaignsPage() {
                            <TableCell colSpan={5} className="text-center py-10 text-slate-400">No campaigns launched yet.</TableCell>
                        </TableRow>
                    )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* LEDGER HISTORY TABLE */}
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="bg-slate-50 border-b pb-4">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Receipt className="h-5 w-5 text-slate-600" /> Wallet Ledger History
-              </CardTitle>
-              <CardDescription>Recent credit deductions and recharges.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-100">
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Transaction Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Credits</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ledger.map((tx) => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="text-xs text-slate-500">
-                        {new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                      </TableCell>
-                      <TableCell>
-                        {tx.transaction_type === 'RECHARGE' && <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-0"><ArrowUpRight className="w-3 h-3 mr-1"/> Recharge</Badge>}
-                        {tx.transaction_type === 'C2C_CALL' && <Badge variant="outline" className="text-blue-700"><PhoneCall className="w-3 h-3 mr-1"/> C2C Call</Badge>}
-                        {tx.transaction_type === 'IVR_CAMPAIGN' && <Badge variant="outline" className="text-purple-700"><Megaphone className="w-3 h-3 mr-1"/> IVR Campaign</Badge>}
-                      </TableCell>
-                      <TableCell className="text-sm font-medium text-slate-700">{tx.description}</TableCell>
-                      <TableCell className={`text-right font-bold ${tx.credits > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
-                        {tx.credits > 0 ? '+' : ''}{tx.credits}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {ledger.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-10 text-slate-400">No transactions found.</TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </CardContent>
