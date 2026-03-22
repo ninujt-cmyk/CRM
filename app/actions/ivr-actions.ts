@@ -1,4 +1,3 @@
-// app/actions/ivr-actions.ts
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
@@ -12,6 +11,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
         if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
 
+        // 1. CHECK VIRTUAL WALLET BALANCE
         const { data: wallet } = await supabase
             .from('tenant_wallets')
             .select('credits_balance')
@@ -22,6 +22,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             throw new Error("Insufficient credits. Please recharge your wallet to launch campaigns.");
         }
 
+        // 2. FETCH PRE-CONFIGURED FONADA CAMPAIGN DETAILS
         const { data: config } = await supabase
             .from('ivr_campaign_configs')
             .select('*')
@@ -31,7 +32,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         if (!config) throw new Error("Campaign configuration not found.");
 
-        // 🔴 STEP 1: CREATE HISTORY RECORD FIRST TO GET THE BATCH ID
+        // 3. CREATE HISTORY RECORD
         const { data: batchRecord, error: batchError } = await supabase.from('ivr_campaign_history').insert({
             tenant_id: profile.tenant_id,
             campaign_name: config.campaign_name,
@@ -40,37 +41,23 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             status: 'launched'
         }).select('id').single();
 
-        // 🔥 NEW: Actually log and throw the exact Supabase error
         if (batchError) {
             console.error("🚨 SUPABASE BATCH INSERT ERROR:", batchError);
             throw new Error(`Database Error: ${batchError.message}`);
         }
 
-        if (!batchRecord) {
-            throw new Error("Database Error: Insert succeeded but returned no record ID.");
-        }
+        // 4. FORMAT PHONES EXACTLY AS FONADA REQUIRES
+        const cleanPhoneDetails = phoneNumbers.map(phone => ({
+            phoneNumber: phone.replace(/\D/g, '').slice(-10) // Strictly 10 digits
+        }));
 
-        const batchId = batchRecord.id;
-
-        
-        // 🔴 STEP 2: INJECT TENANT ID AND BATCH ID INTO THE DIALER LIST
-        const cleanPhoneDetails = phoneNumbers.map(phone => {
-            const cleanNumber = phone.replace(/\D/g, '').slice(-10);
-            return {
-                phoneNumber: cleanNumber, 
-                Phone: cleanNumber,
-                tenant_id: profile.tenant_id, // Inject for webhook tracking
-                batch_id: batchId             // Inject for webhook tracking
-            };
-        });
-
+        // 5. BUILD EXACT PAYLOAD (Matching your cURL)
         const payload = {
             leadName: leadBatchName,
             campaignId: config.fonada_campaign_id,
             userId: config.fonada_user_id,
             ukey: config.fonada_ukey,
-            // 🔴 STEP 3: TELL FONADA ABOUT THE NEW COLUMNS
-            header: "Phone,tenant_id,batch_id", 
+            header: "Phone",
             retryInfo: {
                 retryType: "R",
                 retryOnFail: 1,
@@ -86,8 +73,9 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             phoneNumberDetails: cleanPhoneDetails
         };
 
-        console.log("🚀 Launching IVR Payload to Fonada:", JSON.stringify(payload).substring(0, 300) + "...");
+        console.log("🚀 Launching IVR Payload to Fonada...");
 
+        // 6. SEND TO FONADA
         const res = await fetch("https://mltj.ivrobd.com/api/v1/astrixdispatcher/v6/lead?isDND=false", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -98,19 +86,18 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         console.log("📡 Fonada Response:", responseText);
         
         if (!res.ok) {
-            // Rollback status if network fails
-            await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchId);
+            await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchRecord.id);
             throw new Error("Telecom provider rejected the campaign. Please contact support.");
         }
 
         try {
             const jsonRes = JSON.parse(responseText);
             if (jsonRes.status === "error" || jsonRes.status === false) {
-                 await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchId);
+                 await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchRecord.id);
                  throw new Error(jsonRes.message || "Fonada rejected the data payload.");
             }
         } catch (e: any) {
-            if(e.message.includes("Fonada rejected")) throw e; // Pass through manual errors
+            if(e.message.includes("Fonada rejected")) throw e; 
         }
 
         return { success: true, message: `Successfully pushed ${phoneNumbers.length} contacts to the dialer!` };
