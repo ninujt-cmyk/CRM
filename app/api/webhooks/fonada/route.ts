@@ -22,14 +22,15 @@ export async function POST(request: NextRequest) {
     let fonadaLeadId = body.leadid || null;
     
     if (!fonadaLeadId && body.accountcode) {
-        // Safe extraction with .trim() to prevent space-mismatch errors
+        // Extracts '104197' safely
         fonadaLeadId = String(body.accountcode.split('^')[0]).trim(); 
     }
 
     let tenantId = null;
     let batchId = null;
+    const mobileNumber = body.dst || body.customerNumber || null;
 
-    // 2. 🔴 THE SMART LOOKUP
+    // 2. 🔴 SMART LOOKUP: Try to find the exact Campaign Batch
     if (fonadaLeadId) {
         const { data: batch } = await supabaseAdmin
             .from('ivr_campaign_history')
@@ -40,15 +41,32 @@ export async function POST(request: NextRequest) {
         if (batch) {
             tenantId = batch.tenant_id;
             batchId = batch.id;
+            console.log(`🔐 [SMART LOOKUP] Found Batch for LeadID: ${fonadaLeadId}`);
         }
     }
 
-    const mobileNumber = body.dst || body.customerNumber || null;
+    // 3. 🔴 THE NEW TRIPLE-FAILSAFE: Fallback to Customer Phone Lookup
+    if (!tenantId && mobileNumber) {
+        let dbCustomerPhone = mobileNumber.replace(/^\+?91/, '').slice(-10);
+        
+        // Search the leads table to see which company owns this customer
+        const { data: lead } = await supabaseAdmin
+            .from('leads')
+            .select('tenant_id')
+            .ilike('phone', `%${dbCustomerPhone}%`)
+            .limit(1)
+            .maybeSingle();
+            
+        if (lead && lead.tenant_id) {
+            tenantId = lead.tenant_id;
+            console.log(`🛡️ [FAILSAFE] Found Tenant via Customer Phone: ${dbCustomerPhone}`);
+        }
+    }
+
     const billsec = parseInt(body.billsec || "0");
     const duration = parseInt(body.duration || "0");
     const disposition = body.disposition || "UNKNOWN";
     
-    // Safely extract digits pressed
     const digitsPressed = [body.digitpressedLevel1, body.digitpressedLevel2, body.digitpressedLevel3]
         .filter(Boolean).join(',') || body.digit_1 || null;
 
@@ -59,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     let creditsToDeduct = 0;
 
-    // 3. DYNAMIC BILLING MATH
+    // 4. DYNAMIC BILLING MATH
     if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings')
             .select('billing_pulse_seconds, credits_per_pulse')
@@ -81,7 +99,7 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    // 4. LOG THE INDIVIDUAL CALL
+    // 5. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
         batch_id: batchId, 
