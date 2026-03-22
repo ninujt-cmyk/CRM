@@ -20,21 +20,30 @@ export async function POST(request: NextRequest) {
       catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
     }
 
-    console.log("📋 [C2C PAYLOAD]:", body);
+    console.log("📋 [C2C PAYLOAD (RAW)]:", body);
 
-    // 1. EXTRACT FIELDS BASED ON YOUR C2C DYNAMIC FIELD LIST
-    const customerPhone = body.customerNumber || body.dst || null;
-    const agentPhone = body.agentNumber || body.src || null;
+    // 🔴 1. THE BULLETPROOF FIX: Convert all keys to lowercase to ignore Fonada's capitalization quirks
+    const safeBody: any = {};
+    for (const key in body) {
+        if (body.hasOwnProperty(key)) {
+            safeBody[key.toLowerCase()] = body[key];
+        }
+    }
+
+    // 2. EXTRACT FIELDS USING THE LOWERCASE KEYS
+    const customerPhone = safeBody.customernumber || safeBody.dst || null;
+    const agentPhone = safeBody.agentnumber || safeBody.src || null;
     
     // Duration is total time including ringing
-    const duration = parseInt(body.duration || "0");
+    const duration = parseInt(safeBody.duration || "0");
     
-    // 🔴 THE FIX: Extract ACTUAL customer talk time for accurate billing
-    const billsec = parseInt(body.customerBillSec || body.totalbillSec || body.billsec || "0");
+    // Extract ACTUAL customer talk time for accurate billing
+    // Now this will catch customerBillSec, customerbillsec, totalBillSec, totalbillsec, etc.
+    const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
     
-    const recordingUrl = body.recordingLink || body.recordingUrl || null;
-    const agentDisposition = (body.agentDisposition || "").toUpperCase();
-    const customerDisposition = (body.customerDisposition || body.disposition || "UNKNOWN").toUpperCase();
+    const recordingUrl = safeBody.recordinglink || safeBody.recordingurl || null;
+    const agentDisposition = (safeBody.agentdisposition || safeBody.agenthangupcause || "").toUpperCase();
+    const customerDisposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
 
     if (!agentPhone) {
       return NextResponse.json({ status: "ignored", reason: "Missing agent phone" });
@@ -42,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     let dbAgentPhone = agentPhone.replace(/^\+?91/, '').slice(-10);
 
-    // 2. SMART LOOKUP: Find the agent to get their Tenant ID
+    // 3. SMART LOOKUP: Find the agent to get their Tenant ID
     const { data: agent } = await supabaseAdmin
         .from("users")
         .select("id, tenant_id")
@@ -99,7 +108,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (finalLeadId) {
-        // 3. INSERT CALL LOG
+        // 4. INSERT CALL LOG
         const { data: callLog } = await supabaseAdmin.from("call_logs").insert({
             tenant_id: tenantId, 
             lead_id: finalLeadId,
@@ -111,7 +120,7 @@ export async function POST(request: NextRequest) {
             notes: `C2C Call. Customer Status: ${customerDisposition}. Talk Time: ${billsec}s.`
         }).select().single();
 
-        // 🔴 4. DYNAMIC CREDIT DEDUCTION
+        // 🔴 5. DYNAMIC CREDIT DEDUCTION
         // We ONLY charge if the customer answered AND talk time is greater than 0
         if (billsec > 0 && customerDisposition === "ANSWERED" && callLog) {
             const { data: settings } = await supabaseAdmin.from('tenant_settings')
@@ -139,7 +148,7 @@ export async function POST(request: NextRequest) {
             console.log(`⏩ [WALLET] Skipped Deduction. BillSec was ${billsec}, Disposition was ${customerDisposition}.`);
         }
 
-        // 5. SHORT CALL LOGIC
+        // 6. SHORT CALL LOGIC
         // If talk time is < 5 seconds OR the customer didn't answer
         if (billsec < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition)) {
              await supabaseAdmin.from('leads').update({ status: 'nr' }).eq('id', finalLeadId);
