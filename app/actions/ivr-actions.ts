@@ -1,4 +1,3 @@
-// app/actions/ivr-actions.ts
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
@@ -46,7 +45,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         const batchId = batchRecord.id;
 
-        // 2. CLEAN NUMBERS (Fonada doesn't want custom headers here)
+        // 2. CLEAN NUMBERS
         const cleanPhoneDetails = phoneNumbers.map(phone => {
             return { phoneNumber: phone.replace(/\D/g, '').slice(-10) };
         });
@@ -85,16 +84,36 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                  await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchId);
                  throw new Error(jsonRes.message || "Fonada rejected the data payload.");
             }
-            // 🔴 CAPTURE THE ID FONADA GENERATES (e.g., 104197)
-            fonadaLeadId = jsonRes.leadId || jsonRes.lead_id || jsonRes.data?.leadId || null;
+            
+            // Attempt 1: Standard extraction
+            fonadaLeadId = jsonRes.leadId || jsonRes.leadid || jsonRes.lead_id || jsonRes.data?.leadId || null;
+            
         } catch (e: any) {
             if(e.message.includes("Fonada rejected")) throw e; 
         }
 
-        // 🔴 SAVE THE ID SO THE WEBHOOK CAN FIND IT LATER!
-        await supabase.from('ivr_campaign_history').update({
-            fonada_lead_id: fonadaLeadId ? String(fonadaLeadId) : null
-        }).eq('id', batchId);
+        // 🔴 Attempt 2: Aggressive Regex Fallback!
+        // If the JSON parsing missed it, rip any 5-8 digit standalone number right out of the text!
+        if (!fonadaLeadId) {
+            const match = responseText.match(/\b\d{5,8}\b/);
+            if (match) fonadaLeadId = match[0];
+        }
+
+        // 🔴 3. SAVE THE ID TO THE DATABASE (WITH ERROR CHECKING)
+        if (fonadaLeadId) {
+            const safeLeadId = String(fonadaLeadId).trim();
+            const { error: updateErr } = await supabase.from('ivr_campaign_history').update({
+                fonada_lead_id: safeLeadId
+            }).eq('id', batchId);
+
+            if (updateErr) {
+                console.error("🚨 CRITICAL DB ERROR: Failed to save fonada_lead_id! Did you run the SQL migration?", updateErr);
+            } else {
+                console.log(`✅ Successfully mapped Fonada ID [${safeLeadId}] to Supabase Batch [${batchId}]`);
+            }
+        } else {
+            console.error("🚨 CRITICAL EXTRACTION ERROR: Could not find any Lead ID in the Fonada response text!");
+        }
 
         return { success: true, message: `Successfully pushed ${phoneNumbers.length} contacts to the dialer!` };
 
