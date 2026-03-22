@@ -2,7 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server"
 
-export async function launchIvrCampaign(configId: string, leadBatchName: string, phoneNumbers: string[]) {
+// 🔴 1. ADDED retryCount PARAMETER
+export async function launchIvrCampaign(configId: string, leadBatchName: string, phoneNumbers: string[], retryCount: number = 1) {
     try {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
@@ -57,8 +58,17 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             ukey: config.fonada_ukey,
             header: "Phone", 
             retryInfo: {
-                retryType: "R", retryOnFail: 1, retryTimeOnFail: 5, retryOnBusy: 1, retryTimeOnBusy: 5,
-                retryOnAns: 0, retryTimeOnAns: 0, retryOnNoAns: 1, retryTimeOnNoAns: 5, noOfRetry: 1
+                retryType: "R", 
+                retryOnFail: 1, 
+                retryTimeOnFail: 5, 
+                retryOnBusy: 1, 
+                retryTimeOnBusy: 5,
+                retryOnAns: 0, 
+                retryTimeOnAns: 0, 
+                retryOnNoAns: 1, 
+                retryTimeOnNoAns: 5, 
+                // 🔴 2. INJECT DYNAMIC RETRY COUNT INTO PAYLOAD
+                noOfRetry: retryCount 
             },
             phoneNumberDetails: cleanPhoneDetails
         };
@@ -85,21 +95,16 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                  throw new Error(jsonRes.message || "Fonada rejected the data payload.");
             }
             
-            // Attempt 1: Standard extraction
             fonadaLeadId = jsonRes.leadId || jsonRes.leadid || jsonRes.lead_id || jsonRes.data?.leadId || null;
-            
         } catch (e: any) {
             if(e.message.includes("Fonada rejected")) throw e; 
         }
 
-        // 🔴 Attempt 2: Aggressive Regex Fallback!
-        // If the JSON parsing missed it, rip any 5-8 digit standalone number right out of the text!
         if (!fonadaLeadId) {
             const match = responseText.match(/\b\d{5,8}\b/);
             if (match) fonadaLeadId = match[0];
         }
 
-        // 🔴 3. SAVE THE ID TO THE DATABASE (WITH ERROR CHECKING)
         if (fonadaLeadId) {
             const safeLeadId = String(fonadaLeadId).trim();
             const { error: updateErr } = await supabase.from('ivr_campaign_history').update({
