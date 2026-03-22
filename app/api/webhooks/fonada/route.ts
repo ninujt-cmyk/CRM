@@ -78,27 +78,31 @@ export async function POST(request: NextRequest) {
     let creditsToDeduct = 0;
 
     // 4. DYNAMIC BILLING MATH
-    if (billsec > 0 && disposition === "ANSWERED") {
-        const { data: settings } = await supabaseAdmin.from('tenant_settings')
-            .select('billing_pulse_seconds, credits_per_pulse')
-            .eq('tenant_id', tenantId)
-            .single();
+        if (billsec > 0 && disposition === "ANSWERED") {
+            const { data: settings } = await supabaseAdmin.from('tenant_settings')
+                .select('billing_pulse_seconds, credits_per_pulse')
+                .eq('tenant_id', tenantId)
+                .single();
+    
+            const pulseSecs = settings?.billing_pulse_seconds || 15;
+            const creditsPerPulse = settings?.credits_per_pulse || 1;
+    
+            const pulses = Math.ceil(billsec / pulseSecs); 
+            creditsToDeduct = pulses * creditsPerPulse;
+    
+            // 🔴 UPDATED: Catch the error so it never fails silently again!
+            const { error: ledgerError } = await supabaseAdmin.from("wallet_ledger").insert({
+                tenant_id: tenantId,
+                credits: -Math.abs(creditsToDeduct),
+                transaction_type: 'IVR_CAMPAIGN',
+                description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
+                reference_id: batchId || null 
+            });
 
-        const pulseSecs = settings?.billing_pulse_seconds || 15;
-        const creditsPerPulse = settings?.credits_per_pulse || 1;
-
-        const pulses = Math.ceil(billsec / pulseSecs); 
-        creditsToDeduct = pulses * creditsPerPulse;
-
-        await supabaseAdmin.from("wallet_ledger").insert({
-            tenant_id: tenantId,
-            credits: -Math.abs(creditsToDeduct),
-            transaction_type: 'IVR_CAMPAIGN',
-            description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
-            reference_id: batchId || null 
-        });
-    }
-
+            if (ledgerError) {
+                console.error("🚨 [DB ERROR] Wallet Ledger Insert Failed:", ledgerError);
+            }
+        }
     // 5. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
