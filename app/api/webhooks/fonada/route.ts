@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
     let fonadaLeadId = body.leadid || null;
     
     if (!fonadaLeadId && body.accountcode) {
-        // Extracts '104197' from '104197^8330944008^9475513039^1'
-        fonadaLeadId = body.accountcode.split('^')[0]; 
+        // Safe extraction with .trim() to prevent space-mismatch errors
+        fonadaLeadId = String(body.accountcode.split('^')[0]).trim(); 
     }
 
     let tenantId = null;
