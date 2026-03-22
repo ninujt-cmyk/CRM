@@ -9,10 +9,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const isValidUUID = (id: string) => {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-};
-
 export async function POST(request: NextRequest) {
   console.log("🔔 [FONADA WEBHOOK] Incoming CDR Data");
 
@@ -22,38 +18,48 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // 🔴 1. THE FIX: Grab IDs from the Webhook URL Query Parameters first!
-    const searchParams = request.nextUrl.searchParams;
-    let tenantId = searchParams.get('tenant_id') || body.tenant_id || body.accountcode;
-    let batchId = searchParams.get('batch_id') || body.batch_id || body.userfield;
-
-    // Clean up strings
-    tenantId = typeof tenantId === 'string' ? tenantId.trim() : null;
-    batchId = typeof batchId === 'string' ? batchId.trim() : null;
-
-    // Validate UUIDs (Ignore Fonada's weird string if it sneaks through)
-    if (tenantId && !isValidUUID(tenantId)) {
-        console.log(`⚠️ Invalid Tenant UUID format ignored: ${tenantId}`);
-        tenantId = null;
-    }
-    if (batchId && !isValidUUID(batchId)) {
-        batchId = null;
+    // 1. 🔴 EXTRACT FONADA'S INTERNAL BATCH ID
+    let fonadaLeadId = body.leadid || null;
+    
+    if (!fonadaLeadId && body.accountcode) {
+        // Extracts '104197' from '104197^8330944008^9475513039^1'
+        fonadaLeadId = body.accountcode.split('^')[0]; 
     }
 
-    const mobileNumber = body.dst;
+    let tenantId = null;
+    let batchId = null;
+
+    // 2. 🔴 THE SMART LOOKUP
+    if (fonadaLeadId) {
+        const { data: batch } = await supabaseAdmin
+            .from('ivr_campaign_history')
+            .select('id, tenant_id')
+            .eq('fonada_lead_id', String(fonadaLeadId))
+            .maybeSingle();
+
+        if (batch) {
+            tenantId = batch.tenant_id;
+            batchId = batch.id;
+        }
+    }
+
+    const mobileNumber = body.dst || body.customerNumber || null;
     const billsec = parseInt(body.billsec || "0");
     const duration = parseInt(body.duration || "0");
     const disposition = body.disposition || "UNKNOWN";
-    const digitsPressed = [body.digit_1, body.digit_2, body.digit_3].filter(Boolean).join(',') || null;
+    
+    // Safely extract digits pressed
+    const digitsPressed = [body.digitpressedLevel1, body.digitpressedLevel2, body.digitpressedLevel3]
+        .filter(Boolean).join(',') || body.digit_1 || null;
 
     if (!tenantId || !mobileNumber) {
-      console.error("🚨 Missing or invalid routing context.", { urlTenant: searchParams.get('tenant_id'), bodyTenant: body.accountcode, mobile: mobileNumber });
-      return NextResponse.json({ status: "ignored", reason: "Missing or invalid tenant ID" });
+      console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
+      return NextResponse.json({ status: "ignored", reason: "Missing or invalid tenant ID mapping" });
     }
 
     let creditsToDeduct = 0;
 
-    // 2. DYNAMIC BILLING MATH
+    // 3. DYNAMIC BILLING MATH
     if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings')
             .select('billing_pulse_seconds, credits_per_pulse')
@@ -75,20 +81,20 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    // 3. LOG THE INDIVIDUAL CALL
+    // 4. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
         batch_id: batchId, 
         mobile_number: mobileNumber,
-        attempt_num: parseInt(body.attempt_num || "1"),
-        start_date: body.start_date || null,
-        answer_date: body.answer_date || null,
-        end_date: body.end_date || null,
+        attempt_num: parseInt(body.attemptnum || body.attempt_num || "1"),
+        start_date: body.start || body.start_date || null,
+        answer_date: body.answer || body.answer_date || null,
+        end_date: body.end || body.end_date || null,
         call_duration: duration,
         bill_seconds: billsec,
         disposition: disposition,
-        hangup_cause: body.hangup_cause || null,
-        hangup_code: body.hangup_code || null,
+        hangup_cause: body.hangupcause || body.hangup_cause || null,
+        hangup_code: body.hangupcode || body.hangup_code || null,
         clid: body.clid || null,
         digits_pressed: digitsPressed,
         credits_used: creditsToDeduct
@@ -99,7 +105,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "error", message: insertError.message }, { status: 500 });
     }
 
-    console.log(`✅ [FONADA] Logged ${mobileNumber} | BillSec: ${billsec} | Credits: ${creditsToDeduct}`);
+    console.log(`✅ [FONADA] Logged ${mobileNumber} for Tenant ${tenantId} | Credits: -${creditsToDeduct}`);
     return NextResponse.json({ status: "success" });
 
   } catch (error) {
