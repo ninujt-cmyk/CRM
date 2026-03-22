@@ -28,7 +28,12 @@ export default function IvrReportsPage() {
       const { data } = await supabase.from('ivr_campaign_history')
         .select('id, lead_batch_name, campaign_name, created_at')
         .order('created_at', { ascending: false })
-      if (data) setBatches(data)
+      
+      if (data && data.length > 0) {
+        setBatches(data)
+        // 🔴 NEW: Auto-select the most recent campaign (index 0)
+        setSelectedBatch(data[0].id) 
+      }
     }
     fetchBatches()
   }, [supabase])
