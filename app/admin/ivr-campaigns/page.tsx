@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { 
   Megaphone, UploadCloud, Play, Loader2, FileSpreadsheet, 
-  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw, AlertTriangle, BarChart
+  Coins, ArrowUpRight, Receipt, PhoneCall, TrendingDown, Download, Wand2, RefreshCw, AlertTriangle, BarChart, RotateCcw
 } from "lucide-react"
 import { toast } from "sonner"
 import { launchIvrCampaign } from "@/app/actions/ivr-actions"
@@ -23,6 +23,10 @@ export default function IvrCampaignsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [batchName, setBatchName] = useState("")
   const [selectedConfigId, setSelectedConfigId] = useState("")
+  
+  // 🔴 1. NEW STATE: Retry Count
+  const [retryCount, setRetryCount] = useState("1")
+  
   const [csvFile, setCsvFile] = useState<File | null>(null)
 
   // Campaign State
@@ -43,33 +47,28 @@ export default function IvrCampaignsPage() {
   const fetchData = async () => {
     setIsRefreshing(true)
     try {
-        // 1. Fetch Campaign Data
         const { data: cData } = await supabase.from('ivr_campaign_configs').select('id, campaign_name')
         if (cData) setConfigs(cData)
 
         const { data: hData } = await supabase.from('ivr_campaign_history').select('*').order('created_at', { ascending: false }).limit(20)
         if (hData) setHistory(hData)
 
-        // 2. Fetch Wallet Data
         const { data: wallet } = await supabase.from('tenant_wallets').select('credits_balance').maybeSingle()
         if (wallet) {
             setBalance(wallet.credits_balance || 0)
             
-            // TRIGGER ALERT IF < 1000 CREDITS
             if ((wallet.credits_balance || 0) < 1000 && !alertShownRef.current) {
                 setShowLowBalanceModal(true)
-                alertShownRef.current = true // Mark as shown
+                alertShownRef.current = true
             }
         }
 
-        // 3. Fetch Ledger
         const { data: lData } = await supabase.from('wallet_ledger')
           .select('*')
           .order('created_at', { ascending: false })
           .limit(50)
         if (lData) setLedger(lData)
 
-        // 4. Calculate Total Used Credits
         const { data: usageData } = await supabase.from('wallet_ledger')
           .select('credits')
           .lt('credits', 0) 
@@ -160,7 +159,8 @@ export default function IvrCampaignsPage() {
             throw new Error("Could not find any valid 10-digit phone numbers in the CSV.")
         }
 
-        const res = await launchIvrCampaign(selectedConfigId, batchName, uniquePhones)
+        // 🔴 2. PASS RETRY COUNT TO SERVER ACTION
+        const res = await launchIvrCampaign(selectedConfigId, batchName, uniquePhones, parseInt(retryCount))
 
         if (res.success) {
             toast.success(res.message)
@@ -189,7 +189,6 @@ export default function IvrCampaignsPage() {
           <p className="text-slate-500 mt-1">Select a campaign and upload your contact list to launch automated blasts.</p>
         </div>
         
-        {/* 🔴 NEW: Action Bar with Report Buttons */}
         <div className="flex items-center gap-3 flex-wrap">
             <Link href="/admin/ivr-reports">
                 <Button variant="outline" className="gap-2 bg-white text-purple-700 hover:text-purple-800 hover:bg-purple-50 border-purple-200 shadow-sm">
@@ -240,6 +239,23 @@ export default function IvrCampaignsPage() {
                     </button>
                 </div>
                 <Input placeholder="e.g. 21march_batch1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
+              </div>
+
+              {/* 🔴 3. NEW UI: RETRY COUNT SELECTOR */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4 text-slate-400" />
+                  Auto-Retry Count
+                </Label>
+                <Select value={retryCount} onValueChange={setRetryCount}>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="Select retries..." /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="1">1 Retry (Standard)</SelectItem>
+                        <SelectItem value="2">2 Retries (Aggressive)</SelectItem>
+                        <SelectItem value="3">3 Retries (Maximum)</SelectItem>
+                    </SelectContent>
+                </Select>
+                <p className="text-[10px] text-slate-500">Number of times the dialer will retry failed or unanswered calls.</p>
               </div>
 
               <div className="space-y-2">
