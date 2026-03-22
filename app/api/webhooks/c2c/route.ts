@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     const tenantId = agent.tenant_id;
 
     // If the Agent didn't pick up, the call ends immediately (No charge)
-    if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition)) {
+    if (["FAILED", "BUSY", "NO ANSWER", "CANCEL"].includes(agentDisposition.trim())) {
         await supabaseAdmin.from("users").update({
             current_status: 'wrap_up',
             status_reason: `Agent Leg: ${agentDisposition}`,
@@ -108,8 +108,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (finalLeadId) {
-        // 4. INSERT CALL LOG
-        const { data: callLog } = await supabaseAdmin.from("call_logs").insert({
+        // 4. INSERT CALL LOG (Now with Strict Error Logging!)
+        const { data: callLog, error: logError } = await supabaseAdmin.from("call_logs").insert({
             tenant_id: tenantId, 
             lead_id: finalLeadId,
             user_id: agent.id,
@@ -120,9 +120,14 @@ export async function POST(request: NextRequest) {
             notes: `C2C Call. Customer Status: ${customerDisposition}. Talk Time: ${billsec}s.`
         }).select().single();
 
+        // IF THE DATABASE REJECTS THE INSERT, WE PRINT WHY:
+        if (logError) {
+            console.error("🚨 [DB ERROR] Call Log Insert Failed! Wallet deduction blocked to prevent ghost charges.", logError);
+        }
+
         // 🔴 5. DYNAMIC CREDIT DEDUCTION
-        // We ONLY charge if the customer answered AND talk time is greater than 0
-        if (billsec > 0 && customerDisposition === "ANSWERED" && callLog) {
+        // Added .trim() to protect against invisible spaces from Fonada!
+        if (billsec > 0 && customerDisposition.trim() === "ANSWERED" && callLog) {
             const { data: settings } = await supabaseAdmin.from('tenant_settings')
                 .select('billing_pulse_seconds, credits_per_pulse')
                 .eq('tenant_id', tenantId)
@@ -136,21 +141,27 @@ export async function POST(request: NextRequest) {
             const totalCreditsToDeduct = pulses * creditsPerPulse;
 
             // Deduct from Ledger
-            await supabaseAdmin.from("wallet_ledger").insert({
+            const { error: ledgerError } = await supabaseAdmin.from("wallet_ledger").insert({
                 tenant_id: tenantId,
                 credits: -Math.abs(totalCreditsToDeduct), // Forces it to be a deduction
                 transaction_type: 'C2C_CALL',
                 description: `C2C Call to ${dbCustomerPhone} (Talk Time: ${billsec}s = ${pulses} pulses)`,
                 reference_id: callLog.id
             });
-            console.log(`🪙 [WALLET] Deducted ${totalCreditsToDeduct} credits from Tenant ${tenantId}`);
+
+            if (ledgerError) {
+                 console.error("🚨 [LEDGER ERROR] Failed to deduct credits:", ledgerError);
+            } else {
+                 console.log(`🪙 [WALLET] Deducted ${totalCreditsToDeduct} credits from Tenant ${tenantId}`);
+            }
+            
         } else {
-            console.log(`⏩ [WALLET] Skipped Deduction. BillSec was ${billsec}, Disposition was ${customerDisposition}.`);
+            console.log(`⏩ [WALLET] Skipped Deduction. BillSec: ${billsec}, Disposition: '${customerDisposition}', CallLog Saved: ${!!callLog}`);
         }
 
         // 6. SHORT CALL LOGIC
         // If talk time is < 5 seconds OR the customer didn't answer
-        if (billsec < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition)) {
+        if (billsec < 5 || ["NO ANSWER", "FAILED", "BUSY", "CANCEL"].includes(customerDisposition.trim())) {
              await supabaseAdmin.from('leads').update({ status: 'nr' }).eq('id', finalLeadId);
              await supabaseAdmin.from("users").update({
                  current_status: 'active', 
