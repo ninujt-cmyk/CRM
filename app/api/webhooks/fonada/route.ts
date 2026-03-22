@@ -41,6 +41,12 @@ export async function POST(request: NextRequest) {
         if (batch) {
             tenantId = batch.tenant_id;
             batchId = batch.id;
+            
+            // 🔴 NEW: UPDATE THE HEARTBEAT TIMESTAMP
+            await supabaseAdmin.from('ivr_campaign_history')
+                .update({ last_webhook_received_at: new Date().toISOString() })
+                .eq('id', batchId);
+                
             console.log(`🔐 [SMART LOOKUP] Found Batch for LeadID: ${fonadaLeadId}`);
         }
     }
