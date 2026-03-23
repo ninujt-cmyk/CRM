@@ -80,12 +80,21 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 DTMF EXTRACTION: Grab the actual digit pressed, not the "level" indicator
-    const digitsPressed = safeBody.digitspressed || 
-                          safeBody['digitspressed=cdr.digitpressed'] || 
-                          safeBody.digits_pressed || 
-                          safeBody.digitpressed || 
-                          null;
+    // 🔴 DTMF EXTRACTION FIX: 
+    // We target the actual key pressed (CDR.digitpressed) and ignore the Level flags.
+    // Make sure in the Fonada panel you map: Key = digitsPressed, Value = CDR.digitpressed
+    
+    let rawDtmf = 
+        body.digitsPressed || 
+        body.digits_pressed ||
+        safeBody.digitspressed || 
+        safeBody.digits_pressed ||
+        safeBody.digitpressed;
+
+    // Convert to string safely (so if they press "0", it doesn't get ignored as false)
+    const digitsPressed = rawDtmf !== undefined && rawDtmf !== null && rawDtmf !== "" 
+        ? String(rawDtmf).trim() 
+        : null;
     }
 
     if (!tenantId || !mobileNumber) {
