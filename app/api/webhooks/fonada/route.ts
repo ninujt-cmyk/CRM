@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // 🔴 THE FIX: ADD THE SAFE BODY LOWERCASE LOOP!
+    // 🔴 LOWERCASE CONVERSION LOOP
     const safeBody: any = {};
     for (const key in body) {
         if (body.hasOwnProperty(key)) {
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // 1. 🔴 EXTRACT FONADA'S INTERNAL BATCH ID
+    // 1. EXTRACT FONADA'S INTERNAL BATCH ID
     let fonadaLeadId = safeBody.leadid || null;
     
     if (!fonadaLeadId && safeBody.accountcode) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     let batchId = null;
     const mobileNumber = safeBody.mobilenumber || safeBody.customernumber || safeBody.dst || null;
 
-    // 2. 🔴 SMART LOOKUP: Try to find the exact Campaign Batch
+    // 2. SMART LOOKUP: Try to find the exact Campaign Batch
     if (fonadaLeadId) {
         const { data: batch } = await supabaseAdmin
             .from('ivr_campaign_history')
@@ -49,7 +49,6 @@ export async function POST(request: NextRequest) {
             tenantId = batch.tenant_id;
             batchId = batch.id;
             
-            // UPDATE THE HEARTBEAT TIMESTAMP
             await supabaseAdmin.from('ivr_campaign_history')
                 .update({ last_webhook_received_at: new Date().toISOString() })
                 .eq('id', batchId);
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // 3. 🔴 FAILSAFE: Fallback to Customer Phone Lookup
+    // 3. FAILSAFE: Fallback to Customer Phone Lookup
     if (!tenantId && mobileNumber) {
         let dbCustomerPhone = mobileNumber.replace(/^\+?91/, '').slice(-10);
         
@@ -75,27 +74,36 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // Capture standard metrics using safeBody
     const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
     // 🔴 DTMF EXTRACTION FIX: 
-    // We target the actual key pressed (CDR.digitpressed) and ignore the Level flags.
-    // Make sure in the Fonada panel you map: Key = digitsPressed, Value = CDR.digitpressed
-    
-    let rawDtmf = 
+    // Captures the true digit pressed by the customer based on your configuration
+    let digitsPressed = 
         body.digitsPressed || 
+        body['digitsPressed=CDR.digitpressed'] || 
+        body.digitspressed || 
         body.digits_pressed ||
         safeBody.digitspressed || 
+        safeBody['digitspressed=cdr.digitpressed'] ||
         safeBody.digits_pressed ||
         safeBody.digitpressed;
 
-    // Convert to string safely (so if they press "0", it doesn't get ignored as false)
-    const digitsPressed = rawDtmf !== undefined && rawDtmf !== null && rawDtmf !== "" 
-        ? String(rawDtmf).trim() 
-        : null;
+    if (!digitsPressed) {
+        const levelDigits = [
+            safeBody.digitpressedlevel1, 
+            safeBody.digitpressedlevel2, 
+            safeBody.digitpressedlevel3,
+            safeBody.digitpressedlevel4,
+            safeBody.digitpressedlevel5
+        ].filter(Boolean).join(',');
+
+        digitsPressed = levelDigits || null;
     }
+
+    // Make sure we don't save empty strings
+    digitsPressed = digitsPressed && digitsPressed.trim() !== "" ? digitsPressed : null;
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
@@ -154,7 +162,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "error", message: insertError.message }, { status: 500 });
     }
 
-    console.log(`✅ [FONADA] Logged ${mobileNumber} for Tenant ${tenantId} | Credits: -${creditsToDeduct}`);
+    console.log(`✅ [FONADA] Logged ${mobileNumber} | Digits: ${digitsPressed} | Credits: -${creditsToDeduct}`);
     return NextResponse.json({ status: "success" });
 
   } catch (error) {
