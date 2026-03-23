@@ -73,8 +73,14 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(body.duration || "0");
     const disposition = body.disposition || "UNKNOWN";
     
-    const digitsPressed = [body.digitpressedLevel1, body.digitpressedLevel2, body.digitpressedLevel3]
-        .filter(Boolean).join(',') || body.digitsPressed || null;
+    // 🔴 THE FIX: Use safeBody and all-lowercase keys for DTMF extraction
+    const digitsPressed = [
+        safeBody.digitpressedlevel1, 
+        safeBody.digitpressedlevel2, 
+        safeBody.digitpressedlevel3,
+        safeBody.digitpressedlevel4,
+        safeBody.digitpressedlevel5
+    ].filter(Boolean).join(',') || safeBody.digitspressed || safeBody.digitpressed || null;
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
