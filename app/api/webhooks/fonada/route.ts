@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
     let tenantId = null;
     let batchId = null;
-    const mobileNumber = body.dst || body.customerNumber || null;
+    const mobileNumber = body.mobileNumber || body.customerNumber || null;
 
     // 2. 🔴 SMART LOOKUP: Try to find the exact Campaign Batch
     if (fonadaLeadId) {
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const disposition = body.disposition || "UNKNOWN";
     
     const digitsPressed = [body.digitpressedLevel1, body.digitpressedLevel2, body.digitpressedLevel3]
-        .filter(Boolean).join(',') || body.digit_1 || null;
+        .filter(Boolean).join(',') || body.digitsPressed || null;
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
