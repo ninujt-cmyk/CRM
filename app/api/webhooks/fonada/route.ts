@@ -80,28 +80,12 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 DTMF EXTRACTION FIX: 
-    // Check the direct keys FIRST, because 'digitpressedlevel1' often just returns a '1' (true flag).
-    let digitsPressed = 
-        body.digitsPressed || 
-        body['digitsPressed=CDR.digitpressed'] || 
-        body.digits_pressed ||
-        safeBody.digitspressed || 
-        safeBody['digitspressed=cdr.digitpressed'] ||
-        safeBody.digits_pressed ||
-        safeBody.digitpressed;
-
-    // Only fallback to the Level array if ALL of the direct keys above are completely empty
-    if (!digitsPressed) {
-        const levelDigits = [
-            safeBody.digitpressedlevel1, 
-            safeBody.digitpressedlevel2, 
-            safeBody.digitpressedlevel3,
-            safeBody.digitpressedlevel4,
-            safeBody.digitpressedlevel5
-        ].filter(Boolean).join(',');
-
-        digitsPressed = levelDigits || null;
+    // 🔴 DTMF EXTRACTION: Grab the actual digit pressed, not the "level" indicator
+    const digitsPressed = safeBody.digitspressed || 
+                          safeBody['digitspressed=cdr.digitpressed'] || 
+                          safeBody.digits_pressed || 
+                          safeBody.digitpressed || 
+                          null;
     }
 
     if (!tenantId || !mobileNumber) {
