@@ -37,7 +37,6 @@ export default function IvrCampaignsPage() {
   const [usedCredits, setUsedCredits] = useState<number>(0)
   const [ledger, setLedger] = useState<any[]>([])
 
-  // 🔴 1. NEW DATE FILTER STATE
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
@@ -47,7 +46,6 @@ export default function IvrCampaignsPage() {
 
   const supabase = createClient()
 
-  // 🔴 2. HELPER: CALCULATE DATES BASED ON FILTER
   const getDateRange = useCallback(() => {
     const now = new Date()
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -66,7 +64,7 @@ export default function IvrCampaignsPage() {
             break
         case 'this_week':
             start = new Date(startOfToday)
-            start.setDate(start.getDate() - start.getDay()) // Sunday
+            start.setDate(start.getDate() - start.getDay())
             end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
             break
         case 'this_month':
@@ -75,7 +73,7 @@ export default function IvrCampaignsPage() {
             break
         case 'last_month':
             start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-            end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) // Last day of last month
+            end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) 
             break
         case 'custom':
             if (customStart && customEnd) {
@@ -83,7 +81,6 @@ export default function IvrCampaignsPage() {
                 end = new Date(customEnd)
                 end.setHours(23, 59, 59)
             } else {
-                // Fallback to today if custom dates not picked yet
                 start = startOfToday
                 end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
             }
@@ -115,7 +112,7 @@ export default function IvrCampaignsPage() {
             }
         }
 
-        // 🔴 3. FETCH DATA BASED ON SELECTED DATE RANGE
+        // Fetch Data Based on Date Range
         const { data: hData } = await supabase.from('ivr_campaign_history')
             .select('*')
             .gte('created_at', startIso)
@@ -132,8 +129,15 @@ export default function IvrCampaignsPage() {
             .limit(500)
         if (lData) setLedger(lData)
 
-        // Lifetime Usage (Independent of date filter)
-        const { data: usageData } = await supabase.from('wallet_ledger').select('credits').lt('credits', 0) 
+        // 🔴 UPDATED: Today's Usage instead of Lifetime
+        const now = new Date();
+        const startOfTodayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+        const { data: usageData } = await supabase.from('wallet_ledger')
+            .select('credits')
+            .lt('credits', 0)
+            .gte('created_at', startOfTodayIso)
+            
         if (usageData) {
           const totalUsed = usageData.reduce((acc, row) => acc + Math.abs(row.credits), 0)
           setUsedCredits(totalUsed)
@@ -164,7 +168,6 @@ export default function IvrCampaignsPage() {
     document.body.removeChild(link);
   }
 
-  // 🔴 4. EXPORT HELPERS
   const exportLedgerCSV = () => {
       let csvContent = "data:text/csv;charset=utf-8,Date,Transaction Type,Description,Credits\n";
       ledger.forEach(tx => {
@@ -276,15 +279,15 @@ export default function IvrCampaignsPage() {
         {/* LEFT COLUMN: Launch Form & Wallet Balance */}
         <div className="md:col-span-1 space-y-6">
           
-          <Card className="shadow-sm border-purple-100 bg-purple-50/30">
-            <CardHeader className="border-b bg-white rounded-t-xl">
-              <CardTitle className="text-lg text-purple-900">Launch New Campaign</CardTitle>
+          <Card className="shadow-sm border-slate-200 bg-white">
+            <CardHeader className="border-b bg-slate-50 rounded-t-xl py-4">
+              <CardTitle className="text-base text-slate-800">Launch New Campaign</CardTitle>
             </CardHeader>
-            <CardContent className="p-6 space-y-5">
+            <CardContent className="p-5 space-y-5">
               <div className="space-y-2">
-                <Label>Select Campaign Theme</Label>
+                <Label className="text-sm font-semibold">Select Campaign Theme</Label>
                 <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
-                    <SelectTrigger className="bg-white"><SelectValue placeholder="Choose campaign..." /></SelectTrigger>
+                    <SelectTrigger className="bg-white border-slate-300"><SelectValue placeholder="Choose campaign..." /></SelectTrigger>
                     <SelectContent>
                         {configs.map(c => (
                             <SelectItem key={c.id} value={c.id}>{c.campaign_name}</SelectItem>
@@ -295,69 +298,76 @@ export default function IvrCampaignsPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <Label>Lead Batch Name</Label>
-                    <button type="button" onClick={generateBatchName} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors">
+                    <Label className="text-sm font-semibold">Lead Batch Name</Label>
+                    <button type="button" onClick={generateBatchName} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium transition-colors">
                         <Wand2 className="w-3 h-3" /> Auto-Generate
                     </button>
                 </div>
-                <Input placeholder="e.g. 21march_batch1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white" />
+                <Input placeholder="e.g. 21march_batch1" value={batchName} onChange={e=>setBatchName(e.target.value)} className="bg-white border-slate-300" />
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <RotateCcw className="w-4 h-4 text-slate-400" /> Auto-Retry Count
+                <Label className="flex items-center gap-2 text-sm font-semibold">
+                  <RotateCcw className="w-4 h-4 text-slate-500" /> Auto-Retry Count
                 </Label>
                 <Select value={retryCount} onValueChange={setRetryCount}>
-                    <SelectTrigger className="bg-white"><SelectValue placeholder="Select retries..." /></SelectTrigger>
+                    <SelectTrigger className="bg-white border-slate-300"><SelectValue placeholder="Select retries..." /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="1">1 Retry (Standard)</SelectItem>
                         <SelectItem value="2">2 Retries (Aggressive)</SelectItem>
                         <SelectItem value="3">3 Retries (Maximum)</SelectItem>
                     </SelectContent>
                 </Select>
-                <p className="text-[10px] text-slate-500">Number of times the dialer will retry failed or unanswered calls.</p>
+                <p className="text-[11px] text-slate-500 leading-tight">Number of times the dialer will retry failed or unanswered calls.</p>
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2"><FileSpreadsheet className="w-4 h-4 text-slate-400"/> Contact List (.csv)</Label>
-                    <button type="button" onClick={handleDownloadSample} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 font-medium transition-colors">
+                    <Label className="flex items-center gap-2 text-sm font-semibold"><FileSpreadsheet className="w-4 h-4 text-slate-500"/> Contact List (.csv)</Label>
+                    <button type="button" onClick={handleDownloadSample} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium transition-colors">
                         <Download className="w-3 h-3" /> Sample CSV
                     </button>
                 </div>
-                <Input type="file" accept=".csv" onChange={handleFileChange} className="cursor-pointer bg-white" />
-                <p className="text-[10px] text-slate-500">File should contain valid 10-digit mobile numbers.</p>
+                <Input type="file" accept=".csv" onChange={handleFileChange} className="cursor-pointer bg-white border-slate-300 text-sm" />
+                <p className="text-[11px] text-slate-500 leading-tight">File should contain valid 10-digit mobile numbers.</p>
               </div>
 
-              <Button onClick={handleLaunch} disabled={isUploading} className="w-full bg-purple-600 hover:bg-purple-700 shadow-md">
+              <Button onClick={handleLaunch} disabled={isUploading} className="w-full bg-slate-900 hover:bg-slate-800 text-white shadow-sm mt-2">
                  {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <UploadCloud className="w-4 h-4 mr-2"/>}
                  Launch Campaign
               </Button>
             </CardContent>
           </Card>
 
-          <Card className={`bg-gradient-to-br ${balance < 1000 ? 'from-rose-900 to-amber-900' : 'from-slate-900 to-indigo-900'} text-white shadow-xl overflow-hidden relative transition-colors duration-500`}>
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-            <CardContent className="p-6 space-y-6 relative z-10">
-              <div className="flex justify-between items-center">
-                  <div className="text-center w-1/2 border-r border-white/20">
-                    <p className="text-white/70 font-medium uppercase tracking-wider text-[10px] mb-1">Available Credits</p>
-                    <h2 className={`text-3xl font-black flex items-center justify-center gap-1.5 transition-all duration-500 ${balance < 1000 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      <Coins className="h-6 w-6" />
+          {/* 🔴 UPDATED: Professional Wallet Balance Card */}
+          <Card className="bg-white border border-slate-200 shadow-sm relative overflow-hidden">
+            {balance < 1000 && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-rose-500"></div>
+            )}
+            <CardHeader className="bg-slate-50 border-b py-4">
+              <CardTitle className="text-base text-slate-800 flex items-center gap-2">
+                 <Coins className="h-5 w-5 text-amber-500" /> Wallet Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center gap-4">
+                  <div className="w-1/2">
+                    <p className="text-slate-500 font-medium uppercase tracking-wider text-[10px] mb-1">Available Credits</p>
+                    <h2 className={`text-2xl font-bold flex items-center gap-1.5 ${balance < 1000 ? 'text-rose-600' : 'text-slate-800'}`}>
                       {balance.toLocaleString()}
                     </h2>
                   </div>
-                  <div className="text-center w-1/2">
-                    <p className="text-white/70 font-medium uppercase tracking-wider text-[10px] mb-1">Lifetime Used</p>
-                    <h2 className="text-3xl font-black flex items-center justify-center gap-1.5 text-rose-400 transition-all duration-500">
-                      <TrendingDown className="h-6 w-6" />
+                  <div className="w-px h-10 bg-slate-200"></div>
+                  <div className="w-1/2 text-right">
+                    <p className="text-slate-500 font-medium uppercase tracking-wider text-[10px] mb-1">Today's Used</p>
+                    <h2 className="text-xl font-bold text-slate-600 flex items-center justify-end gap-1">
                       {usedCredits.toLocaleString()}
                     </h2>
                   </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 w-full text-center">
-                 <p className="text-xs text-white/80 font-medium">Need more credits?</p>
-                 <p className="text-sm font-bold text-white mt-1">Contact your Account Manager</p>
+              <div className="mt-5 bg-slate-50 px-4 py-3 rounded border border-slate-100 text-center">
+                 <p className="text-[11px] text-slate-500 font-medium">To add credits to your account,</p>
+                 <p className="text-[12px] font-semibold text-slate-700 mt-0.5">Contact your Account Manager</p>
               </div>
             </CardContent>
           </Card>
@@ -366,7 +376,6 @@ export default function IvrCampaignsPage() {
         {/* RIGHT COLUMN: History Tables with Filters */}
         <div className="md:col-span-2 space-y-6">
           
-          {/* 🔴 NEW GLOBAL DATE FILTER FOR TABLES */}
           <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-3 rounded-lg border border-slate-200 shadow-sm gap-4">
              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <Calendar className="w-5 h-5 text-indigo-500" /> Date Range Filter
@@ -375,13 +384,13 @@ export default function IvrCampaignsPage() {
              <div className="flex items-center gap-3">
                  {dateFilter === 'custom' && (
                      <div className="flex items-center gap-2">
-                         <Input type="date" className="h-9 w-[130px] text-xs" value={customStart} onChange={e=>setCustomStart(e.target.value)} />
+                         <Input type="date" className="h-9 w-[130px] text-xs border-slate-300" value={customStart} onChange={e=>setCustomStart(e.target.value)} />
                          <span className="text-slate-400">-</span>
-                         <Input type="date" className="h-9 w-[130px] text-xs" value={customEnd} onChange={e=>setCustomEnd(e.target.value)} />
+                         <Input type="date" className="h-9 w-[130px] text-xs border-slate-300" value={customEnd} onChange={e=>setCustomEnd(e.target.value)} />
                      </div>
                  )}
                  <Select value={dateFilter} onValueChange={(v:any) => setDateFilter(v)}>
-                    <SelectTrigger className="w-[150px] bg-slate-50 h-9">
+                    <SelectTrigger className="w-[150px] bg-white border-slate-300 h-9">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -394,104 +403,102 @@ export default function IvrCampaignsPage() {
                     </SelectContent>
                  </Select>
 
-                 <Button variant="ghost" size="icon" onClick={fetchData} disabled={isRefreshing} className="h-9 w-9">
+                 <Button variant="ghost" size="icon" onClick={fetchData} disabled={isRefreshing} className="h-9 w-9 hover:bg-slate-100">
                     <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
                  </Button>
              </div>
           </div>
 
-          {/* LEDGER HISTORY TABLE */}
           <Card className="shadow-sm border-slate-200">
             <CardHeader className="bg-slate-50 border-b pb-4">
               <div className="flex justify-between items-center">
                 <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                        <Receipt className="h-5 w-5 text-slate-600" /> Wallet Ledger
+                    <CardTitle className="text-base text-slate-800 flex items-center gap-2">
+                        <Receipt className="h-4 w-4 text-slate-500" /> Wallet Ledger
                     </CardTitle>
-                    <CardDescription>Credit deductions and recharges for the selected period.</CardDescription>
+                    <CardDescription className="text-xs">Credit deductions and recharges for the selected period.</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={exportLedgerCSV} className="gap-2 bg-white text-xs">
+                <Button variant="outline" size="sm" onClick={exportLedgerCSV} className="gap-2 bg-white border-slate-300 text-xs text-slate-600 hover:bg-slate-50">
                     <Download className="w-3 h-3" /> Export Ledger
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-0 max-h-[350px] overflow-auto">
               <Table>
-                <TableHeader className="bg-slate-100 sticky top-0 z-10 shadow-sm">
+                <TableHeader className="bg-slate-100 sticky top-0 z-10 shadow-sm border-b">
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Credits</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Date</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Type</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Description</TableHead>
+                    <TableHead className="text-right font-semibold text-slate-600">Credits</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ledger.map((tx) => (
-                    <TableRow key={tx.id} className="animate-in fade-in duration-300">
+                    <TableRow key={tx.id} className="animate-in fade-in duration-300 hover:bg-slate-50">
                       <TableCell className="text-xs text-slate-500 whitespace-nowrap">
                         {new Date(tx.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}
                       </TableCell>
                       <TableCell>
-                        {tx.transaction_type === 'RECHARGE' && <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-0"><ArrowUpRight className="w-3 h-3 mr-1"/> Recharge</Badge>}
-                        {tx.transaction_type === 'C2C_CALL' && <Badge variant="outline" className="text-blue-700 bg-blue-50"><PhoneCall className="w-3 h-3 mr-1"/> C2C Call</Badge>}
-                        {tx.transaction_type === 'IVR_CAMPAIGN' && <Badge variant="outline" className="text-purple-700 bg-purple-50"><Megaphone className="w-3 h-3 mr-1"/> IVR Call</Badge>}
+                        {tx.transaction_type === 'RECHARGE' && <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-0 text-[10px]"><ArrowUpRight className="w-3 h-3 mr-1"/> Recharge</Badge>}
+                        {tx.transaction_type === 'C2C_CALL' && <Badge variant="outline" className="text-blue-700 bg-blue-50 border-blue-200 text-[10px]"><PhoneCall className="w-3 h-3 mr-1"/> C2C Call</Badge>}
+                        {tx.transaction_type === 'IVR_CAMPAIGN' && <Badge variant="outline" className="text-purple-700 bg-purple-50 border-purple-200 text-[10px]"><Megaphone className="w-3 h-3 mr-1"/> IVR Call</Badge>}
                       </TableCell>
                       <TableCell className="text-xs font-medium text-slate-700">{tx.description}</TableCell>
-                      <TableCell className={`text-right font-black text-sm ${tx.credits > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
+                      <TableCell className={`text-right font-bold text-sm ${tx.credits > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
                         {tx.credits > 0 ? '+' : ''}{tx.credits}
                       </TableCell>
                     </TableRow>
                   ))}
                   {ledger.length === 0 && (
-                    <TableRow><TableCell colSpan={4} className="text-center py-10 text-slate-400">No transactions found for this period.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="text-center py-10 text-sm text-slate-400">No transactions found for this period.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
 
-          {/* CAMPAIGN HISTORY */}
-          <Card className="shadow-sm">
-            <CardHeader className="bg-slate-50 border-b">
+          <Card className="shadow-sm border-slate-200">
+            <CardHeader className="bg-slate-50 border-b pb-4">
                <div className="flex justify-between items-center">
                 <div>
-                    <CardTitle className="text-lg">Campaign Launch History</CardTitle>
-                    <CardDescription>Track the batches sent to the dialer for the selected period.</CardDescription>
+                    <CardTitle className="text-base text-slate-800">Campaign Launch History</CardTitle>
+                    <CardDescription className="text-xs">Track the batches sent to the dialer for the selected period.</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={exportHistoryCSV} className="gap-2 bg-white text-xs">
+                <Button variant="outline" size="sm" onClick={exportHistoryCSV} className="gap-2 bg-white border-slate-300 text-xs text-slate-600 hover:bg-slate-50">
                     <Download className="w-3 h-3" /> Export History
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-0 max-h-[350px] overflow-auto">
               <Table>
-                <TableHeader className="bg-slate-100 sticky top-0 z-10 shadow-sm">
+                <TableHeader className="bg-slate-100 sticky top-0 z-10 shadow-sm border-b">
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Campaign</TableHead>
-                    <TableHead>Batch Name</TableHead>
-                    <TableHead className="text-center">Contacts</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Date</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Campaign</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Batch Name</TableHead>
+                    <TableHead className="text-center font-semibold text-slate-600">Contacts</TableHead>
+                    <TableHead className="text-right font-semibold text-slate-600">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                    {history.map(c => (
-                       <TableRow key={c.id}>
+                       <TableRow key={c.id} className="hover:bg-slate-50">
                            <TableCell className="text-xs text-slate-500">
                                {new Date(c.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                            </TableCell>
-                           <TableCell className="font-medium text-slate-700">{c.campaign_name}</TableCell>
-                           <TableCell className="text-slate-600">{c.lead_batch_name}</TableCell>
-                           <TableCell className="text-center font-mono">{c.total_contacts}</TableCell>
+                           <TableCell className="font-medium text-sm text-slate-700">{c.campaign_name}</TableCell>
+                           <TableCell className="text-xs text-slate-600">{c.lead_batch_name}</TableCell>
+                           <TableCell className="text-center text-xs font-mono text-slate-600">{c.total_contacts}</TableCell>
                            <TableCell className="text-right">
-                               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-0">
+                               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-0 text-[10px]">
                                    <Play className="w-3 h-3 mr-1 fill-emerald-700"/> Launched
                                </Badge>
                            </TableCell>
                        </TableRow>
                    ))}
                    {history.length === 0 && (
-                       <TableRow><TableCell colSpan={5} className="text-center py-10 text-slate-400">No campaigns launched during this period.</TableCell></TableRow>
+                       <TableRow><TableCell colSpan={5} className="text-center py-10 text-sm text-slate-400">No campaigns launched during this period.</TableCell></TableRow>
                    )}
                 </TableBody>
               </Table>
@@ -502,20 +509,20 @@ export default function IvrCampaignsPage() {
       </div>
 
       <Dialog open={showLowBalanceModal} onOpenChange={setShowLowBalanceModal}>
-        <DialogContent className="sm:max-w-md border-rose-200 bg-rose-50 shadow-2xl">
+        <DialogContent className="sm:max-w-md border-rose-200 bg-rose-50 shadow-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-rose-700 font-bold text-xl">
-              <AlertTriangle className="h-6 w-6" /> Low Wallet Balance
+            <DialogTitle className="flex items-center gap-2 text-rose-700 font-bold text-lg">
+              <AlertTriangle className="h-5 w-5" /> Low Wallet Balance
             </DialogTitle>
-            <DialogDescription className="text-rose-600/90 font-medium">
+            <DialogDescription className="text-rose-600/90 font-medium text-sm">
               Your workspace balance has dropped to <strong className="text-rose-800">{balance.toLocaleString()} credits</strong>.
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-white p-5 rounded-lg border border-rose-100 text-center space-y-4 shadow-sm">
-            <p className="text-sm text-slate-600 leading-relaxed">
+          <div className="bg-white p-4 rounded-lg border border-rose-100 text-center space-y-4 shadow-sm mt-2">
+            <p className="text-xs text-slate-600 leading-relaxed">
               If your balance reaches zero, active IVR campaigns and Click-to-Call dialing will automatically pause. Please reach out to your Account Manager to top up your virtual wallet.
             </p>
-            <Button onClick={() => setShowLowBalanceModal(false)} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-6 shadow-md transition-all">
+            <Button onClick={() => setShowLowBalanceModal(false)} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-4 shadow-sm transition-all text-sm">
               I Understand
             </Button>
           </div>
