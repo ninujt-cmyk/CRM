@@ -18,17 +18,24 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(rawBody); } 
     catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
+    // 🔴 THE FIX: ADD THE SAFE BODY LOWERCASE LOOP!
+    const safeBody: any = {};
+    for (const key in body) {
+        if (body.hasOwnProperty(key)) {
+            safeBody[key.toLowerCase()] = body[key];
+        }
+    }
+
     // 1. 🔴 EXTRACT FONADA'S INTERNAL BATCH ID
-    let fonadaLeadId = body.leadid || null;
+    let fonadaLeadId = safeBody.leadid || null;
     
-    if (!fonadaLeadId && body.accountcode) {
-        // Extracts '104197' safely
-        fonadaLeadId = String(body.accountcode.split('^')[0]).trim(); 
+    if (!fonadaLeadId && safeBody.accountcode) {
+        fonadaLeadId = String(safeBody.accountcode.split('^')[0]).trim(); 
     }
 
     let tenantId = null;
     let batchId = null;
-    const mobileNumber = body.mobileNumber || body.customerNumber || null;
+    const mobileNumber = safeBody.mobilenumber || safeBody.customernumber || safeBody.dst || null;
 
     // 2. 🔴 SMART LOOKUP: Try to find the exact Campaign Batch
     if (fonadaLeadId) {
@@ -42,7 +49,7 @@ export async function POST(request: NextRequest) {
             tenantId = batch.tenant_id;
             batchId = batch.id;
             
-            // 🔴 NEW: UPDATE THE HEARTBEAT TIMESTAMP
+            // UPDATE THE HEARTBEAT TIMESTAMP
             await supabaseAdmin.from('ivr_campaign_history')
                 .update({ last_webhook_received_at: new Date().toISOString() })
                 .eq('id', batchId);
@@ -51,11 +58,10 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // 3. 🔴 THE NEW TRIPLE-FAILSAFE: Fallback to Customer Phone Lookup
+    // 3. 🔴 FAILSAFE: Fallback to Customer Phone Lookup
     if (!tenantId && mobileNumber) {
         let dbCustomerPhone = mobileNumber.replace(/^\+?91/, '').slice(-10);
         
-        // Search the leads table to see which company owns this customer
         const { data: lead } = await supabaseAdmin
             .from('leads')
             .select('tenant_id')
@@ -69,11 +75,12 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    const billsec = parseInt(body.billsec || "0");
-    const duration = parseInt(body.duration || "0");
-    const disposition = body.disposition || "UNKNOWN";
+    // Capture standard metrics using safeBody
+    const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
+    const duration = parseInt(safeBody.duration || "0");
+    const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 THE FIX: Use safeBody and all-lowercase keys for DTMF extraction
+    // 🔴 DTMF EXTRACTION USING LOWERCASE
     const digitsPressed = [
         safeBody.digitpressedlevel1, 
         safeBody.digitpressedlevel2, 
@@ -90,46 +97,46 @@ export async function POST(request: NextRequest) {
     let creditsToDeduct = 0;
 
     // 4. DYNAMIC BILLING MATH
-        if (billsec > 0 && disposition === "ANSWERED") {
-            const { data: settings } = await supabaseAdmin.from('tenant_settings')
-                .select('billing_pulse_seconds, credits_per_pulse')
-                .eq('tenant_id', tenantId)
-                .single();
-    
-            const pulseSecs = settings?.billing_pulse_seconds || 15;
-            const creditsPerPulse = settings?.credits_per_pulse || 1;
-    
-            const pulses = Math.ceil(billsec / pulseSecs); 
-            creditsToDeduct = pulses * creditsPerPulse;
-    
-            // 🔴 UPDATED: Catch the error so it never fails silently again!
-            const { error: ledgerError } = await supabaseAdmin.from("wallet_ledger").insert({
-                tenant_id: tenantId,
-                credits: -Math.abs(creditsToDeduct),
-                transaction_type: 'IVR_CAMPAIGN',
-                description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
-                reference_id: batchId || null 
-            });
+    if (billsec > 0 && disposition === "ANSWERED") {
+        const { data: settings } = await supabaseAdmin.from('tenant_settings')
+            .select('billing_pulse_seconds, credits_per_pulse')
+            .eq('tenant_id', tenantId)
+            .single();
 
-            if (ledgerError) {
-                console.error("🚨 [DB ERROR] Wallet Ledger Insert Failed:", ledgerError);
-            }
+        const pulseSecs = settings?.billing_pulse_seconds || 15;
+        const creditsPerPulse = settings?.credits_per_pulse || 1;
+
+        const pulses = Math.ceil(billsec / pulseSecs); 
+        creditsToDeduct = pulses * creditsPerPulse;
+
+        const { error: ledgerError } = await supabaseAdmin.from("wallet_ledger").insert({
+            tenant_id: tenantId,
+            credits: -Math.abs(creditsToDeduct),
+            transaction_type: 'IVR_CAMPAIGN',
+            description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`,
+            reference_id: batchId || null 
+        });
+
+        if (ledgerError) {
+            console.error("🚨 [DB ERROR] Wallet Ledger Insert Failed:", ledgerError);
         }
+    }
+
     // 5. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
         batch_id: batchId, 
         mobile_number: mobileNumber,
-        attempt_num: parseInt(body.attemptnum || body.attempt_num || "1"),
-        start_date: body.start || body.start_date || null,
-        answer_date: body.answer || body.answer_date || null,
-        end_date: body.end || body.end_date || null,
+        attempt_num: parseInt(safeBody.attemptnum || safeBody.attempt_num || "1"),
+        start_date: safeBody.start || safeBody.start_date || null,
+        answer_date: safeBody.answer || safeBody.answer_date || null,
+        end_date: safeBody.end || safeBody.end_date || null,
         call_duration: duration,
         bill_seconds: billsec,
         disposition: disposition,
-        hangup_cause: body.hangupcause || body.hangup_cause || null,
-        hangup_code: body.hangupcode || body.hangup_code || null,
-        clid: body.clid || null,
+        hangup_cause: safeBody.hangupcause || safeBody.hangup_cause || null,
+        hangup_code: safeBody.hangupcode || safeBody.hangup_code || null,
+        clid: safeBody.clid || null,
         digits_pressed: digitsPressed,
         credits_used: creditsToDeduct
     });
