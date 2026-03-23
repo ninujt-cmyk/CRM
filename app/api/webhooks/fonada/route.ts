@@ -78,32 +78,30 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 DTMF EXTRACTION FIX: 
-    // Captures the true digit pressed by the customer based on your configuration
-    let digitsPressed = 
-        body.digitsPressed || 
-        body['digitsPressed=CDR.digitpressed'] || 
-        body.digitspressed || 
-        body.digits_pressed ||
-        safeBody.digitspressed || 
-        safeBody['digitspressed=cdr.digitpressed'] ||
-        safeBody.digits_pressed ||
-        safeBody.digitpressed;
+    // 🔴 4. THE ULTIMATE DTMF EXTRACTION ENGINE
+    // First, try to find a single combined field
+    let rawDigits = [
+        body.digitsPressed, body.digitpressed, body.digits_pressed, body.digit_pressed,
+        safeBody.digitspressed, safeBody.digitpressed, safeBody.digits_pressed, safeBody.digit_pressed,
+        body['digitsPressed=CDR.digitpressed'], safeBody['digitspressed=cdr.digitpressed']
+    ].find(val => val !== undefined && val !== null && String(val).trim() !== "");
 
-    if (!digitsPressed) {
-        const levelDigits = [
-            safeBody.digitpressedlevel1, 
-            safeBody.digitpressedlevel2, 
-            safeBody.digitpressedlevel3,
-            safeBody.digitpressedlevel4,
-            safeBody.digitpressedlevel5
-        ].filter(Boolean).join(',');
+    // If no single field exists, look for the 5 custom levels you configure in the Fonada Panel
+    if (!rawDigits) {
+        const multiLevel = [
+            body.level1 || safeBody.level1 || body.digitpressedLevel1 || safeBody.digitpressedlevel1,
+            body.level2 || safeBody.level2 || body.digitpressedLevel2 || safeBody.digitpressedlevel2,
+            body.level3 || safeBody.level3 || body.digitpressedLevel3 || safeBody.digitpressedlevel3,
+            body.level4 || safeBody.level4 || body.digitpressedLevel4 || safeBody.digitpressedlevel4,
+            body.level5 || safeBody.level5 || body.digitpressedLevel5 || safeBody.digitpressedlevel5
+        ].filter(val => val !== undefined && val !== null && String(val).trim() !== "").join(',');
 
-        digitsPressed = levelDigits || null;
+        if (multiLevel.length > 0) {
+            rawDigits = multiLevel;
+        }
     }
 
-    // Make sure we don't save empty strings
-    digitsPressed = digitsPressed && digitsPressed.trim() !== "" ? digitsPressed : null;
+    const digitsPressed = rawDigits ? String(rawDigits).trim() : null;
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
@@ -112,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     let creditsToDeduct = 0;
 
-    // 4. DYNAMIC BILLING MATH
+    // 5. DYNAMIC BILLING MATH
     if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings')
             .select('billing_pulse_seconds, credits_per_pulse')
@@ -138,7 +136,7 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    // 5. LOG THE INDIVIDUAL CALL
+    // 6. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
         batch_id: batchId, 
@@ -153,7 +151,7 @@ export async function POST(request: NextRequest) {
         hangup_cause: safeBody.hangupcause || safeBody.hangup_cause || null,
         hangup_code: safeBody.hangupcode || safeBody.hangup_code || null,
         clid: safeBody.clid || null,
-        digits_pressed: digitsPressed,
+        digits_pressed: digitsPressed, // 🔴 Saves the cleanly extracted digits
         credits_used: creditsToDeduct
     });
 
