@@ -80,14 +80,19 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 DTMF EXTRACTION USING LOWERCASE
+    // 🔴 DTMF EXTRACTION USING LOWERCASE (WITH ALL FONADA QUIRK FALLBACKS)
     const digitsPressed = [
         safeBody.digitpressedlevel1, 
         safeBody.digitpressedlevel2, 
         safeBody.digitpressedlevel3,
         safeBody.digitpressedlevel4,
         safeBody.digitpressedlevel5
-    ].filter(Boolean).join(',') || safeBody.digitspressed || safeBody.digitpressed || null;
+    ].filter(Boolean).join(',') 
+    || safeBody.digitspressed 
+    || safeBody.digits_pressed 
+    || safeBody['digitspressed=cdr.digitpressed'] // 🔴 Catches Fonada's weird literal string
+    || safeBody.digitpressed 
+    || null;
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
