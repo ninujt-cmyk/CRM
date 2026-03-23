@@ -80,19 +80,29 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
     
-    // 🔴 DTMF EXTRACTION USING LOWERCASE (WITH ALL FONADA QUIRK FALLBACKS)
-    const digitsPressed = [
-        safeBody.digitpressedlevel1, 
-        safeBody.digitpressedlevel2, 
-        safeBody.digitpressedlevel3,
-        safeBody.digitpressedlevel4,
-        safeBody.digitpressedlevel5
-    ].filter(Boolean).join(',') 
-    || safeBody.digitspressed 
-    || safeBody.digits_pressed 
-    || safeBody['digitspressed=cdr.digitpressed'] // 🔴 Catches Fonada's weird literal string
-    || safeBody.digitpressed 
-    || null;
+    // 🔴 DTMF EXTRACTION FIX: 
+    // Check the direct keys FIRST, because 'digitpressedlevel1' often just returns a '1' (true flag).
+    let digitsPressed = 
+        body.digitsPressed || 
+        body['digitsPressed=CDR.digitpressed'] || 
+        body.digits_pressed ||
+        safeBody.digitspressed || 
+        safeBody['digitspressed=cdr.digitpressed'] ||
+        safeBody.digits_pressed ||
+        safeBody.digitpressed;
+
+    // Only fallback to the Level array if ALL of the direct keys above are completely empty
+    if (!digitsPressed) {
+        const levelDigits = [
+            safeBody.digitpressedlevel1, 
+            safeBody.digitpressedlevel2, 
+            safeBody.digitpressedlevel3,
+            safeBody.digitpressedlevel4,
+            safeBody.digitpressedlevel5
+        ].filter(Boolean).join(',');
+
+        digitsPressed = levelDigits || null;
+    }
 
     if (!tenantId || !mobileNumber) {
       console.error(`🚨 [SECURITY WARNING] Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
