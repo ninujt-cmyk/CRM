@@ -1,9 +1,9 @@
-// app/actions/ivr-actions.ts
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
 
-export async function launchIvrCampaign(configId: string, leadBatchName: string, phoneNumbers: string[], retryCount: number = 1) {
+// 🔴 1. ADDED retryCount PARAMETER
+export async function launchIvrCampaign(configId: string, leadBatchName: string, phoneNumbers: string[], retryCount: number = 3) {
     try {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
@@ -12,7 +12,6 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
         if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
 
-        // 1. FETCH WALLET BALANCE
         const { data: wallet } = await supabase
             .from('tenant_wallets')
             .select('credits_balance')
@@ -23,18 +22,25 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             throw new Error("Insufficient credits. Please recharge your wallet to launch campaigns.");
         }
 
-        // 🔴 THE FIX: THE 3-TO-1 PRE-FLIGHT BUDGET RULE
-        // Logic: You need 1 credit for every 3 contacts uploaded. 
-        // We multiply by the retry count, because retries cost money too!
-        const totalContacts = phoneNumbers.length;
-        const totalAttempts = totalContacts * retryCount;
+        // =========================================================================
+        // 🔴 2. THE PREDICTIVE BUFFER LOGIC (Anti-Negative Balance Protection)
+        // =========================================================================
+        // Since Fonada cannot stop mid-campaign, we predict the maximum cost.
+        // Higher retries = Higher chance of answer = More credits consumed.
         
-        // Calculate required credits (rounded up just to be safe)
-        const requiredCredits = Math.ceil(totalAttempts / 3); 
+        let contactsPerCreditRatio = 3; // Default: 3 contacts consume 1 credit
         
-        if (wallet.credits_balance < requiredCredits) {
-            throw new Error(`Insufficient credits. You are attempting to dial ${totalContacts} contacts with ${retryCount} retries. You need at least ${requiredCredits} credits available in your wallet to safely buffer this campaign. Current balance: ${wallet.credits_balance}`);
+        if (retryCount <= 1) contactsPerCreditRatio = 5; // 1 retry: ~20% connect rate (5 contacts = 1 credit)
+        else if (retryCount === 2) contactsPerCreditRatio = 4; // 2 retries: ~25% connect rate (4 contacts = 1 credit)
+        else if (retryCount >= 3) contactsPerCreditRatio = 3; // 3+ retries: ~35% connect rate (3 contacts = 1 credit)
+
+        const estimatedCreditsNeeded = Math.ceil(phoneNumbers.length / contactsPerCreditRatio);
+        const maxContactsAllowed = wallet.credits_balance * contactsPerCreditRatio;
+
+        if (wallet.credits_balance < estimatedCreditsNeeded) {
+            throw new Error(`Insufficient credits. You have ${wallet.credits_balance.toLocaleString()} credits, which allows a maximum of ${maxContactsAllowed.toLocaleString()} contacts for a ${retryCount}-retry campaign. You tried to upload ${phoneNumbers.length.toLocaleString()} contacts.`);
         }
+        // =========================================================================
 
         const { data: config } = await supabase
             .from('ivr_campaign_configs')
@@ -45,12 +51,12 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         if (!config) throw new Error("Campaign configuration not found.");
 
-        // 2. CREATE HISTORY RECORD 
+        // 1. CREATE HISTORY RECORD 
         const { data: batchRecord, error: batchError } = await supabase.from('ivr_campaign_history').insert({
             tenant_id: profile.tenant_id,
             campaign_name: config.campaign_name,
             lead_batch_name: leadBatchName,
-            total_contacts: totalContacts,
+            total_contacts: phoneNumbers.length,
             status: 'launched'
         }).select('id').single();
 
@@ -60,7 +66,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         const batchId = batchRecord.id;
 
-        // 3. CLEAN NUMBERS
+        // 2. CLEAN NUMBERS
         const cleanPhoneDetails = phoneNumbers.map(phone => {
             return { phoneNumber: phone.replace(/\D/g, '').slice(-10) };
         });
@@ -81,7 +87,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                 retryTimeOnAns: 0, 
                 retryOnNoAns: 1, 
                 retryTimeOnNoAns: 5, 
-                noOfRetry: retryCount 
+                noOfRetry: retryCount // 🔴 INJECT DYNAMIC RETRY COUNT
             },
             phoneNumberDetails: cleanPhoneDetails
         };
@@ -125,7 +131,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             }).eq('id', batchId);
 
             if (updateErr) {
-                console.error("🚨 CRITICAL DB ERROR: Failed to save fonada_lead_id! Did you run the SQL migration?", updateErr);
+                console.error("🚨 CRITICAL DB ERROR: Failed to save fonada_lead_id!", updateErr);
             } else {
                 console.log(`✅ Successfully mapped Fonada ID [${safeLeadId}] to Supabase Batch [${batchId}]`);
             }
@@ -133,7 +139,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             console.error("🚨 CRITICAL EXTRACTION ERROR: Could not find any Lead ID in the Fonada response text!");
         }
 
-        return { success: true, message: `Successfully pushed ${phoneNumbers.length} contacts to the dialer!` };
+        return { success: true, message: `Successfully pushed ${phoneNumbers.length.toLocaleString()} contacts to the dialer!` };
 
     } catch (error: any) {
         console.error("IVR Launch Error:", error);
