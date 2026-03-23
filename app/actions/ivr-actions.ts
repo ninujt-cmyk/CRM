@@ -1,8 +1,8 @@
+// app/actions/ivr-actions.ts
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
 
-// 🔴 1. ADDED retryCount PARAMETER
 export async function launchIvrCampaign(configId: string, leadBatchName: string, phoneNumbers: string[], retryCount: number = 1) {
     try {
         const supabase = await createClient();
@@ -12,6 +12,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
         if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
 
+        // 1. FETCH WALLET BALANCE
         const { data: wallet } = await supabase
             .from('tenant_wallets')
             .select('credits_balance')
@@ -20,6 +21,19 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         if (!wallet || wallet.credits_balance <= 0) {
             throw new Error("Insufficient credits. Please recharge your wallet to launch campaigns.");
+        }
+
+        // 🔴 THE FIX: THE 3-TO-1 PRE-FLIGHT BUDGET RULE
+        // Logic: You need 1 credit for every 3 contacts uploaded. 
+        // We multiply by the retry count, because retries cost money too!
+        const totalContacts = phoneNumbers.length;
+        const totalAttempts = totalContacts * retryCount;
+        
+        // Calculate required credits (rounded up just to be safe)
+        const requiredCredits = Math.ceil(totalAttempts / 3); 
+        
+        if (wallet.credits_balance < requiredCredits) {
+            throw new Error(`Insufficient credits. You are attempting to dial ${totalContacts} contacts with ${retryCount} retries. You need at least ${requiredCredits} credits available in your wallet to safely buffer this campaign. Current balance: ${wallet.credits_balance}`);
         }
 
         const { data: config } = await supabase
@@ -31,12 +45,12 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         if (!config) throw new Error("Campaign configuration not found.");
 
-        // 1. CREATE HISTORY RECORD 
+        // 2. CREATE HISTORY RECORD 
         const { data: batchRecord, error: batchError } = await supabase.from('ivr_campaign_history').insert({
             tenant_id: profile.tenant_id,
             campaign_name: config.campaign_name,
             lead_batch_name: leadBatchName,
-            total_contacts: phoneNumbers.length,
+            total_contacts: totalContacts,
             status: 'launched'
         }).select('id').single();
 
@@ -46,7 +60,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         const batchId = batchRecord.id;
 
-        // 2. CLEAN NUMBERS
+        // 3. CLEAN NUMBERS
         const cleanPhoneDetails = phoneNumbers.map(phone => {
             return { phoneNumber: phone.replace(/\D/g, '').slice(-10) };
         });
@@ -67,7 +81,6 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                 retryTimeOnAns: 0, 
                 retryOnNoAns: 1, 
                 retryTimeOnNoAns: 5, 
-                // 🔴 2. INJECT DYNAMIC RETRY COUNT INTO PAYLOAD
                 noOfRetry: retryCount 
             },
             phoneNumberDetails: cleanPhoneDetails
