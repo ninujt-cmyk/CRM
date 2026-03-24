@@ -235,7 +235,7 @@ export default function AdminLoginsPage() {
                                         <TableRow>
                                             <TableHead>Customer Details</TableHead>
                                             <TableHead className="hidden md:table-cell">Bank Status</TableHead>
-                                            <TableHead className="hidden md:table-cell">Agent</TableHead>
+                                            <TableHead className="hidden md:table-cell">Telecaller</TableHead>
                                             <TableHead>Created Date</TableHead>
                                             <TableHead className="w-[80px]"></TableHead>
                                         </TableRow>
