@@ -70,15 +70,14 @@ export default async function ReportsPage({
       return q
     }
 
-    // Top Performer Logic (Needs Aggregation - Fetch Minimal Data)
+    // Top Performer Logic (Based on Total Calls from call_logs)
     let winnerQuery = supabase
-      .from('leads')
-      .select('assigned_to')
-      .eq('status', 'closed_won') // Ensure this status ID is correct in your DB
+      .from('call_logs')
+      .select('user_id')
       .gte('created_at', s)
       .lte('created_at', `${e}T23:59:59`)
     
-    if (filterId) winnerQuery = winnerQuery.in('assigned_to', filterId.split(','))
+    if (filterId) winnerQuery = winnerQuery.in('user_id', filterId.split(','))
 
     const [
       { count: totalLeads },
@@ -112,9 +111,9 @@ export default async function ReportsPage({
     fetchPeriodData(prevStartDate, prevEndDate)
   ])
 
-  // 5. Calculate Top Performer
+  // 5. Calculate Top Performer (Based on user_id from call_logs)
   const winnerMap = current.winnersData.reduce((acc: Record<string, number>, curr) => {
-    acc[curr.assigned_to] = (acc[curr.assigned_to] || 0) + 1
+    acc[curr.user_id] = (acc[curr.user_id] || 0) + 1
     return acc
   }, {})
   
@@ -182,7 +181,7 @@ export default async function ReportsPage({
       title: "Top Performer",
       isSpecial: true, // Marker for custom card render
       value: topPerformerName,
-      subtitle: `${topPerformerCount} Conversions`,
+      subtitle: `${topPerformerCount} Calls`, // Updated from Conversions to Calls
       icon: Trophy,
       color: "text-amber-600",
       bgColor: "bg-amber-50",
