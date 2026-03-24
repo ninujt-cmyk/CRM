@@ -1,10 +1,12 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, Calendar } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link"; 
 import { SummaryAnalytics } from "@/components/admin/summary-analytics"; 
-import { TelecallerTable } from "@/components/admin/telecaller-table"; // <--- NEW IMPORT
+import { TelecallerTable } from "@/components/admin/telecaller-table";
+import { Skeleton } from "@/components/ui/skeleton"; // <--- NEW IMPORT
 
 export const dynamic = 'force-dynamic';
 
@@ -80,18 +82,54 @@ async function getTelecallerLeadSummary(searchParams: { from?: string; to?: stri
   return { data: processed, grandTotals };
 }
 
+// --- Loading Skeleton Component ---
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Analytics Cards Skeleton */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} className="h-32 w-full rounded-xl" />
+        ))}
+      </div>
+      
+      {/* Table Skeleton */}
+      <Skeleton className="h-[400px] w-full rounded-xl" />
+    </div>
+  );
+}
+
+// --- Extracted Async Content Component ---
+async function DashboardContent({ searchParams }: { searchParams: { from?: string; to?: string } }) {
+  const { data: summaryData, grandTotals } = await getTelecallerLeadSummary(searchParams);
+
+  return (
+    <>
+      <SummaryAnalytics data={summaryData} grandTotals={grandTotals} />
+      
+      <Card className="shadow-sm border-gray-200">
+        <CardContent className="p-4">
+          <TelecallerTable 
+            data={summaryData} 
+            grandTotals={grandTotals} 
+            statuses={LEAD_STATUSES} 
+          />
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 // --- Main Page Component ---
-export default async function TelecallerLeadSummaryPage({
+export default function TelecallerLeadSummaryPage({
   searchParams,
 }: {
   searchParams: { from?: string; to?: string };
 }) {
-  const { data: summaryData, grandTotals } = await getTelecallerLeadSummary(searchParams);
-
   return (
     <div className="space-y-6 p-8 bg-gray-50/50 min-h-screen">
       
-      {/* Header & Controls */}
+      {/* Header & Controls (Renders Immediately) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
@@ -113,19 +151,10 @@ export default async function TelecallerLeadSummaryPage({
         </div>
       </div>
 
-      {/* 1. Analytics Section */}
-      <SummaryAnalytics data={summaryData} grandTotals={grandTotals} />
-      
-      {/* 2. Interactive Data Table */}
-      <Card className="shadow-sm border-gray-200">
-        <CardContent className="p-4">
-          <TelecallerTable 
-            data={summaryData} 
-            grandTotals={grandTotals} 
-            statuses={LEAD_STATUSES} 
-          />
-        </CardContent>
-      </Card>
+      {/* Suspense Boundary wrapping the heavy data fetching */}
+      <Suspense fallback={<DashboardSkeleton />}>
+        <DashboardContent searchParams={searchParams} />
+      </Suspense>
     </div>
   );
 }
