@@ -13,15 +13,18 @@ export async function POST(request: NextRequest) {
     const rawBody = await request.text();
     const searchParams = request.nextUrl.searchParams.toString();
 
-    // Sends it to the worker URL
+    // The URL where QStash will forward the payload in the background
     const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/fonada/worker?${searchParams}`;
 
+    // Publish to Upstash
     await qstashClient.publishJSON({
       url: workerUrl,
       body: { rawPayload: rawBody },
     });
 
-    console.log("⚡ [WEBHOOK CATCHER] Payload queued to Upstash successfully.");
+    console.log("⚡ [WEBHOOK CATCHER] Payload queued successfully to Upstash.");
+
+    // Instantly reply to Fonada so they don't timeout
     return NextResponse.json({ status: "queued" });
 
   } catch (error) {
