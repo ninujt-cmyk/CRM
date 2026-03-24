@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Home } from "lucide-react";
 
 export default function NotFoundPage() {
-  // Remove any useEffect if it's not necessary
+  // Remove any useEffect if it's not necessa
   // Or keep it if you need client-side logic
 
   return (
