@@ -391,8 +391,8 @@ export default function AdminWhatsAppPanel() {
                  <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
                   {[
                     "👋 Hi, I tried calling you.",
-                    "📄 Please share your Aadhar & PAN.",
-                    "📍 Can you send your current location?",
+                    "📄 Kindly share your Aadhar & PAN.",
+                    "📍 Can you send your current Address?",
                     "✅ Application Approved!"
                   ].map((text) => (
                     <button
