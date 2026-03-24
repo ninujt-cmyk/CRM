@@ -91,31 +91,43 @@ async function DashboardContent() {
 
   return (
     <>
-      {/* STATS GRID */}
+      {/* PREMIUM STATS GRID */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard 
           title="Total Leads" 
           value={totalLeads || 0} 
-          icon={<FileText className="h-4 w-4 text-blue-600" />} 
+          icon={<FileText className="h-5 w-5 text-white" />} 
           description="In your workspace"
+          bgClass="bg-gradient-to-br from-slate-800 to-slate-900 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-slate-300"
         />
         <StatsCard 
           title="Active Telecallers" 
           value={activeTelecallers || 0} 
-          icon={<Users className="h-4 w-4 text-green-600" />} 
+          icon={<Users className="h-5 w-5 text-white" />} 
           description="In your workspace"
+          bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-indigo-200"
         />
         <StatsCard 
           title="Today's Calls" 
           value={todaysCalls || 0} 
-          icon={<Phone className="h-4 w-4 text-purple-600" />} 
+          icon={<Phone className="h-5 w-5 text-white" />} 
           description="Made by your team"
+          bgClass="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-emerald-200"
         />
         <StatsCard 
           title="Pending Follow-ups" 
           value={pendingFollowUps || 0} 
-          icon={<Clock className="h-4 w-4 text-orange-600" />} 
+          icon={<Clock className="h-5 w-5 text-white" />} 
           description="Requiring attention"
+          bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-amber-100"
         />
       </div>
 
@@ -188,16 +200,16 @@ async function DashboardContent() {
   )
 }
 
-function StatsCard({ title, value, icon, description }: any) {
+function StatsCard({ title, value, icon, description, bgClass, iconBgClass, descClass }: any) {
   return (
-    <Card className="shadow-sm border-slate-200">
+    <Card className={`shadow-sm ${bgClass || "border-slate-200"}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className="p-2 bg-slate-50 rounded-full">{icon}</div>
+        <div className={`p-2 rounded-full ${iconBgClass || "bg-slate-50"}`}>{icon}</div>
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-slate-500 mt-1">{description}</p>
+        <p className={`text-xs mt-1 ${descClass || "text-slate-500"}`}>{description}</p>
       </CardContent>
     </Card>
   )
