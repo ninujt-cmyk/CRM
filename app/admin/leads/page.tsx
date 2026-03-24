@@ -170,10 +170,32 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
 
   return (
     <>
+      {/* PREMIUM STATS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatsCard title="Total Filtered Leads" value={totalLeads} icon={<FileSpreadsheet className="h-6 w-6 text-blue-600" />} color="bg-blue-50" />
-        <StatsCard title="Company Unassigned Pool" value={unassignedLeads} icon={<UserPlus className="h-6 w-6 text-orange-600" />} color="bg-orange-50" />
-        <StatsCard title="Active Team Agents" value={`${attendanceData?.length || 0} / ${telecallers?.length || 0}`} icon={<UserPlus className="h-6 w-6 text-green-600" />} color="bg-green-50" />
+        <StatsCard 
+          title="Total Filtered Leads" 
+          value={totalLeads} 
+          icon={<FileSpreadsheet className="h-6 w-6 text-white" />} 
+          bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-indigo-200"
+        />
+        <StatsCard 
+          title="Company Unassigned Pool" 
+          value={unassignedLeads} 
+          icon={<UserPlus className="h-6 w-6 text-white" />} 
+          bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-amber-100"
+        />
+        <StatsCard 
+          title="Active Team Agents" 
+          value={`${attendanceData?.length || 0} / ${telecallers?.length || 0}`} 
+          icon={<UserPlus className="h-6 w-6 text-white" />} 
+          bgClass="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-0 shadow-md"
+          iconBgClass="bg-white/10"
+          descClass="text-emerald-200"
+        />
       </div>
 
       <Card className="shadow-sm">
@@ -204,16 +226,18 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   )
 }
 
-function StatsCard({ title, value, icon, color }: any) {
+function StatsCard({ title, value, icon, bgClass, iconBgClass, descClass }: any) {
   return (
-    <Card className="shadow-sm">
+    <Card className={`shadow-sm ${bgClass || "bg-white"}`}>
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-600">{title}</p>
-            <p className="text-3xl font-bold text-gray-900 mt-2">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+            <p className={`text-sm font-medium ${descClass || "text-gray-600"}`}>{title}</p>
+            <p className="text-3xl font-bold mt-2">
+              {typeof value === 'number' ? value.toLocaleString() : value}
+            </p>
           </div>
-          <div className={`p-3 rounded-full ${color}`}>{icon}</div>
+          <div className={`p-3 rounded-full ${iconBgClass || "bg-slate-100"}`}>{icon}</div>
         </div>
       </CardContent>
     </Card>
