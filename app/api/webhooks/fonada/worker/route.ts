@@ -1,3 +1,4 @@
+// app/api/webhooks/fonada/worker/route.ts
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { verifySignatureEdge } from "@upstash/qstash/nextjs";
@@ -9,7 +10,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// The actual database processing logic
 async function processWebhook(request: NextRequest) {
   console.log("👷 [QSTASH WORKER] Processing queued CDR data.");
 
@@ -158,12 +158,10 @@ async function processWebhook(request: NextRequest) {
 
     console.log(`✅ [WORKER] Logged ${mobileNumber} | Digits: ${digitsPressed} | Credits: -${creditsToDeduct}`);
     
-    // Tell QStash the job was successful so it deletes it from the queue
     return NextResponse.json({ status: "success" });
 
   } catch (error) {
     console.error("🔥 [WORKER CRITICAL ERROR]:", error);
-    // Throwing an error tells QStash to retry this exact payload again later!
     return NextResponse.json({ status: "error" }, { status: 500 });
   }
 }
