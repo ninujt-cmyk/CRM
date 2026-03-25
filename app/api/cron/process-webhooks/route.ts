@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server"; // 🔴 Changed to NextRequest
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; 
+export const maxDuration = 60; 
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   
   // 1. 🔴 THE SECURITY CHECK
   // You can set CRON_SECRET in your Vercel Environment Variables, or just hardcode a strong password here for now.
-  const API_SECRET = process.env.CRON_SECRET || "hanva_secure_cron_password_2026"; 
+  const API_SECRET = process.env.CRON_SECRET || "Bearer my_secure_cron_password_958"; 
   
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${API_SECRET}`) {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
         .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
-        .limit(300);
+        .limit(30);
 
     if (fetchError || !pendingEvents || pendingEvents.length === 0) {
         return NextResponse.json({ status: "idle", message: "No pending webhooks." });
