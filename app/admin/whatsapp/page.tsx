@@ -420,7 +420,7 @@ export default function AdminWhatsAppPanel() {
                     }`}>{selectedLead.status}</span>
                   </h2>
                   <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>+{selectedLead.phone}</span>
+                    <span>{selectedLead.phone}</span>
                     <span className="h-3 w-[1px] bg-slate-300"></span>
                     <span>Owner: <strong>{selectedLead.telecaller_name}</strong></span>
                   </div>
