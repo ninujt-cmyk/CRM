@@ -1,25 +1,33 @@
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Allow function to run for up to 5 minutes (Vercel Pro/Next.js)
+export const maxDuration = 300; // Allow up to 5 minutes on Vercel
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
-  console.log("👷 [BATCH PROCESSOR] Starting queue check...");
+export async function GET(request: NextRequest) {
+  // 🔴 1. THE SECURITY LOCK
+  // Ensure the request has the correct secret password
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET_KEY}`) {
+      console.error("🚨 Unauthorized attempt to run cron job.");
+      return NextResponse.json({ status: "unauthorized" }, { status: 401 });
+  }
+
+  console.log("👷 [BATCH PROCESSOR] Starting secure queue check...");
 
   try {
-    // 1. Grab up to 100 pending webhooks, and lock them so other workers don't grab them
+    // We grab up to 300 logs at a time to handle high volume quickly
     const { data: pendingEvents, error: fetchError } = await supabaseAdmin
         .from('webhook_buffer')
         .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
-        .limit(100);
+        .limit(300);
 
     if (fetchError || !pendingEvents || pendingEvents.length === 0) {
         return NextResponse.json({ status: "idle", message: "No pending webhooks." });
@@ -27,19 +35,17 @@ export async function GET() {
 
     console.log(`📦 Found ${pendingEvents.length} payloads to process.`);
 
-    // 2. Mark them as 'processing' to prevent double-processing
     const eventIds = pendingEvents.map(e => e.id);
     await supabaseAdmin.from('webhook_buffer').update({ status: 'processing' }).in('id', eventIds);
 
     let successCount = 0;
     let failCount = 0;
 
-    // 3. LOOP THROUGH EACH PAYLOAD
+    // LOOP THROUGH EACH PAYLOAD
     for (const event of pendingEvents) {
         try {
             const body = event.payload;
             
-            // --- YOUR HEAVY LOGIC STARTS HERE ---
             const safeBody: any = {};
             for (const key in body) {
                 if (body.hasOwnProperty(key)) safeBody[key.toLowerCase()] = body[key];
@@ -113,15 +119,13 @@ export async function GET() {
             });
 
             if (insertError) throw insertError;
-            // --- YOUR HEAVY LOGIC ENDS HERE ---
 
-            // 4. Mark this specific event as successful!
+            // Mark this specific event as successful!
             await supabaseAdmin.from('webhook_buffer').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', event.id);
             successCount++;
 
         } catch (err: any) {
             console.error(`❌ Failed to process event ${event.id}:`, err);
-            // 5. If one fails, mark it failed and save the error, but let the loop continue!
             await supabaseAdmin.from('webhook_buffer').update({ status: 'failed', error_log: err.message || 'Unknown error', processed_at: new Date().toISOString() }).eq('id', event.id);
             failCount++;
         }
