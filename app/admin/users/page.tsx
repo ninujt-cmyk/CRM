@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  UserPlus, Search, Trash2, Ban, CheckCircle, Filter, Shield, Loader2, Edit, ExternalLink
+  UserPlus, Search, Trash2, Ban, CheckCircle, Filter, Shield, Loader2, Edit, ExternalLink,
+  Megaphone, Users // <-- Added new icons here
 } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -227,13 +228,28 @@ export default function UsersPage() {
           <p className="text-sm text-gray-500 mt-1">Manage {users.length} members across your organization.</p>
         </div>
         
-        {canManage && (
-          <Link href="/admin/users/new">
-            <Button className="shadow-sm bg-indigo-600 hover:bg-indigo-700 transition-all">
-              <UserPlus className="h-4 w-4 mr-2" /> Add Member
+        {/* 🔴 NEW: Added Action Buttons Group Here */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/admin/team">
+            <Button variant="outline" className="shadow-sm border-slate-200 hover:bg-slate-50 text-slate-700">
+              <Users className="h-4 w-4 mr-2" /> Team
             </Button>
           </Link>
-        )}
+
+          <Link href="/admin/notifications">
+            <Button variant="outline" className="shadow-sm border-slate-200 hover:bg-slate-50 text-slate-700">
+              <Megaphone className="h-4 w-4 mr-2" /> Broadcast
+            </Button>
+          </Link>
+
+          {canManage && (
+            <Link href="/admin/users/new">
+              <Button className="shadow-sm bg-indigo-600 hover:bg-indigo-700 transition-all text-white">
+                <UserPlus className="h-4 w-4 mr-2" /> Add Member
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* FILTERS */}
