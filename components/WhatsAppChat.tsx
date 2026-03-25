@@ -162,7 +162,7 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
          <div className="w-8 h-8 bg-slate-300 rounded-full flex items-center justify-center text-slate-700">👤</div>
          <div>
             <p className="text-sm">WhatsApp Chat</p>
-            <p className="text-xs text-green-100">+{phone}</p>
+            <p className="text-xs text-green-100">{phone}</p>
          </div>
       </div>
 
