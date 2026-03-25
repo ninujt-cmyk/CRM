@@ -13,9 +13,9 @@ interface ChatMessage {
   content: string | null
   status: string
   created_at: string
-  media_url?: string | null     // Added for files
-  media_type?: string | null    // Added for files (e.g. 'image/jpeg', 'application/pdf')
-  file_name?: string | null     // Added for files
+  media_url?: string | null     
+  media_type?: string | null    
+  file_name?: string | null     
 }
 
 export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string }) {
@@ -75,51 +75,82 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
     setSending(false)
   }
 
-  // --- RENDER HELPER FOR MEDIA ---
-  const renderMedia = (msg: ChatMessage) => {
-    if (!msg.media_url) return null;
+  // --- RENDER HELPER FOR MESSAGES & MEDIA ---
+  const renderMessageBubble = (msg: ChatMessage) => {
+    const isOutbound = msg.direction === 'outbound'
+    
+    let textToDisplay = msg.content || "";
+    let extractedUrl: string | null = null;
+    let isImage = false;
+    let isPDF = false;
+    let fileName = "Document";
 
-    const isImage = msg.media_type?.startsWith('image/');
-    const isPDF = msg.media_type === 'application/pdf';
-    const fileName = msg.file_name || 'Document';
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = textToDisplay.match(urlRegex);
 
-    if (isImage) {
-      return (
-        <div className="relative group mb-1 rounded-md overflow-hidden border border-black/10 bg-black/5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={msg.media_url} alt="Attached Media" className="max-w-full max-h-48 object-contain rounded-md" />
-          <a 
-            href={msg.media_url} 
-            download 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="absolute top-1 right-1 bg-black/50 hover:bg-black/70 p-1.5 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Download Image"
-          >
-            <Download size={14} />
-          </a>
-        </div>
-      )
+    if (!msg.media_url && urls && urls.length > 0) {
+      extractedUrl = urls[0];
+      textToDisplay = textToDisplay.replace(extractedUrl, '').trim();
+      isImage = !!extractedUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i);
+      isPDF = !!extractedUrl.match(/\.(pdf)(\?.*)?$/i);
+      fileName = extractedUrl.split('/').pop()?.split('?')[0] || "Document";
     }
 
+    const finalMediaUrl = msg.media_url || extractedUrl;
+    const finalIsImage = msg.media_url ? msg.media_type?.startsWith('image/') : isImage;
+    const finalIsPDF = msg.media_url ? msg.media_type === 'application/pdf' : isPDF;
+    const finalFileName = msg.file_name || fileName;
+
     return (
-      <div className="mb-1 flex items-center gap-2 bg-black/5 p-2 rounded-md border border-black/10 hover:bg-black/10 transition-colors">
-        <div className={`p-1.5 rounded-md ${isPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-           {isPDF ? <FileText size={18} /> : <File size={18} />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium truncate text-slate-800">{fileName}</p>
-        </div>
-        <a 
-          href={msg.media_url} 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          download
-          className="p-1.5 bg-white rounded-full shadow-sm hover:bg-slate-50 transition-colors border border-slate-200"
-          title="Download File"
+      <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+        <div className={`max-w-[85%] min-w-[100px] rounded-lg p-2 px-3 text-sm shadow-sm relative group flex flex-col gap-1.5
+          ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
         >
-          <Download size={14} className="text-slate-700" />
-        </a>
+          {textToDisplay && <p className="whitespace-pre-wrap leading-relaxed">{textToDisplay}</p>}
+
+          {finalMediaUrl && (
+            finalIsImage ? (
+              <div className="relative group rounded-md overflow-hidden border border-black/10 bg-black/5 self-start">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={finalMediaUrl} alt="Attached Media" className="max-w-full max-h-48 object-contain rounded-md block" />
+                <a 
+                  href={finalMediaUrl} download target="_blank" rel="noopener noreferrer" 
+                  className="absolute top-1 right-1 bg-black/50 hover:bg-black/70 p-1.5 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Download Image"
+                >
+                  <Download size={14} />
+                </a>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-black/5 p-2 rounded-md border border-black/10 hover:bg-black/10 transition-colors w-full">
+                <div className={`p-1.5 rounded-md ${finalIsPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                   {finalIsPDF ? <FileText size={18} /> : <File size={18} />}
+                </div>
+                <div className="flex-1 min-w-0 pr-2">
+                  <p className="text-xs font-medium truncate text-slate-800" title={finalFileName}>{finalFileName}</p>
+                </div>
+                <a 
+                  href={finalMediaUrl} target="_blank" rel="noopener noreferrer" download
+                  className="p-1.5 bg-white rounded-full shadow-sm hover:bg-slate-50 transition-colors border border-slate-200 shrink-0"
+                  title="Download File"
+                >
+                  <Download size={14} className="text-slate-700" />
+                </a>
+              </div>
+            )
+          )}
+          
+          <div className="flex items-center justify-end gap-1 mt-1">
+            <span className="text-[10px] text-slate-500">
+              {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </span>
+            {isOutbound && (
+              <span className="text-[#53bdeb]">
+                {msg.status === 'read' ? <CheckCheck size={12}/> : <Check size={12} className="text-slate-400"/>}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     )
   }
@@ -142,33 +173,7 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
         ) : messages.length === 0 ? (
            <div className="text-center text-slate-500 text-sm mt-10 bg-white/50 p-2 rounded mx-auto w-fit">No messages yet. Start the conversation!</div>
         ) : (
-          messages.map((msg) => {
-            const isOutbound = msg.direction === 'outbound'
-            return (
-              <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] min-w-[100px] rounded-lg p-2 px-3 text-sm shadow-sm relative group
-                  ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
-                >
-                  
-                  {/* Document / Media Rendering */}
-                  {renderMedia(msg)}
-
-                  {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
-                  
-                  <div className="flex items-center justify-end gap-1 mt-1">
-                    <span className="text-[10px] text-slate-500">
-                      {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </span>
-                    {isOutbound && (
-                      <span className="text-[#53bdeb]">
-                        {msg.status === 'read' ? <CheckCheck size={12}/> : <Check size={12} className="text-slate-400"/>}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )
-          })
+          messages.map((msg) => <div key={msg.id}>{renderMessageBubble(msg)}</div>)
         )}
         <div ref={messagesEndRef} />
       </div>
