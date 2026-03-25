@@ -1,24 +1,28 @@
 import { createClient } from "@supabase/supabase-js";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server"; // 🔴 Changed to NextRequest
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Allow up to 5 minutes on Vercel
+export const maxDuration = 300; 
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 🔴 Updated GET to accept the request so we can check headers
 export async function GET(request: NextRequest) {
-  // 🔴 1. THE SECURITY LOCK
-  // Ensure the request has the correct secret password
+  
+  // 1. 🔴 THE SECURITY CHECK
+  // You can set CRON_SECRET in your Vercel Environment Variables, or just hardcode a strong password here for now.
+  const API_SECRET = process.env.CRON_SECRET || "hanva_secure_cron_password_2026"; 
+  
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET_KEY}`) {
-      console.error("🚨 Unauthorized attempt to run cron job.");
-      return NextResponse.json({ status: "unauthorized" }, { status: 401 });
+  if (authHeader !== `Bearer ${API_SECRET}`) {
+      console.error("🚨 Unauthorized Cron Attempt Blocked!");
+      return NextResponse.json({ status: "error", message: "Unauthorized" }, { status: 401 });
   }
 
-  console.log("👷 [BATCH PROCESSOR] Starting secure queue check...");
+  console.log("👷 [BATCH PROCESSOR] Starting queue check...");
 
   try {
     // We grab up to 300 logs at a time to handle high volume quickly
