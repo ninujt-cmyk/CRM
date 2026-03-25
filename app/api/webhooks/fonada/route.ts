@@ -1,34 +1,39 @@
-// app/api/webhooks/fonada/route.ts 
+import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { Client } from "@upstash/qstash";
 
 export const dynamic = 'force-dynamic';
 
-const qstashClient = new Client({
-  token: process.env.QSTASH_TOKEN!,
-});
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text();
-    const searchParams = request.nextUrl.searchParams.toString();
+    
+    // Parse it safely just to ensure it's valid, but store as JSONB
+    let body: any = {};
+    try { body = JSON.parse(rawBody); } 
+    catch(e) { body = Object.fromEntries(new URLSearchParams(rawBody)); }
 
-    // The URL where QStash will forward the payload in the background
-    const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/fonada/worker?${searchParams}`;
-
-    // Publish to Upstash
-    await qstashClient.publishJSON({
-      url: workerUrl,
-      body: { rawPayload: rawBody },
+    // 🔴 1. INSTANTLY DUMP INTO DATABASE BUFFER
+    const { error } = await supabaseAdmin.from('webhook_buffer').insert({
+        source: 'fonada_ivr',
+        payload: body,
+        status: 'pending'
     });
 
-    console.log("⚡ [WEBHOOK CATCHER] Payload queued successfully to Upstash.");
+    if (error) {
+        console.error("🚨 [BUFFER ERROR] Failed to save webhook to buffer:", error);
+        return NextResponse.json({ status: "error" }, { status: 500 });
+    }
 
-    // Instantly reply to Fonada so they don't timeout
-    return NextResponse.json({ status: "queued" });
+    // 2. Reply to Fonada instantly!
+    return NextResponse.json({ status: "queued_in_db" });
 
   } catch (error) {
-    console.error("🔥 [WEBHOOK CATCHER ERROR]:", error);
+    console.error("🔥 [CATCHER CRITICAL ERROR]:", error);
     return NextResponse.json({ status: "error" }, { status: 500 });
   }
 }
