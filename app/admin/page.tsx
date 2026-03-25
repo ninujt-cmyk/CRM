@@ -107,7 +107,7 @@ async function DashboardContent() {
           value={activeTelecallers || 0} 
           icon={<Users className="h-5 w-5 text-white" />} 
           description="In your workspace"
-          bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
+          bgClass="bg-gradient-to-br from-indigo-600 to-indigo-600 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
           descClass="text-indigo-200"
         />
