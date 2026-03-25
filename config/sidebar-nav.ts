@@ -36,7 +36,7 @@ export const sidebarGroups = [
   {
     label: "Team",
     items: [
-      { name: "Telecallers", href: "/admin/users", icon: Headset },
+      { name: "Team", href: "/admin/users", icon: Headset },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle },
