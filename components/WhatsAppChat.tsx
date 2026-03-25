@@ -4,15 +4,18 @@ import { useEffect, useState, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Send, Check, CheckCheck, Loader2 } from "lucide-react"
+import { Send, Check, CheckCheck, Loader2, Download, FileText, File } from "lucide-react"
 import { sendWhatsAppText } from "@/app/actions/whatsapp"
 
 interface ChatMessage {
   id: string
   direction: 'inbound' | 'outbound'
-  content: string
+  content: string | null
   status: string
   created_at: string
+  media_url?: string | null     // Added for files
+  media_type?: string | null    // Added for files (e.g. 'image/jpeg', 'application/pdf')
+  file_name?: string | null     // Added for files
 }
 
 export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string }) {
@@ -23,7 +26,6 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
-  // Fetch initial messages and subscribe to real-time updates
   useEffect(() => {
     const fetchMessages = async () => {
       const { data, error } = await supabase
@@ -39,7 +41,6 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
 
     fetchMessages()
 
-    // 🔴 SUPABASE REALTIME MAGIC: Listens for new messages instantly
     const channel = supabase
       .channel('chat_updates')
       .on('postgres_changes', { 
@@ -64,14 +65,63 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
     if (!inputText.trim() || sending) return
     setSending(true)
     const textToSend = inputText
-    setInputText("") // Clear input immediately for better UX
+    setInputText("") 
     
     const res = await sendWhatsAppText(leadId, phone, textToSend)
     if (!res.success) {
         alert("Failed to send message: " + res.error)
-        setInputText(textToSend) // Put text back if failed
+        setInputText(textToSend) 
     }
     setSending(false)
+  }
+
+  // --- RENDER HELPER FOR MEDIA ---
+  const renderMedia = (msg: ChatMessage) => {
+    if (!msg.media_url) return null;
+
+    const isImage = msg.media_type?.startsWith('image/');
+    const isPDF = msg.media_type === 'application/pdf';
+    const fileName = msg.file_name || 'Document';
+
+    if (isImage) {
+      return (
+        <div className="relative group mb-1 rounded-md overflow-hidden border border-black/10 bg-black/5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={msg.media_url} alt="Attached Media" className="max-w-full max-h-48 object-contain rounded-md" />
+          <a 
+            href={msg.media_url} 
+            download 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="absolute top-1 right-1 bg-black/50 hover:bg-black/70 p-1.5 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Download Image"
+          >
+            <Download size={14} />
+          </a>
+        </div>
+      )
+    }
+
+    return (
+      <div className="mb-1 flex items-center gap-2 bg-black/5 p-2 rounded-md border border-black/10 hover:bg-black/10 transition-colors">
+        <div className={`p-1.5 rounded-md ${isPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+           {isPDF ? <FileText size={18} /> : <File size={18} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium truncate text-slate-800">{fileName}</p>
+        </div>
+        <a 
+          href={msg.media_url} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          download
+          className="p-1.5 bg-white rounded-full shadow-sm hover:bg-slate-50 transition-colors border border-slate-200"
+          title="Download File"
+        >
+          <Download size={14} className="text-slate-700" />
+        </a>
+      </div>
+    )
   }
 
   return (
@@ -96,10 +146,14 @@ export function WhatsAppChat({ leadId, phone }: { leadId: string, phone: string 
             const isOutbound = msg.direction === 'outbound'
             return (
               <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-lg p-2 px-3 text-sm shadow-sm relative group
+                <div className={`max-w-[85%] min-w-[100px] rounded-lg p-2 px-3 text-sm shadow-sm relative group
                   ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
                 >
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  
+                  {/* Document / Media Rendering */}
+                  {renderMedia(msg)}
+
+                  {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
                   
                   <div className="flex items-center justify-end gap-1 mt-1">
                     <span className="text-[10px] text-slate-500">
