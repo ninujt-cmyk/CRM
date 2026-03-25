@@ -1,3 +1,4 @@
+// app/api/webhooks/whatsapp/route.ts
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -38,16 +39,13 @@ export async function POST(request: NextRequest) {
       // 1. EXTRACT DATA
       let customerPhone = body.mobile || body.sender || body.from || body?.message?.from;
       
-      // Look for caption if they sent an image/document with text
       let messageText = body.text || body.msg || body.caption || body?.message?.text?.body || body?.message?.document?.caption || body?.message?.image?.caption || "";
 
-      // 🔴 EXTRACT MEDIA URL
       let mediaUrl = body.imageUrl || body.documentUrl || body.videoUrl || body.mediaUrl || body.media_url || body.MediaUrl0 || body.url || body.fileUrl || body?.message?.document?.link || body?.message?.image?.link || "";
       let isMedia = !!mediaUrl;
 
       if (typeof messageText !== 'string') messageText = JSON.stringify(messageText);
 
-      // If customer sent an image without a caption, give it a placeholder
       if (isMedia && !messageText) {
           messageText = "📎 [Media Attachment]";
       }
@@ -60,16 +58,28 @@ export async function POST(request: NextRequest) {
       let dbPhone = customerPhone.replace(/^\+?91/, '');
       if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
-      // 3. FIND THE LEAD
+      // 3. FIND THE LEAD AND IDENTIFY THE TENANT
       const { data: lead, error: leadError } = await supabase
         .from("leads")
-        .select("id, assigned_to")
+        .select("id, assigned_to, tenant_id")
         .ilike("phone", `%${dbPhone}%`)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
+
+      // 🔴 MULTI-TENANT CREDENTIAL FETCHING
+      let fonadaUser = process.env.FONADA_USERID || "bankscart";
+      let fonadaPass = process.env.FONADA_PASSWORD || "zfsWTyKw";
+      let fonadaWaba = process.env.FONADA_WABA_NUMBER || "918217354172";
+
+      if (lead?.tenant_id) {
+          const { data: settings } = await supabase.from('tenant_settings').select('*').eq('tenant_id', lead.tenant_id).maybeSingle();
+          if (settings?.fonada_userid) fonadaUser = settings.fonada_userid;
+          if (settings?.fonada_password) fonadaPass = settings.fonada_password;
+          if (settings?.fonada_waba_number) fonadaWaba = settings.fonada_waba_number;
+      }
 
       // --- 4. DETECT AND HANDLE MEDIA ATTACHMENTS (BULLETPROOF VERSION) ---
       let finalContentToSave = messageText; 
@@ -78,39 +88,33 @@ export async function POST(request: NextRequest) {
           console.log(`📥 [MEDIA DETECTED] Original Fonada Link: ${mediaUrl}`);
           
           try {
-              // Create Auth Headers (Some APIs bypass HTML portals if Basic Auth is provided)
-              const authString = Buffer.from(`${process.env.FONADA_USERID || "bankscart"}:${process.env.FONADA_PASSWORD || "zfsWTyKw"}`).toString('base64');
+              // 🔴 MULTI-TENANT: Inject specific company credentials for Media Download
+              const authString = Buffer.from(`${fonadaUser}:${fonadaPass}`).toString('base64');
               const fetchHeaders = {
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                   'Accept': '*/*',
                   'Authorization': `Basic ${authString}`
               };
 
-              // 🟢 STEP 1: Attempt to fetch the original link
               let mediaRes = await fetch(mediaUrl, { headers: fetchHeaders });
               let contentType = mediaRes.headers.get('content-type') || 'application/octet-stream';
 
-              // 🟠 STEP 2: If Fonada wraps it in HTML (like it does for PDFs), SCRAPE THE HTML!
               if (contentType.includes('text/html')) {
                   console.log("⚠️ Fonada returned HTML. Scraping the portal page for the raw PDF link...");
                   const htmlContent = await mediaRes.text();
                   
-                  // Find all URLs inside the HTML code
                   const urlsInHtml = htmlContent.match(/https?:\/\/[^"'\s<>]+/g) || [];
-                  
-                  // Look for a link that has .pdf, or says 'download', or looks like the raw media link
                   let rawUrl = urlsInHtml.find(u => u !== mediaUrl && (u.toLowerCase().includes('.pdf') || u.includes('download') || u.includes('view-media') || u.includes('media_id')));
 
-                  // Fallback string replacement hack if regex doesn't find it
                   if (!rawUrl && mediaUrl.includes('view-mediaMeta')) {
                       rawUrl = mediaUrl.replace('view-mediaMeta', 'view-media');
                   }
 
                   if (rawUrl) {
-                      // Inject Credentials into URL to force access
+                      // 🔴 MULTI-TENANT: Ensure correct credentials are built into URL fallback
                       if (rawUrl.includes(new URL(mediaUrl).hostname) && !rawUrl.includes('userid=')) {
                           const joinChar = rawUrl.includes('?') ? '&' : '?';
-                          rawUrl = `${rawUrl}${joinChar}userid=${process.env.FONADA_USERID || "bankscart"}&password=${process.env.FONADA_PASSWORD || "zfsWTyKw"}`;
+                          rawUrl = `${rawUrl}${joinChar}userid=${fonadaUser}&password=${fonadaPass}`;
                       }
 
                       console.log(`🔗 Found raw URL, retrying fetch: ${rawUrl}`);
@@ -119,27 +123,22 @@ export async function POST(request: NextRequest) {
                   }
               }
 
-              // 🔴 STEP 3: Final check and Upload to Supabase
               if (contentType.includes('text/html')) {
                   console.log("⚠️ [INFO] Still returning HTML. Saving the direct link instead.");
                   finalContentToSave = `📁 *Document Link Received:*\n${mediaUrl}`;
               } else {
-                  // ✅ SUCCESS! We have the raw file bytes!
                   const arrayBuffer = await mediaRes.arrayBuffer();
                   let ext = 'bin';
                   
-                  // Priority 1: Get extension from Fonada's filename payload
                   const originalName = body.documentName || body.fileName || body?.message?.document?.filename || "";
                   if (originalName && originalName.includes('.')) {
                       ext = originalName.split('.').pop() || 'bin';
                   } 
-                  // Priority 2: Extract from the URL
                   else if (mediaUrl.includes('.')) {
                       const urlMatch = mediaUrl.match(/\.([a-zA-Z0-9]+)(?:&|$)/);
                       if (urlMatch) ext = urlMatch[1];
                   }
                   
-                  // Priority 3: Guess from content type
                   if (ext === 'bin' || ext.length > 4) {
                       const mime = contentType.toLowerCase();
                       if (mime.includes('pdf')) ext = 'pdf';
@@ -151,16 +150,13 @@ export async function POST(request: NextRequest) {
                   
                   ext = ext.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                  // Ensure correct mime type for Supabase storage
                   let finalUploadType = contentType;
                   if (ext === 'pdf') finalUploadType = 'application/pdf';
                   if (ext === 'jpg' || ext === 'jpeg') finalUploadType = 'image/jpeg';
                   if (ext === 'png') finalUploadType = 'image/png';
 
-                  // Create clean filename
                   const fileName = `${lead.id}/kyc_${Date.now()}.${ext}`;
 
-                  // Upload to Supabase
                   const { error: uploadError } = await supabase.storage
                       .from('kyc_documents')
                       .upload(fileName, arrayBuffer, {
@@ -170,7 +166,6 @@ export async function POST(request: NextRequest) {
 
                   if (uploadError) throw uploadError;
 
-                  // Grab Public URL
                   const publicUrlData = supabase.storage.from('kyc_documents').getPublicUrl(fileName);
                   const filePublicUrl = publicUrlData.data.publicUrl;
 
@@ -218,19 +213,18 @@ export async function POST(request: NextRequest) {
           if (textLower === "i am still interested" || textLower.includes("still interested")) {
               console.log(`🚨 [LIE DETECTOR TRIGGERED] Customer clicked 'Still Interested'! Rescuing lead...`);
               
-              // 1. Send an immediate apology/confirmation to the customer
               const rescueMsg = `Thank you for confirming! We apologize for the confusion. A senior executive has been notified and will contact you immediately to assist with your loan.`;
-              await sendFonadaMessage(customerPhone, rescueMsg, lead?.id);
+              // 🔴 MULTI-TENANT: Pass credentials to the auto-responder
+              await sendFonadaMessage(customerPhone, rescueMsg, fonadaUser, fonadaPass, fonadaWaba, lead?.id);
               
-              // 2. Unassign from the lying agent, change status back to 'new', and leave a massive warning note
               const currentNotes = lead?.notes || "";
               const auditWarning = `🚨 [SYSTEM ALERT: AGENT AUDIT FAILED]\nPrevious agent marked this lead as Not Interested. The system pinged the customer, and the customer clicked "I AM STILL INTERESTED". Lead has been stripped from previous agent and reset to New.`;
               
               await supabase.from("leads").update({
                   status: "new",
-                  assigned_to: null, // Strip it from the current agent
+                  assigned_to: null, 
                   notes: `${currentNotes}\n\n${auditWarning}`,
-                  last_contacted: new Date().toISOString() // Restart SLA timer
+                  last_contacted: new Date().toISOString() 
               }).eq("id", lead?.id);
 
               return NextResponse.json({ status: "success", action: "lead_rescued" });
@@ -245,7 +239,7 @@ export async function POST(request: NextRequest) {
 
           if (isPersonalLoan) {
             const plMessage = `Thank you for your interest in a Personal Loan. To proceed with your application, please share the following documents:\n\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here or reply to this message with the attachments. We'll begin the verification process right away.`;
-            await sendFonadaMessage(customerPhone, plMessage, lead?.id);
+            await sendFonadaMessage(customerPhone, plMessage, fonadaUser, fonadaPass, fonadaWaba, lead?.id);
             return NextResponse.json({ status: "success", action: "pl_bot_reply_sent" });
           }
 
@@ -254,12 +248,12 @@ export async function POST(request: NextRequest) {
               const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
               if (agent && agent.phone) {
                 const agentMsg = `Hello! I understand you would like to speak with an agent.\n\nOur expert *${agent.full_name}* is assigned to your application. You can reach them directly at: *${agent.phone}*\n\nThey have been notified and will also contact you shortly.`;
-                await sendFonadaMessage(customerPhone, agentMsg, lead.id);
+                await sendFonadaMessage(customerPhone, agentMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id);
                 return NextResponse.json({ status: "success", action: "speak_agent_reply_sent" });
               }
             }
             const fallbackAgentMsg = `Hello! I understand you would like to speak with an agent. Our team has been notified and a representative will call you shortly.`;
-            await sendFonadaMessage(customerPhone, fallbackAgentMsg, lead?.id);
+            await sendFonadaMessage(customerPhone, fallbackAgentMsg, fonadaUser, fonadaPass, fonadaWaba, lead?.id);
             return NextResponse.json({ status: "success", action: "speak_agent_fallback_sent" });
           }
 
@@ -280,12 +274,12 @@ export async function POST(request: NextRequest) {
                 let replyMessage = isOfficeHours 
                     ? `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned and will contact you shortly.\n\nDirect: ${agent.phone}`
                     : `${introMsg}\n\nOur representative *${agent.full_name}* has been assigned.\n\nWe are currently offline, but ${agent.full_name} will call you *tomorrow morning* first thing.\n\nDirect: ${agent.phone}`;
-                await sendFonadaMessage(customerPhone, replyMessage, lead.id);
+                await sendFonadaMessage(customerPhone, replyMessage, fonadaUser, fonadaPass, fonadaWaba, lead.id);
                 return NextResponse.json({ status: "success", action: "agent_reply_sent" });
               }
             } 
             const genericReply = isOfficeHours ? `${introMsg} Our team will contact you shortly.` : `${introMsg} Our team is currently offline but will contact you tomorrow morning.`;
-            await sendFonadaMessage(customerPhone, genericReply, lead?.id);
+            await sendFonadaMessage(customerPhone, genericReply, fonadaUser, fonadaPass, fonadaWaba, lead?.id);
             return NextResponse.json({ status: "success", action: "generic_reply_sent" });
           }
       }
@@ -318,14 +312,15 @@ export async function POST(request: NextRequest) {
 // =================================================================================
 // HELPER: Send Message via Fonada & Save to DB + Update Sidebar Snippet
 // =================================================================================
-async function sendFonadaMessage(mobile: string, text: string, leadId?: string) {
+// 🔴 MULTI-TENANT: Accepts dynamic credentials from the main webhook handler
+async function sendFonadaMessage(mobile: string, text: string, userId: string, pass: string, waba: string, leadId?: string) {
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
   const formData = new FormData();
-  formData.append("userid", process.env.FONADA_USERID || "bankscart");
-  formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
-  formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+  formData.append("userid", userId);
+  formData.append("password", pass);
+  formData.append("wabaNumber", waba);
   formData.append("mobile", mobile); 
   formData.append("msg", text);
   formData.append("msgType", "text");
