@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { NextRequest, NextResponse } from "next/server"; // 🔴 Changed to NextRequest
+import { NextRequest, NextResponse } from "next/server"; 
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; 
@@ -9,11 +9,9 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// 🔴 Updated GET to accept the request so we can check headers
 export async function GET(request: NextRequest) {
   
-  // 1. 🔴 THE SECURITY CHECK
-  // You can set CRON_SECRET in your Vercel Environment Variables, or just hardcode a strong password here for now.
+  // 1. THE SECURITY CHECK
   const API_SECRET = process.env.CRON_SECRET || "Bearer my_secure_cron_password_958"; 
   
   const authHeader = request.headers.get('authorization');
@@ -25,7 +23,7 @@ export async function GET(request: NextRequest) {
   console.log("👷 [BATCH PROCESSOR] Starting queue check...");
 
   try {
-    // We grab up to 300 logs at a time to handle high volume quickly
+    // Grab up to 30 pending webhooks
     const { data: pendingEvents, error: fetchError } = await supabaseAdmin
         .from('webhook_buffer')
         .select('*')
@@ -83,20 +81,11 @@ export async function GET(request: NextRequest) {
             const duration = parseInt(safeBody.duration || "0");
             const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
             
-            let rawDigits = [
-                body.digitsPressed, body.digitpressed, safeBody.digitspressed, safeBody.digitpressed,
-                body['digitsPressed=CDR.digitpressed'], safeBody['digitspressed=cdr.digitpressed']
-            ].find(val => val !== undefined && val !== null && String(val).trim() !== "");
-
-            if (!rawDigits) {
-                rawDigits = [
-                    body.level1 || safeBody.level1 || safeBody.digitpressedlevel1,
-                    body.level2 || safeBody.level2 || safeBody.digitpressedlevel2,
-                    body.level3 || safeBody.level3 || safeBody.digitpressedlevel3,
-                ].filter(val => val !== undefined && val !== null && String(val).trim() !== "").join(',');
-            }
-
-            const digitsPressed = rawDigits ? String(rawDigits).trim() : null;
+            // 🔴 THE FIX: Simplified exact match for digitsPressed as per Fonada's instructions
+            const rawDigits = body.digitsPressed || safeBody.digitspressed;
+            const digitsPressed = (rawDigits !== undefined && rawDigits !== null && String(rawDigits).trim() !== "") 
+                ? String(rawDigits).trim() 
+                : null;
 
             if (!tenantId || !mobileNumber) {
                 throw new Error(`Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
