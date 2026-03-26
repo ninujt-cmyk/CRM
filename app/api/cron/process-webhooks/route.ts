@@ -2,16 +2,91 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server"; 
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; 
+// 🔴 Allow Vercel to run this script for up to 5 minutes (requires Vercel Pro. Leave at 60 if on Hobby)
+export const maxDuration = 300; 
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 🔴 HELPER FUNCTION: Process a single webhook event
+async function processSingleEvent(event: any) {
+    const body = event.payload;
+            
+    const safeBody: any = {};
+    for (const key in body) {
+        if (body.hasOwnProperty(key)) safeBody[key.toLowerCase()] = body[key];
+    }
+
+    let fonadaLeadId = safeBody.leadid || null;
+    if (!fonadaLeadId && safeBody.accountcode) {
+        fonadaLeadId = String(safeBody.accountcode.split('^')[0]).trim(); 
+    }
+
+    let tenantId = null;
+    let batchId = null;
+    const mobileNumber = safeBody.mobilenumber || safeBody.customernumber || safeBody.dst || null;
+
+    if (fonadaLeadId) {
+        const { data: batch } = await supabaseAdmin.from('ivr_campaign_history').select('id, tenant_id').eq('fonada_lead_id', String(fonadaLeadId)).maybeSingle();
+        if (batch) {
+            tenantId = batch.tenant_id;
+            batchId = batch.id;
+            // Fire and forget the heartbeat update so it doesn't slow down the processor
+            supabaseAdmin.from('ivr_campaign_history').update({ last_webhook_received_at: new Date().toISOString() }).eq('id', batchId).then();
+        }
+    }
+
+    if (!tenantId && mobileNumber) {
+        let dbCustomerPhone = mobileNumber.replace(/^\+?91/, '').slice(-10);
+        const { data: lead } = await supabaseAdmin.from('leads').select('tenant_id').ilike('phone', `%${dbCustomerPhone}%`).limit(1).maybeSingle();
+        if (lead && lead.tenant_id) tenantId = lead.tenant_id;
+    }
+
+    const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
+    const duration = parseInt(safeBody.duration || "0");
+    const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
+    
+    // Exact match for digitsPressed
+    const rawDigits = body.digitsPressed || safeBody.digitspressed;
+    const digitsPressed = (rawDigits !== undefined && rawDigits !== null && String(rawDigits).trim() !== "") 
+        ? String(rawDigits).trim() 
+        : null;
+
+    if (!tenantId || !mobileNumber) {
+        throw new Error(`Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
+    }
+
+    let creditsToDeduct = 0;
+    if (billsec > 0 && disposition === "ANSWERED") {
+        const { data: settings } = await supabaseAdmin.from('tenant_settings').select('billing_pulse_seconds, credits_per_pulse').eq('tenant_id', tenantId).single();
+        const pulses = Math.ceil(billsec / (settings?.billing_pulse_seconds || 15)); 
+        creditsToDeduct = pulses * (settings?.credits_per_pulse || 1);
+
+        await supabaseAdmin.from("wallet_ledger").insert({
+            tenant_id: tenantId, credits: -Math.abs(creditsToDeduct), transaction_type: 'IVR_CAMPAIGN',
+            description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`, reference_id: batchId || null 
+        });
+    }
+
+    const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
+        tenant_id: tenantId, batch_id: batchId, mobile_number: mobileNumber,
+        attempt_num: parseInt(safeBody.attemptnum || "1"), start_date: safeBody.start || null,
+        answer_date: safeBody.answer || null, end_date: safeBody.end || null, call_duration: duration,
+        bill_seconds: billsec, disposition: disposition, hangup_cause: safeBody.hangupcause || null,
+        hangup_code: safeBody.hangupcode || null, clid: safeBody.clid || null, digits_pressed: digitsPressed, credits_used: creditsToDeduct
+    });
+
+    if (insertError) throw insertError;
+
+    // Mark successful
+    await supabaseAdmin.from('webhook_buffer').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', event.id);
+    return true;
+}
+
 export async function GET(request: NextRequest) {
   
-  // 1. THE SECURITY CHECK
   const API_SECRET = process.env.CRON_SECRET || "Bearer my_secure_cron_password_958"; 
   
   const authHeader = request.headers.get('authorization');
@@ -20,108 +95,56 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ status: "error", message: "Unauthorized" }, { status: 401 });
   }
 
-  console.log("👷 [BATCH PROCESSOR] Starting queue check...");
+  console.log("👷 [BATCH PROCESSOR] Starting high-speed queue check...");
 
   try {
-    // Grab up to 30 pending webhooks
+    // 🔴 1. INCREASED LIMIT: Grab 400 logs at a time
     const { data: pendingEvents, error: fetchError } = await supabaseAdmin
         .from('webhook_buffer')
         .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
-        .limit(30);
+        .limit(400);
 
     if (fetchError || !pendingEvents || pendingEvents.length === 0) {
         return NextResponse.json({ status: "idle", message: "No pending webhooks." });
     }
 
-    console.log(`📦 Found ${pendingEvents.length} payloads to process.`);
+    console.log(`📦 Found ${pendingEvents.length} payloads. Processing concurrently...`);
 
+    // Lock them so the next minute's cron job doesn't grab the same ones
     const eventIds = pendingEvents.map(e => e.id);
     await supabaseAdmin.from('webhook_buffer').update({ status: 'processing' }).in('id', eventIds);
 
     let successCount = 0;
     let failCount = 0;
 
-    // LOOP THROUGH EACH PAYLOAD
-    for (const event of pendingEvents) {
-        try {
-            const body = event.payload;
-            
-            const safeBody: any = {};
-            for (const key in body) {
-                if (body.hasOwnProperty(key)) safeBody[key.toLowerCase()] = body[key];
+    // 🔴 2. CHUNKED CONCURRENCY (The Magic Speed Boost)
+    // We process 50 logs at the exact same time. Once those 50 finish, we do the next 50.
+    // This protects Supabase's connection pool while running 50x faster!
+    const chunkSize = 50; 
+    
+    for (let i = 0; i < pendingEvents.length; i += chunkSize) {
+        const chunk = pendingEvents.slice(i, i + chunkSize);
+        
+        // Run all 50 events in this chunk simultaneously
+        const promises = chunk.map(async (event) => {
+            try {
+                await processSingleEvent(event);
+                successCount++;
+            } catch (err: any) {
+                console.error(`❌ Failed event ${event.id}:`, err);
+                await supabaseAdmin.from('webhook_buffer').update({ 
+                    status: 'failed', 
+                    error_log: err.message || 'Unknown error', 
+                    processed_at: new Date().toISOString() 
+                }).eq('id', event.id);
+                failCount++;
             }
+        });
 
-            let fonadaLeadId = safeBody.leadid || null;
-            if (!fonadaLeadId && safeBody.accountcode) {
-                fonadaLeadId = String(safeBody.accountcode.split('^')[0]).trim(); 
-            }
-
-            let tenantId = null;
-            let batchId = null;
-            const mobileNumber = safeBody.mobilenumber || safeBody.customernumber || safeBody.dst || null;
-
-            if (fonadaLeadId) {
-                const { data: batch } = await supabaseAdmin.from('ivr_campaign_history').select('id, tenant_id').eq('fonada_lead_id', String(fonadaLeadId)).maybeSingle();
-                if (batch) {
-                    tenantId = batch.tenant_id;
-                    batchId = batch.id;
-                    await supabaseAdmin.from('ivr_campaign_history').update({ last_webhook_received_at: new Date().toISOString() }).eq('id', batchId);
-                }
-            }
-
-            if (!tenantId && mobileNumber) {
-                let dbCustomerPhone = mobileNumber.replace(/^\+?91/, '').slice(-10);
-                const { data: lead } = await supabaseAdmin.from('leads').select('tenant_id').ilike('phone', `%${dbCustomerPhone}%`).limit(1).maybeSingle();
-                if (lead && lead.tenant_id) tenantId = lead.tenant_id;
-            }
-
-            const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
-            const duration = parseInt(safeBody.duration || "0");
-            const disposition = (safeBody.customerdisposition || safeBody.disposition || "UNKNOWN").toUpperCase();
-            
-            // 🔴 THE FIX: Simplified exact match for digitsPressed as per Fonada's instructions
-            const rawDigits = body.digitsPressed || safeBody.digitspressed;
-            const digitsPressed = (rawDigits !== undefined && rawDigits !== null && String(rawDigits).trim() !== "") 
-                ? String(rawDigits).trim() 
-                : null;
-
-            if (!tenantId || !mobileNumber) {
-                throw new Error(`Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
-            }
-
-            let creditsToDeduct = 0;
-            if (billsec > 0 && disposition === "ANSWERED") {
-                const { data: settings } = await supabaseAdmin.from('tenant_settings').select('billing_pulse_seconds, credits_per_pulse').eq('tenant_id', tenantId).single();
-                const pulses = Math.ceil(billsec / (settings?.billing_pulse_seconds || 15)); 
-                creditsToDeduct = pulses * (settings?.credits_per_pulse || 1);
-
-                await supabaseAdmin.from("wallet_ledger").insert({
-                    tenant_id: tenantId, credits: -Math.abs(creditsToDeduct), transaction_type: 'IVR_CAMPAIGN',
-                    description: `IVR Call to ${mobileNumber} (${billsec}s = ${pulses} pulses)`, reference_id: batchId || null 
-                });
-            }
-
-            const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
-                tenant_id: tenantId, batch_id: batchId, mobile_number: mobileNumber,
-                attempt_num: parseInt(safeBody.attemptnum || "1"), start_date: safeBody.start || null,
-                answer_date: safeBody.answer || null, end_date: safeBody.end || null, call_duration: duration,
-                bill_seconds: billsec, disposition: disposition, hangup_cause: safeBody.hangupcause || null,
-                hangup_code: safeBody.hangupcode || null, clid: safeBody.clid || null, digits_pressed: digitsPressed, credits_used: creditsToDeduct
-            });
-
-            if (insertError) throw insertError;
-
-            // Mark this specific event as successful!
-            await supabaseAdmin.from('webhook_buffer').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', event.id);
-            successCount++;
-
-        } catch (err: any) {
-            console.error(`❌ Failed to process event ${event.id}:`, err);
-            await supabaseAdmin.from('webhook_buffer').update({ status: 'failed', error_log: err.message || 'Unknown error', processed_at: new Date().toISOString() }).eq('id', event.id);
-            failCount++;
-        }
+        // Wait for this chunk of 50 to finish before moving to the next chunk of 50
+        await Promise.allSettled(promises);
     }
 
     console.log(`✅ Batch Complete. Success: ${successCount}, Failed: ${failCount}`);
