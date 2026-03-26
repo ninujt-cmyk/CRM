@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     console.log("📋 [C2C PAYLOAD (RAW)]:", body);
 
-    // 🔴 1. THE BULLETPROOF FIX: Convert all keys to lowercase to ignore Fonada's capitalization quirks
+    // 🔴 1. THE BULLETPROOF FIX: Convert all keys to lowercase to ignore Hanva's capitalization quirks
     const safeBody: any = {};
     for (const key in body) {
         if (body.hasOwnProperty(key)) {
