@@ -80,7 +80,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
             signal: controller.signal 
         });
     } catch (fetchErr: any) {
-        if (fetchErr.name === 'AbortError') throw new Error("Fonada API timed out after 10 seconds.");
+        if (fetchErr.name === 'AbortError') throw new Error("API timed out after 10 seconds.");
         throw fetchErr;
     } finally {
         clearTimeout(timeoutId); 
@@ -91,7 +91,7 @@ export async function initiateC2CCall(leadId: string, customerPhone: string) {
     try {
         const jsonResponse = JSON.parse(rawText);
         if (jsonResponse.status === false || jsonResponse.status === "error") {
-             return { success: false, error: jsonResponse.message || "Fonada rejected the call request." };
+             return { success: false, error: jsonResponse.message || "Hanva rejected the call request." };
         }
     } catch (e) { /* ignore */ }
 

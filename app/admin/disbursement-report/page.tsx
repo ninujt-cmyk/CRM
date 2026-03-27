@@ -324,8 +324,13 @@ export default function TelecallerDisbursementReport() {
         const uniqueBanks = new Set<string>();
         let maxDealItem: LeadDisbursement | null = null;
 
+        // Populate unique banks purely from the raw fetched data 
+        // to ensure the dropdown always has all options regardless of active filters.
+        disbursements.forEach(item => {
+            if (item.bank_name) uniqueBanks.add(item.bank_name);
+        });
+
         const searched = disbursements.filter(item => {
-            if(item.bank_name) uniqueBanks.add(item.bank_name);
             if (selectedAgentId && item.assigned_to !== selectedAgentId) return false;
             if (selectedBank !== 'all' && item.bank_name !== selectedBank) return false;
 

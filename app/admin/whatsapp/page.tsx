@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { 
   Search, Send, User, Check, CheckCheck, 
-  Loader2, MessageSquare, Bot, ExternalLink, ShieldAlert, Filter
+  Loader2, MessageSquare, Bot, ExternalLink, ShieldAlert, Filter,
+  Download, FileText, File, Image as ImageIcon
 } from "lucide-react"
 import { sendWhatsAppText } from "@/app/actions/whatsapp"
 import Link from "next/link"
@@ -31,11 +32,14 @@ interface ChatMessage {
   id: string
   direction: 'inbound' | 'outbound'
   message_type: string
-  content: string
+  content: string | null
   status: string 
   created_at: string
   fonada_message_id?: string
   lead_id: string 
+  media_url?: string | null     
+  media_type?: string | null    
+  file_name?: string | null     
 }
 
 export default function AdminWhatsAppPanel() {
@@ -59,7 +63,6 @@ export default function AdminWhatsAppPanel() {
 
   // --- NOTIFICATION SETUP ---
   useEffect(() => {
-    // Ask browser for notification permissions on load
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
@@ -67,7 +70,7 @@ export default function AdminWhatsAppPanel() {
 
   const playNotificationSound = () => {
     const audio = new Audio('/notification.wav');
-    audio.play().catch(e => console.log("Audio play blocked by browser (user must interact with page first):", e));
+    audio.play().catch(e => console.log("Audio play blocked by browser:", e));
   };
 
   // 1. FETCH ALL LEADS
@@ -91,38 +94,33 @@ export default function AdminWhatsAppPanel() {
     setLoadingLeads(false)
   }
 
-  // 1B. GLOBAL REALTIME LISTENER (Runs Once)
+  // 1B. GLOBAL REALTIME LISTENER
   useEffect(() => {
     fetchLeadsAndUsers()
     
-    // A. Listen for Lead Updates (Sidebar sorting)
     const leadChannel = supabase.channel('admin_leads_update')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, () => {
         fetchLeadsAndUsers() 
       }).subscribe()
 
-    // B. GLOBAL NOTIFICATION LISTENER
     const globalNotificationChannel = supabase.channel('global_notifications')
       .on('postgres_changes', 
       { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'chat_messages', 
-        filter: "direction=eq.inbound" // Only trigger for incoming messages
+        filter: "direction=eq.inbound" 
       }, 
       (payload) => {
         const newMsg = payload.new as ChatMessage;
         const isLookingAtDifferentTab = document.hidden;
 
-        // Use functional state update to accurately read selectedLead without breaking dependencies
         setSelectedLead((currentSelectedLead) => {
              const isLookingAtDifferentChat = currentSelectedLead?.id !== newMsg.lead_id;
              
              if (isLookingAtDifferentTab || isLookingAtDifferentChat) {
-                // Play sound
                 playNotificationSound();
     
-                // Push Notification
                 if ("Notification" in window && Notification.permission === "granted") {
                    new Notification("New WhatsApp Message", {
                       body: newMsg.content ? newMsg.content.substring(0, 50) + "..." : "You received a new message.",
@@ -174,7 +172,6 @@ export default function AdminWhatsAppPanel() {
       setLoadingMessages(false)
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
 
-      // Clear Unread Count
       if (selectedLead.unread_count > 0) {
           await supabase.from('leads').update({ unread_count: 0 }).eq('id', selectedLead.id)
           setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, unread_count: 0 } : l))
@@ -213,6 +210,112 @@ export default function AdminWhatsAppPanel() {
     setSending(false)
   }
 
+  // --- RENDER HELPER FOR MESSAGES & MEDIA ---
+  const renderMessageBubble = (msg: ChatMessage) => {
+    const isOutbound = msg.direction === 'outbound'
+    const isTemplate = msg.message_type === 'template'
+    
+    let textToDisplay = msg.content || "";
+    let extractedUrl: string | null = null;
+    let isImage = false;
+    let isPDF = false;
+    let fileName = "Document";
+
+    // 1. URL Extraction Logic (Finds URLs hidden inside normal text)
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = textToDisplay.match(urlRegex);
+
+    if (!msg.media_url && urls && urls.length > 0) {
+      extractedUrl = urls[0];
+      // Remove the URL from the text so we don't display the ugly string
+      textToDisplay = textToDisplay.replace(extractedUrl, '').trim();
+      
+      // Determine file type from extension
+      isImage = !!extractedUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i);
+      isPDF = !!extractedUrl.match(/\.(pdf)(\?.*)?$/i);
+      // Try to get a clean filename
+      fileName = extractedUrl.split('/').pop()?.split('?')[0] || "Document";
+    }
+
+    // 2. Final Data Resolution (Uses explicit columns if they exist, otherwise uses extracted data)
+    const finalMediaUrl = msg.media_url || extractedUrl;
+    const finalIsImage = msg.media_url ? msg.media_type?.startsWith('image/') : isImage;
+    const finalIsPDF = msg.media_url ? msg.media_type === 'application/pdf' : isPDF;
+    const finalFileName = msg.file_name || fileName;
+
+    return (
+      <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+        <div className={`max-w-[70%] min-w-[120px] rounded-lg p-3 shadow-sm relative group flex flex-col gap-2
+          ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
+        >
+          {isTemplate && (
+             <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-1 border-b pb-1 border-slate-200/50 uppercase tracking-wider">
+               <Bot className="h-3 w-3" /> Automated Template
+             </div>
+          )}
+          
+          {/* Text Content (Minus the URL) */}
+          {textToDisplay && (
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
+              {textToDisplay.split(/(\*[^*]+\*)/g).map((part, index) =>
+                part.startsWith('*') && part.endsWith('*') ? (
+                  <strong key={index} className="font-bold text-black">{part.slice(1, -1)}</strong>
+                ) : ( part )
+              )}
+            </p>
+          )}
+
+          {/* Media Preview Block */}
+          {finalMediaUrl && (
+            finalIsImage ? (
+              <div className="relative group rounded-md overflow-hidden border border-black/10 bg-black/5 self-start">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={finalMediaUrl} alt="Attached Media" className="max-w-full max-h-64 object-contain rounded-md block" />
+                <a 
+                  href={finalMediaUrl} download target="_blank" rel="noopener noreferrer" 
+                  className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Download Image"
+                >
+                  <Download size={16} />
+                </a>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 bg-black/5 p-2.5 rounded-md border border-black/10 hover:bg-black/10 transition-colors w-full">
+                <div className={`p-2 rounded-md ${finalIsPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                   {finalIsPDF ? <FileText size={20} /> : <File size={20} />}
+                </div>
+                <div className="flex-1 min-w-0 pr-2">
+                  <p className="text-[13px] font-medium truncate text-slate-800" title={finalFileName}>{finalFileName}</p>
+                  <p className="text-[10px] text-slate-500 uppercase">{finalIsPDF ? 'PDF Document' : 'File Attachment'}</p>
+                </div>
+                <a 
+                  href={finalMediaUrl} target="_blank" rel="noopener noreferrer" download
+                  className="p-1.5 bg-white rounded-full shadow-sm hover:bg-slate-50 transition-colors border border-slate-200 shrink-0"
+                  title="Download File"
+                >
+                  <Download size={14} className="text-slate-700" />
+                </a>
+              </div>
+            )
+          )}
+          
+          <div className="flex items-center justify-end gap-1 mt-1">
+            <span className="text-[10px] text-slate-500 font-medium">
+              {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </span>
+            {isOutbound && (
+              <span className="flex items-center">
+                {msg.status === 'read' ? <CheckCheck size={16} className="text-blue-500" /> : 
+                 msg.status === 'delivered' ? <CheckCheck size={16} className="text-gray-400" /> : 
+                 <Check size={16} className="text-gray-400" />}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-[calc(100vh-6rem)] bg-white border rounded-xl shadow-lg overflow-hidden">
       
@@ -236,16 +339,16 @@ export default function AdminWhatsAppPanel() {
             />
           </div>
           <button 
-             onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-             className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-2 ${
-               showUnreadOnly ? 'bg-green-100 border-green-500 text-green-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'
-             }`}
-           >
-             <Filter className="h-3 w-3" /> {showUnreadOnly ? "Filter: Unread Only" : "Show All Chats"}
-           </button>
+              onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-2 ${
+                showUnreadOnly ? 'bg-green-100 border-green-500 text-green-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}
+            >
+              <Filter className="h-3 w-3" /> {showUnreadOnly ? "Filter: Unread Only" : "Show All Chats"}
+            </button>
         </div>
 
-        {/* Lead List (With SLA & Previews) */}
+        {/* Lead List */}
         <div className="flex-1 overflow-y-auto">
           {loadingLeads ? (
             <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
@@ -260,7 +363,6 @@ export default function AdminWhatsAppPanel() {
                   selectedLead?.id === lead.id ? 'bg-blue-50 border-l-4 border-l-[#005c4b]' : 'border-l-4 border-l-transparent'
                 }`}
               >
-                {/* Name & Time */}
                 <div className="flex justify-between items-start mb-1">
                   <h3 className={`font-semibold truncate pr-2 ${lead.unread_count > 0 ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
                     {lead.name}
@@ -273,7 +375,6 @@ export default function AdminWhatsAppPanel() {
                   </span>
                 </div>
 
-                {/* Message Snippet */}
                 <div className="flex items-center gap-1 mb-2">
                     {lead.last_message_type === 'outbound' ? (
                        <CheckCheck className="h-3 w-3 text-blue-500 shrink-0" />
@@ -281,24 +382,15 @@ export default function AdminWhatsAppPanel() {
                        <div className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse"></div>
                     )}
                     <p className={`text-xs truncate max-w-[180px] ${lead.unread_count > 0 ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
-                      {lead.last_message_content || "Start a conversation..."}
+                      {lead.last_message_content?.replace(/(https?:\/\/[^\s]+)/g, '📎 Attachment') || "Attachment"}
                     </p>
                 </div>
 
-                {/* Tags & SLA */}
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-1">
                     <Badge variant="outline" className="text-[9px] h-4 px-1 bg-white text-slate-500 border-slate-200">
                         {lead.telecaller_name?.split(' ')[0]} 
                     </Badge>
-                    {lead.unread_count > 0 && lead.last_message_at && (
-                        (() => {
-                           const diffMins = Math.floor((new Date().getTime() - new Date(lead.last_message_at).getTime()) / 60000);
-                           if (diffMins > 60) return <Badge className="text-[9px] h-4 px-1 bg-red-100 text-red-700 hover:bg-red-200 border-none">⚠️ {Math.floor(diffMins/60)}h Delay</Badge>;
-                           if (diffMins > 15) return <Badge className="text-[9px] h-4 px-1 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border-none">⏱️ {diffMins}m</Badge>;
-                           return <Badge className="text-[9px] h-4 px-1 bg-green-100 text-green-700 hover:bg-green-200 border-none">Just now</Badge>;
-                        })()
-                    )}
                   </div>
                   {lead.unread_count > 0 && (
                     <div className="bg-[#25D366] text-white text-[10px] font-bold h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full shadow-sm">{lead.unread_count}</div>
@@ -328,7 +420,7 @@ export default function AdminWhatsAppPanel() {
                     }`}>{selectedLead.status}</span>
                   </h2>
                   <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>+{selectedLead.phone}</span>
+                    <span>{selectedLead.phone}</span>
                     <span className="h-3 w-[1px] bg-slate-300"></span>
                     <span>Owner: <strong>{selectedLead.telecaller_name}</strong></span>
                   </div>
@@ -346,42 +438,7 @@ export default function AdminWhatsAppPanel() {
               {loadingMessages ? (
                  <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-[#005c4b]" /></div>
               ) : (
-                messages.map((msg) => {
-                  const isOutbound = msg.direction === 'outbound'
-                  const isTemplate = msg.message_type === 'template'
-                  return (
-                    <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[70%] rounded-lg p-3 shadow-sm relative group
-                        ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
-                      >
-                        {isTemplate && (
-                           <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-1 border-b pb-1 border-slate-200/50 uppercase tracking-wider">
-                             <Bot className="h-3 w-3" /> Automated Template
-                           </div>
-                        )}
-                        <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
-                          {msg.content.split(/(\*[^*]+\*)/g).map((part, index) =>
-                            part.startsWith('*') && part.endsWith('*') ? (
-                              <strong key={index} className="font-bold text-black">{part.slice(1, -1)}</strong>
-                            ) : ( part )
-                          )}
-                        </p>
-                        <div className="flex items-center justify-end gap-1 mt-2">
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                          </span>
-                          {isOutbound && (
-                            <span className="flex items-center">
-                              {msg.status === 'read' ? <CheckCheck size={16} className="text-blue-500" /> : 
-                               msg.status === 'delivered' ? <CheckCheck size={16} className="text-gray-400" /> : 
-                               <Check size={16} className="text-gray-400" />}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })
+                messages.map((msg) => <div key={msg.id}>{renderMessageBubble(msg)}</div>)
               )}
               <div ref={messagesEndRef} />
             </div>
@@ -389,12 +446,12 @@ export default function AdminWhatsAppPanel() {
             {/* Input & Quick Reply Chips */}
             <div className="flex flex-col bg-[#f0f2f5]">
                  <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
-                  {[
+                 {[
                     "👋 Hi, I tried calling you.",
-                    "📄 Please share your Aadhar & PAN.",
-                    "📍 Can you send your current location?",
+                    "📄 Kindly share your Aadhar & PAN.",
+                    "📍 Can you send your current Address?",
                     "✅ Application Approved!"
-                  ].map((text) => (
+                 ].map((text) => (
                     <button
                       key={text}
                       onClick={() => setInputText(text)}
@@ -402,7 +459,7 @@ export default function AdminWhatsAppPanel() {
                     >
                       {text}
                     </button>
-                  ))}
+                 ))}
                 </div>
 
                 <div className="p-4 flex items-center gap-3">

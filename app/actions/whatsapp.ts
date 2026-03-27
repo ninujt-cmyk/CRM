@@ -1,7 +1,25 @@
+// app/actions/whatsapp.ts
 "use server"
 
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+
+// Helper to fetch tenant settings securely
+async function getTenantWaCredentials(tenantId: string | null) {
+  let fonadaUser = process.env.FONADA_USERID || "bankscart";
+  let fonadaPass = process.env.FONADA_PASSWORD || "zfsWTyKw";
+  let fonadaWaba = process.env.FONADA_WABA_NUMBER || "918217354172";
+
+  if (tenantId) {
+    const supabaseAdmin = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: settings } = await supabaseAdmin.from('tenant_settings').select('fonada_userid, fonada_password, fonada_waba_number').eq('tenant_id', tenantId).maybeSingle();
+    
+    if (settings?.fonada_userid) fonadaUser = settings.fonada_userid;
+    if (settings?.fonada_password) fonadaPass = settings.fonada_password;
+    if (settings?.fonada_waba_number) fonadaWaba = settings.fonada_waba_number;
+  }
+  return { fonadaUser, fonadaPass, fonadaWaba };
+}
 
 // ============================================================================
 // 1. SEND NORMAL TEXT MESSAGE (Used in your new Chat UI)
@@ -12,13 +30,16 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
+    const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+    const creds = await getTenantWaCredentials(profile?.tenant_id || null);
+
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
-    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    formData.append("userid", creds.fonadaUser);
+    formData.append("password", creds.fonadaPass);
+    formData.append("wabaNumber", creds.fonadaWaba);
 
     let safePhone = customerPhone.replace(/^\+/, '');
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
@@ -58,8 +79,10 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    const { data: agent, error } = await supabase.from('users').select('full_name, phone').eq('id', user.id).single();
+    const { data: agent, error } = await supabase.from('users').select('full_name, phone, tenant_id').eq('id', user.id).single();
     if (error || !agent) throw new Error("Could not fetch agent details");
+
+    const creds = await getTenantWaCredentials(agent.tenant_id);
 
     const textMessage = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you. 3`;
 
@@ -67,9 +90,9 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
-    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    formData.append("userid", creds.fonadaUser);
+    formData.append("password", creds.fonadaPass);
+    formData.append("wabaNumber", creds.fonadaWaba);
     
     let safePhone = customerPhone.replace(/^\+/, '');
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
@@ -108,15 +131,20 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
 export async function sendKYCRequestTemplate(leadId: string, customerPhone: string, isReminder: boolean = false) {
   try {
     const supabase = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    
+    // Fetch lead to know which tenant is sending this
+    const { data: lead } = await supabase.from('leads').select('tenant_id').eq('id', leadId).single();
+    const creds = await getTenantWaCredentials(lead?.tenant_id || null);
+
     const textMessage = `Hello,\n\nThis is an update regarding your loan application. Your application is currently pending.\n\nPlease share clear photos or PDFs of your Aadhar Card, PAN Card, and latest Bank Statement by replying directly to this chat.\n\nThank you.`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
-    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    formData.append("userid", creds.fonadaUser);
+    formData.append("password", creds.fonadaPass);
+    formData.append("wabaNumber", creds.fonadaWaba);
     
     let safePhone = customerPhone.replace(/^\+/, '');
     if (safePhone.length === 10) safePhone = `91${safePhone}`;
@@ -166,15 +194,18 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
         throw new Error("Unauthorized");
     }
 
+    const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+    const creds = await getTenantWaCredentials(profile?.tenant_id || null);
+
     const textMessage = `Hi ${customerName}, our agent noted that you are no longer interested in a loan at this time.\n\nTo help us improve our service, could you let us know why by tapping a button below?\n\n🔘 Rate is too high\n🔘 Got another loan\n🔘 I am still interested`;
 
     const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
-    formData.append("wabaNumber", process.env.FONADA_WABA_NUMBER || "918217354172");
+    formData.append("userid", creds.fonadaUser);
+    formData.append("password", creds.fonadaPass);
+    formData.append("wabaNumber", creds.fonadaWaba);
     
     let safePhone = customerPhone.replace(/^\+/, '');
     if (safePhone.length === 10) safePhone = `91${safePhone}`;

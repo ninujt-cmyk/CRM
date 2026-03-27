@@ -14,9 +14,6 @@ interface DisbursementModalProps {
     onSuccess: () => void;
 }
 
-const DSA_OPTIONS = ["RKPL", "Star Power", "Profincare", "DRRT", "URBAN"]
-const BANK_OPTIONS = ["ICICI Bank", "HDFC Bank", "IDFC Bank", "Axis Bank", "Finnable", "Incred", "L&T", "Other"]
-
 const DEFAULT_DISBURSEMENT = {
     application_number: "",
     bank_name: "",
@@ -271,10 +268,13 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Origin DSA *</Label>
-                                        <Select value={sharedData.dsa_name} onValueChange={(val) => setSharedData({...sharedData, dsa_name: val})} required>
-                                            <SelectTrigger className="bg-slate-50 focus:bg-white"><SelectValue placeholder="Select Source" /></SelectTrigger>
-                                            <SelectContent>{DSA_OPTIONS.map((dsa) => <SelectItem key={dsa} value={dsa}>{dsa}</SelectItem>)}</SelectContent>
-                                        </Select>
+                                        <Input 
+                                            required 
+                                            placeholder="Enter DSA name" 
+                                            value={sharedData.dsa_name} 
+                                            onChange={(e) => setSharedData({...sharedData, dsa_name: e.target.value})} 
+                                            className="bg-slate-50 focus:bg-white" 
+                                        />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Assigned Agent *</Label>
@@ -316,10 +316,13 @@ export function DisbursementModal({ onSuccess }: DisbursementModalProps) {
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label>Banking Partner *</Label>
-                                                    <Select value={entry.bank_name} onValueChange={(val) => handleDisbursementChange(index, 'bank_name', val)} required>
-                                                        <SelectTrigger className="bg-slate-50 focus:bg-white"><SelectValue placeholder="Select Institution" /></SelectTrigger>
-                                                        <SelectContent>{BANK_OPTIONS.map(bank => <SelectItem key={bank} value={bank}>{bank}</SelectItem>)}</SelectContent>
-                                                    </Select>
+                                                    <Input 
+                                                        required 
+                                                        placeholder="Enter Bank name" 
+                                                        value={entry.bank_name} 
+                                                        onChange={(e) => handleDisbursementChange(index, 'bank_name', e.target.value)} 
+                                                        className="bg-slate-50 focus:bg-white" 
+                                                    />
                                                 </div>
                                             </div>
 

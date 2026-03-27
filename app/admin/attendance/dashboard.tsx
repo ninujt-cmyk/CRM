@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link"; // 🔴 ADDED LINK IMPORT
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, isSameDay, isAfter, eachDayOfInterval, subDays, getDay, getDate, isWeekend } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
   Calendar as CalendarIcon, Users, Clock, CheckCircle, XCircle, AlertCircle, 
-  Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, Printer, Building2, Globe, Plus, Trash2, ChevronLeft, Activity
+  Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, 
+  Printer, Building2, Globe, Plus, Trash2, ChevronLeft, Activity,
+  FileText, LineChart // 🔴 ADDED NEW ICONS
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -718,6 +721,18 @@ export function AdminAttendanceDashboard() {
             </div>
             <Button variant="ghost" size="icon" onClick={() => navigate('next')}><span className="sr-only">Next</span>{">"}</Button>
           </div>
+
+          {/* 🔴 NEW NAVIGATION BUTTONS ADDED HERE */}
+          <Link href="/admin/reports/attendance">
+            <Button variant="outline" className="bg-white">
+              <FileText className="mr-2 h-4 w-4 text-slate-600" /> Report
+            </Button>
+          </Link>
+          <Link href="/admin/attendance/analytics">
+            <Button variant="outline" className="bg-white">
+              <LineChart className="mr-2 h-4 w-4 text-slate-600" /> Analytics
+            </Button>
+          </Link>
 
           <Button variant="outline" onClick={handlePrint} className="bg-white">
             <Printer className="mr-2 h-4 w-4 text-slate-600" /> Print

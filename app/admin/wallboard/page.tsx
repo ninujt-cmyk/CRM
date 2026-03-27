@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -332,15 +333,32 @@ export default function AdminWallboardPage() {
           <p className="text-slate-500 mt-1">Real-time monitoring of all telecaller activities.</p>
         </div>
         
-        {/* 🔴 NEW: GLOBAL AUTO DIALER CONTROLS */}
-        <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-            <Button variant="ghost" onClick={() => handleGlobalDialer('active')} className="text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800">
-                <PlayCircle className="h-4 w-4 mr-2" /> Resume All Dialers
-            </Button>
-            <div className="w-px bg-slate-200 mx-1"></div>
-            <Button variant="ghost" onClick={() => handleGlobalDialer('paused')} className="text-amber-700 hover:bg-amber-50 hover:text-amber-800">
-                <PauseCircle className="h-4 w-4 mr-2" /> Pause All Dialers
-            </Button>
+        <div className="flex flex-wrap items-center gap-3">
+            {/* 🔴 NEW: NAVIGATION BUTTONS */}
+            <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                <Link href="/admin/dialer-assignment">
+                    <Button variant="ghost" className="text-slate-700 hover:bg-slate-50 hover:text-indigo-700">
+                        Dialer Assignment
+                    </Button>
+                </Link>
+                <div className="w-px bg-slate-200 mx-1"></div>
+                <Link href="/admin/operations">
+                    <Button variant="ghost" className="text-slate-700 hover:bg-slate-50 hover:text-indigo-700">
+                        Operations
+                    </Button>
+                </Link>
+            </div>
+
+            {/* GLOBAL AUTO DIALER CONTROLS */}
+            <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                <Button variant="ghost" onClick={() => handleGlobalDialer('active')} className="text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800">
+                    <PlayCircle className="h-4 w-4 mr-2" /> Resume All Dialers
+                </Button>
+                <div className="w-px bg-slate-200 mx-1"></div>
+                <Button variant="ghost" onClick={() => handleGlobalDialer('paused')} className="text-amber-700 hover:bg-amber-50 hover:text-amber-800">
+                    <PauseCircle className="h-4 w-4 mr-2" /> Pause All Dialers
+                </Button>
+            </div>
         </div>
       </div>
 

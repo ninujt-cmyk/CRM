@@ -65,7 +65,9 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','follow_up','not_eligible','self_employed','nr','recycle_pool'].map(s => (
-               <SelectItem key={s} value={s}>{s.replace('_',' ')}</SelectItem>
+               <SelectItem key={s} value={s}>
+                 {s.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+               </SelectItem>
             ))}
           </SelectContent>
         </Select>

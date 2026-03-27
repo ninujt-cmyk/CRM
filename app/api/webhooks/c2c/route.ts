@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     console.log("📋 [C2C PAYLOAD (RAW)]:", body);
 
-    // 🔴 1. THE BULLETPROOF FIX: Convert all keys to lowercase to ignore Fonada's capitalization quirks
+    // 🔴 1. THE BULLETPROOF FIX: Convert all keys to lowercase to ignore Hanva's capitalization quirks
     const safeBody: any = {};
     for (const key in body) {
         if (body.hasOwnProperty(key)) {
@@ -38,7 +38,6 @@ export async function POST(request: NextRequest) {
     const duration = parseInt(safeBody.duration || "0");
     
     // Extract ACTUAL customer talk time for accurate billing
-    // Now this will catch customerBillSec, customerbillsec, totalBillSec, totalbillsec, etc.
     const billsec = parseInt(safeBody.customerbillsec || safeBody.totalbillsec || safeBody.billsec || "0");
     
     const recordingUrl = safeBody.recordinglink || safeBody.recordingurl || null;
@@ -108,26 +107,28 @@ export async function POST(request: NextRequest) {
     }
 
     if (finalLeadId) {
-        // 🔴 3. INSERT CALL LOG (Added call_status to fix the Not-Null constraint)
+        // 🔴 3. INSERT CALL LOG
         const { data: callLog, error: logError } = await supabaseAdmin.from("call_logs").insert({
             tenant_id: tenantId, 
             lead_id: finalLeadId,
             user_id: agent.id,
             call_type: "outbound_c2c",
-            call_status: "completed", // 🔴 THE FIX: Required by your database!
+            call_status: "completed",
             duration_seconds: duration,
             disposition: customerDisposition, 
             recording_url: recordingUrl,
             notes: `C2C Call. Customer Status: ${customerDisposition}. Talk Time: ${billsec}s.`
         }).select().single();
 
-        // IF THE DATABASE REJECTS THE INSERT, WE PRINT WHY:
         if (logError) {
             console.error("🚨 [DB ERROR] Call Log Insert Failed! Wallet deduction blocked to prevent ghost charges.", logError);
         }
 
-        // 🔴 4. DYNAMIC CREDIT DEDUCTION
-        if (billsec > 0 && customerDisposition.trim() === "ANSWERED" && callLog) {
+        // 🔴 4. DYNAMIC CREDIT DEDUCTION (UPDATED)
+        // Removed the strict "ANSWERED" check. If there are billable seconds, it will deduct.
+        let totalCreditsToDeduct = 0;
+
+        if (billsec > 0 && callLog) {
             const { data: settings } = await supabaseAdmin.from('tenant_settings')
                 .select('billing_pulse_seconds, credits_per_pulse')
                 .eq('tenant_id', tenantId)
@@ -137,19 +138,22 @@ export async function POST(request: NextRequest) {
             const creditsPerPulse = settings?.credits_per_pulse || 1;
 
             const pulses = Math.ceil(billsec / pulseSecs); 
-            const totalCreditsToDeduct = pulses * creditsPerPulse;
+            totalCreditsToDeduct = pulses * creditsPerPulse;
 
             // Deduct from Ledger
             const { error: ledgerError } = await supabaseAdmin.from("wallet_ledger").insert({
                 tenant_id: tenantId,
                 credits: -Math.abs(totalCreditsToDeduct), 
                 transaction_type: 'C2C_CALL',
-                description: `C2C Call to ${dbCustomerPhone} (Talk Time: ${billsec}s = ${pulses} pulses)`,
+                description: `C2C Call to ${dbCustomerPhone} (Status: ${customerDisposition}, Talk Time: ${billsec}s = ${pulses} pulses)`,
                 reference_id: callLog.id
             });
 
-            // 🔴 ADD THIS ONE LINE: Save the billing data back to the Call Log for fast reporting!
-            await supabaseAdmin.from("call_logs").update({ talk_time_seconds: billsec, credits_used: totalCreditsToDeduct }).eq("id", callLog.id);
+            // Save the billing data back to the Call Log for fast reporting
+            await supabaseAdmin.from("call_logs").update({ 
+                talk_time_seconds: billsec, 
+                credits_used: totalCreditsToDeduct 
+            }).eq("id", callLog.id);
 
             if (ledgerError) {
                  console.error("🚨 [LEDGER ERROR] Failed to deduct credits:", ledgerError);
@@ -169,11 +173,11 @@ export async function POST(request: NextRequest) {
                  status_reason: 'Auto-Skipped NR', 
                  status_updated_at: new Date().toISOString()
              }).eq("id", agent.id);
-             return NextResponse.json({ status: "success", message: "Short call auto-marked NR." });
+             return NextResponse.json({ status: "success", message: "Short/Unanswered call auto-marked NR." });
         }
     }
 
-    // Normal Call Wrap-up (> 5 seconds of talk time)
+    // Normal Call Wrap-up (> 5 seconds of talk time AND answered)
     await supabaseAdmin.from("users").update({
         current_status: 'wrap_up', 
         status_reason: 'Call Completed', 

@@ -47,6 +47,7 @@ const navigation = [
   { name: "Leave", href: "/telecaller/leave", icon: CalendarOff },
   { name: "Team Chat", href: "/telecaller/chat", icon: MessageCircle },
   { name: "Logins", href: "/telecaller/logins", icon: Fingerprint },
+  { name: "Files", href: "/telecaller/documents", icon: Fingerprint },
 ]
 
 // --- SUB-COMPONENT: Nav Item with 3D Effects ---

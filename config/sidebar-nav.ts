@@ -36,7 +36,7 @@ export const sidebarGroups = [
   {
     label: "Team",
     items: [
-      { name: "Telecallers", href: "/admin/users", icon: Headset },
+      { name: "Team", href: "/admin/users", icon: Headset },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle },
@@ -50,8 +50,8 @@ export const sidebarGroups = [
       { name: "Activities", href: "/admin/audit-logs", icon: Activity },
       { name: "Logins", href: "/admin/logins", icon: UserCheck },
       { name: "Wallboard", href: "/admin/wallboard", icon: Presentation },
-      { name: "Operations", href: "/admin/operations", icon: Workflow },
-      { name: "Dialer", href: "/admin/dialer-assignment", icon: PhoneOutgoing },
+      { name: "IVR", href: "/admin/ivr-campaigns", icon: Workflow },
+      { name: "Files", href: "/admin/documents", icon: PhoneOutgoing },
     ]
   },
   {

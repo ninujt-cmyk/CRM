@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"  
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog" // <-- ADDED DIALOG
 import { 
   Phone, Clock, MessageSquare, IndianRupee, AlertCircle, Sparkles, 
   Copy, RotateCcw, ThumbsUp, ThumbsDown, 
   FileText, LogIn, CheckCircle2, XCircle, PhoneForwarded, 
-  PhoneMissed, Briefcase, X, Activity, ArrowRight, Loader2, Command
+  PhoneMissed, Briefcase, X, Activity, ArrowRight, Loader2, Command,
+  Calculator // <-- ADDED CALCULATOR ICON
 } from "lucide-react" 
 import { useCallTracking } from "@/context/call-tracking-context"
 import { toast } from "sonner"
@@ -88,6 +90,19 @@ export function LeadStatusUpdater({
    
   const [notEligibleReason, setNotEligibleReason] = useState<string>("")
   const [isSendingMissedCall, setIsSendingMissedCall] = useState(false) 
+
+  // --- EMI CALCULATOR STATE ---
+  const [emiRate, setEmiRate] = useState<number>(10.5)
+  const [emiTenure, setEmiTenure] = useState<number>(60) // in months
+
+  // Calculate EMI dynamically
+  const calculatedEMI = useMemo(() => {
+    if (!loanAmount || !emiRate || !emiTenure) return 0;
+    const p = loanAmount;
+    const r = emiRate / 12 / 100; // monthly interest rate
+    const n = emiTenure;
+    return (p * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+  }, [loanAmount, emiRate, emiTenure]);
   
   // DERIVED STATE
   const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
@@ -271,7 +286,6 @@ export function LeadStatusUpdater({
       if (isCallInitiated) await logCall(finalDuration)
 
       // 2. WHATSAPP AUTOMATION
-      // ✅ TRIGGER KYC TEMPLATE FOR BOTH "DOCUMENTS SENT" AND "INTERESTED"
       if ((status === "Documents_Sent" || status === "Interested") && leadPhoneNumber) {
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
@@ -279,7 +293,6 @@ export function LeadStatusUpdater({
           if (kycResult.success) {
               toast.success("KYC WhatsApp Template sent securely!");
               
-              // Optional: Ask if they also want to open manual WhatsApp for a custom message
               if (status === "Interested") {
                   if(window.confirm("Automated KYC list sent. Open WhatsApp web to send a personal message too?")) {
                       let manualClean = leadPhoneNumber.replace(/\D/g, '');
@@ -472,6 +485,66 @@ export function LeadStatusUpdater({
                 <label className="text-xs font-semibold text-slate-700 uppercase flex items-center gap-1">
                     <IndianRupee className="h-3 w-3"/> Loan Amount
                     {isLoanAmountMissing && <span className="text-red-500 text-[10px] ml-1">(Required for {status})</span>}
+                    
+                    {/* EMI CALCULATOR BUTTON ADDED HERE */}
+                    <Dialog>
+                       <DialogTrigger asChild>
+                          <button className="ml-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-800 p-1 rounded transition-colors flex items-center gap-1 px-1.5" title="EMI Calculator">
+                             <Calculator className="h-3.5 w-3.5" />
+                             <span className="text-[10px] font-bold">EMI</span>
+                          </button>
+                       </DialogTrigger>
+                       <DialogContent className="sm:max-w-[400px]">
+                          <DialogHeader>
+                             <DialogTitle className="flex items-center gap-2">
+                                <Calculator className="h-5 w-5 text-blue-600" />
+                                EMI Calculator
+                             </DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 py-4">
+                             <div className="space-y-2">
+                                <label className="text-sm font-medium">Loan Amount (₹)</label>
+                                <Input 
+                                  type="number" 
+                                  value={loanAmount || ""} 
+                                  onChange={(e) => setLoanAmount(Number(e.target.value))}
+                                  className="font-mono"
+                                />
+                             </div>
+                             <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                   <label className="text-sm font-medium">Interest Rate (%)</label>
+                                   <Input 
+                                     type="number" 
+                                     step="0.1"
+                                     value={emiRate} 
+                                     onChange={(e) => setEmiRate(Number(e.target.value))}
+                                     className="font-mono"
+                                   />
+                                </div>
+                                <div className="space-y-2">
+                                   <label className="text-sm font-medium">Tenure (Months)</label>
+                                   <Input 
+                                     type="number" 
+                                     value={emiTenure} 
+                                     onChange={(e) => setEmiTenure(Number(e.target.value))}
+                                     className="font-mono"
+                                   />
+                                </div>
+                             </div>
+                             
+                             <div className="mt-6 p-4 bg-slate-50 border rounded-lg text-center space-y-1">
+                                <p className="text-sm text-slate-500 uppercase font-semibold">Monthly EMI</p>
+                                <p className="text-3xl font-bold text-blue-600">{formatCurrency(calculatedEMI)}</p>
+                                <p className="text-xs text-slate-400 mt-2">
+                                  Total Payment: {formatCurrency(calculatedEMI * emiTenure)}
+                                </p>
+                             </div>
+                          </div>
+                       </DialogContent>
+                    </Dialog>
+                    {/* END EMI CALCULATOR BUTTON */}
+
                 </label>
                 {loanAmount && loanAmount > 0 && <span className="text-[10px] text-green-600 font-bold bg-green-50 px-1 rounded">{formattedLoanAmount}</span>}
             </div>

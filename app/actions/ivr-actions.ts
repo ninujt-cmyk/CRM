@@ -99,7 +99,7 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         });
 
         const responseText = await res.text();
-        console.log("📡 Fonada Response:", responseText);
+        console.log("📡 Hanva Response:", responseText);
         
         if (!res.ok) {
             await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchId);
@@ -111,12 +111,12 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
             const jsonRes = JSON.parse(responseText);
             if (jsonRes.status === "error" || jsonRes.status === false) {
                  await supabase.from('ivr_campaign_history').update({ status: 'failed' }).eq('id', batchId);
-                 throw new Error(jsonRes.message || "Fonada rejected the data payload.");
+                 throw new Error(jsonRes.message || "Hanva rejected the data payload.");
             }
             
             fonadaLeadId = jsonRes.leadId || jsonRes.leadid || jsonRes.lead_id || jsonRes.data?.leadId || null;
         } catch (e: any) {
-            if(e.message.includes("Fonada rejected")) throw e; 
+            if(e.message.includes("Hanva rejected")) throw e; 
         }
 
         if (!fonadaLeadId) {
