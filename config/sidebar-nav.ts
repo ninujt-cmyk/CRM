@@ -51,7 +51,7 @@ export const sidebarGroups = [
       { name: "Logins", href: "/admin/logins", icon: UserCheck },
       { name: "Wallboard", href: "/admin/wallboard", icon: Presentation },
       { name: "IVR", href: "/admin/ivr-campaigns", icon: Workflow },
-      { name: "Dialer", href: "/admin/dialer-assignment", icon: PhoneOutgoing },
+      { name: "Files", href: "/admin/documents", icon: PhoneOutgoing },
     ]
   },
   {
