@@ -92,7 +92,7 @@ export default function GlobalSearchPage() {
                 <div>
                   <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-blue-500" />
-                    {record.company_name || "Unknown Company"}
+                    {record.additional_data || "Unknown Company"}
                   </CardTitle>
                   <div className="flex items-center gap-3 mt-2 text-sm text-slate-500">
                     <span className="flex items-center gap-1">
