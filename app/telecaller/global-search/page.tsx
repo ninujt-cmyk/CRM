@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Search, MapPin, Building2, FileSpreadsheet, Loader2 } from "lucide-react"
-import { searchMasterData } from "@/app/actions/master-data-actions" // Make sure to save the server action you provided earlier here
+import { searchMasterData } from "@/app/actions/master-data-actions" 
 import { toast } from "sonner"
 
 export default function GlobalSearchPage() {
