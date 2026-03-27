@@ -15,27 +15,16 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
     const cleanTerm = searchTerm.trim();
     if (!cleanTerm) return { success: true, data: [] };
 
-    // 2. Build the query
-    let query = supabase
-        .from('tenant_master_data')
-        .select('company_name, pincode, source_file_name, additional_data')
-        .eq('tenant_id', profile.tenant_id)
-        .limit(50); // ALWAYS limit to 50 so the UI doesn't freeze
-
-    // 3. Apply the flexible search (Searching standard columns OR inside the JSONB data)
-    if (searchType === 'pincode') {
-        // Look for exact match in pincode column OR search inside the JSONB payload for the number
-        query = query.or(`pincode.eq.${cleanTerm},additional_data::text.ilike.%${cleanTerm}%`);
-    } else {
-        // Look for partial match in company_name column OR search inside the JSONB payload
-        query = query.or(`company_name.ilike.%${cleanTerm}%,additional_data::text.ilike.%${cleanTerm}%`);
-    }
-
-    const { data, error } = await query;
+    // 2. Call the highly optimized Postgres RPC function
+    const { data, error } = await supabase.rpc('search_tenant_master_data', {
+        p_tenant_id: profile.tenant_id,
+        p_search_term: cleanTerm,
+        p_search_type: searchType
+    });
 
     if (error) {
-        console.error("Search Error:", error);
-        return { success: false, error: "Failed to search data." };
+        console.error("Search Error Details:", error);
+        return { success: false, error: "Database search failed. Please check the logs." };
     }
 
     return { success: true, data };
