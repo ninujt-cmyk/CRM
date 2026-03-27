@@ -90,18 +90,18 @@ export default function MasterDataUploadPage() {
       // 3. Format Data for the Database
       const formattedData = rows.map(row => {
         // Try to intelligently find company name and pincode columns (adjust these keys based on your usual Excel headers)
-        const companyName = row["Company Name"] || row["company_name"] || row["Company"] || row["Name"] || null;
+        const companyName = row["Company Name"] || row["additional_data"] || row["Company"] || row["Name"] || null;
         const pincode = row["Pincode"] || row["pincode"] || row["Pin"] || row["Zip"] || null;
 
         // Remove them from the 'additional' JSON so we don't duplicate data
-        const { ["Company Name"]: _c1, company_name: _c2, Company: _c3, Name: _c4, 
+        const { ["Company Name"]: _c1, additional_data: _c2, Company: _c3, Name: _c4, 
                 Pincode: _p1, pincode: _p2, Pin: _p3, Zip: _p4, 
                 ...additionalData } = row;
 
         return {
           tenant_id: profile.tenant_id,
           source_file_name: file.name,
-          company_name: companyName ? String(companyName).trim() : null,
+          additional_data: companyName ? String(companyName).trim() : null,
           pincode: pincode ? String(pincode).trim() : null,
           additional_data: additionalData
         }
