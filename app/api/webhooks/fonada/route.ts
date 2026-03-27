@@ -10,12 +10,10 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(request: NextRequest) {
-  // 🔴 1. Added entry log so Vercel proves it was hit
-  console.log("⚡ [EDGE CATCHER] Webhook POST hit received!");
-  
   try {
     const rawBody = await request.text();
     
+    // Parse the data safely
     let parsedData: any = {};
     try { 
         parsedData = JSON.parse(rawBody); 
@@ -25,12 +23,37 @@ export async function POST(request: NextRequest) {
 
     const payloads = Array.isArray(parsedData) ? parsedData : [parsedData];
 
-    const insertData = payloads.map((payload) => ({
-        source: 'fonada_ivr',
-        payload: payload,
-        status: 'pending'
-    }));
+    // 🔴 THE NEW FILTER ENGINE
+    const insertData = [];
 
+    for (const payload of payloads) {
+        // Convert keys to lowercase to safely find the status
+        const safePayload: any = {};
+        for (const key in payload) {
+            if (payload.hasOwnProperty(key)) {
+                safePayload[key.toLowerCase()] = payload[key];
+            }
+        }
+
+        // Extract the disposition (status)
+        const disposition = String(safePayload.customerdisposition || safePayload.disposition || safePayload.status || "UNKNOWN").toUpperCase();
+
+        // 🔴 ONLY keep the call if it was ANSWERED
+        if (disposition === "ANSWERED") {
+            insertData.push({
+                source: 'fonada_ivr',
+                payload: payload,
+                status: 'pending'
+            });
+        }
+    }
+
+    // 🔴 INSTANT TRASH: If no calls in this payload were answered, drop it immediately!
+    if (insertData.length === 0) {
+        return NextResponse.json({ status: "ignored_unanswered", count: 0 });
+    }
+
+    // INSTANT BULK INSERT (Only the answered calls get saved)
     const { error } = await supabaseAdmin.from('webhook_buffer').insert(insertData);
 
     if (error) {
@@ -38,8 +61,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "db_error", details: error.message });
     }
 
-    // 🔴 2. Added success log so Vercel prints the exact count!
-    console.log(`✅ [EDGE CATCHER] Successfully queued ${insertData.length} call records to Supabase Buffer!`);
+    console.log(`✅ [EDGE CATCHER] Successfully queued ${insertData.length} ANSWERED calls to Buffer!`);
     return NextResponse.json({ status: "queued_in_db", count: insertData.length });
 
   } catch (error) {
@@ -49,6 +71,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-    console.log("⚡ [EDGE CATCHER] Webhook GET ping received!");
     return NextResponse.json({ status: "ready", message: "Edge Webhook Catcher is active." });
 }
