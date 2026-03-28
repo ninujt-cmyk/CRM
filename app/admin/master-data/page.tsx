@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
-import ExcelJS from "exceljs" // Replaced XLSX with ExcelJS
+import ExcelJS from "exceljs" // Properly imported ExcelJS
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -55,7 +55,7 @@ export default function MasterDataUploadPage() {
       setIsDeleting(null)
   }
 
-  // 🔴 HANDLE EXCEL UPLOAD (Chunked)
+  // 🔴 HANDLE EXCEL UPLOAD (Chunked with ExcelJS)
   const handleFileUpload = async () => {
     if (!file) return toast.error("Please select an Excel file first.")
     
@@ -72,15 +72,63 @@ export default function MasterDataUploadPage() {
       const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user?.id).single()
       if (!profile?.tenant_id) throw new Error("Tenant ID not found")
 
-      const data = await file.arrayBuffer()
-      const workbook = XLSX.read(data, { type: "array" })
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-      
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet)
+      let rows: any[] = []
+
+      // --- CSV FALLBACK PARSER ---
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const text = await file.text();
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+        if (lines.length > 0) {
+          const headers = lines[0].split(',').map(h => h.trim());
+          for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',');
+            const rowObject: any = {};
+            headers.forEach((h, idx) => {
+              rowObject[h] = values[idx] ? values[idx].trim() : '';
+            });
+            rows.push(rowObject);
+          }
+        }
+      } 
+      // --- EXCELJS PARSER (.xlsx) ---
+      else {
+        const data = await file.arrayBuffer()
+        const workbook = new ExcelJS.Workbook()
+        await workbook.xlsx.load(data)
+        
+        const worksheet = workbook.worksheets[0] // Get first sheet
+        if (!worksheet) throw new Error("The Excel file is empty or invalid.")
+
+        let headers: string[] = []
+        worksheet.eachRow((row, rowNumber) => {
+          // ExcelJS uses 1-based indexing for arrays returned in row.values
+          const rowValues = row.values as any[];
+          
+          if (rowNumber === 1) {
+            headers = rowValues; // Save headers
+          } else {
+            const rowObject: any = {};
+            rowValues.forEach((val, index) => {
+              if (index > 0 && headers[index]) {
+                // Handle complex cells (formulas, hyperlinks) safely
+                let finalVal = val;
+                if (val && typeof val === 'object') {
+                  if ('result' in val) finalVal = val.result; 
+                  else if ('text' in val) finalVal = val.text; 
+                }
+                rowObject[headers[index]] = finalVal;
+              }
+            });
+            rows.push(rowObject);
+          }
+        });
+      }
+
       setStats({ total: rows.length, uploaded: 0 })
 
-      if (rows.length === 0) throw new Error("The Excel file is empty.")
+      if (rows.length === 0) throw new Error("No data found in the file.")
 
+      // Format Data for Database
       const formattedData = rows.map(row => {
         const companyName = row["Company Name"] || row["company_name"] || row["Company"] || row["Name"] || null;
         const pincode = row["Pincode"] || row["pincode"] || row["Pin"] || row["Zip"] || null;
