@@ -130,12 +130,25 @@ export default function MasterDataUploadPage() {
 
       // Format Data for Database
       const formattedData = rows.map(row => {
-        const companyName = row["Company Name"] || row["company_name"] || row["Company"] || row["Name"] || null;
-        const pincode = row["Pincode"] || row["pincode"] || row["Pin"] || row["Zip"] || null;
+        // 🔴 THE FIX: Case-insensitive helper to find the right column headers
+        const getColumnValue = (targetKeys: string[]) => {
+            const rowKeys = Object.keys(row);
+            const matchedKey = rowKeys.find(k => targetKeys.includes(k.toLowerCase().trim()));
+            return matchedKey ? row[matchedKey] : null;
+        };
 
-        const { ["Company Name"]: _c1, company_name: _c2, Company: _c3, Name: _c4, 
-                Pincode: _p1, pincode: _p2, Pin: _p3, Zip: _p4, 
-                ...additionalData } = row;
+        // Aggressively look for the company name and pincode in the Excel headers
+        const companyName = getColumnValue(["company name", "company_name", "company", "name", "client name", "customer name", "applicant name"]);
+        const pincode = getColumnValue(["pincode", "pin code", "pin", "zip", "zip code", "postal code"]);
+
+        // Dynamically remove whatever exact keys were found so we don't duplicate data
+        const rowKeys = Object.keys(row);
+        const companyKeyToRemove = rowKeys.find(k => ["company name", "company_name", "company", "name", "client name", "customer name", "applicant name"].includes(k.toLowerCase().trim()));
+        const pincodeKeyToRemove = rowKeys.find(k => ["pincode", "pin code", "pin", "zip", "zip code", "postal code"].includes(k.toLowerCase().trim()));
+        
+        const additionalData = { ...row };
+        if (companyKeyToRemove) delete additionalData[companyKeyToRemove];
+        if (pincodeKeyToRemove) delete additionalData[pincodeKeyToRemove];
 
         return {
           tenant_id: profile.tenant_id,
