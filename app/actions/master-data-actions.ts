@@ -24,13 +24,11 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
             .eq('tenant_id', profile.tenant_id)
             .limit(50); 
 
-        // 🔴 THE FIX: Simplified search logic
-        if (searchType === 'pincode') {
-            // Pincodes can still use an exact match or search the vector
-            query = query.ilike('search_vector', `%${cleanTerm}%`);
-        } else {
-            // Instantly searches Company, Pincode, AND JSON data all at once!
-            query = query.ilike('search_vector', `%${cleanTerm}%`);
+        // 🔴 THE FIX: Strict, indexed column searching prevents all timeouts.
+        if (searchType === 'company') {
+            query = query.ilike('company_name', `%${cleanTerm}%`);
+        } else if (searchType === 'pincode') {
+            query = query.eq('pincode', cleanTerm);
         }
 
         const { data, error } = await query;
