@@ -44,43 +44,40 @@ async function DashboardContent() {
     return <div className="p-6 text-red-500">Error: Your account is not linked to a workspace.</div>
   }
 
-  // 3. Define the Core Statuses for the Chart
-  const CORE_STATUSES = [
-    "new", "Interested", "Documents_Sent", "Login", 
-    "Disbursed", "Not_Interested", "follow_up", "not_eligible", "nr"
-  ]
+  // 3. Get Today's Date String for timezone-safe queries
+  const todayStr = new Date().toISOString().split('T')[0];
 
-  // 4. BLAZING FAST PARALLEL QUERIES (Using head: true to avoid downloading rows)
-  const baseQueries = [
-    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId),
-    supabase.from("users").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq("role", "telecaller").eq("is_active", true),
-    supabase.from("call_logs").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).gte("created_at", new Date().toISOString().split('T')[0]),
-    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq("status", "follow_up"),
-    supabase.from("leads").select("id, name, created_at, status").eq('tenant_id', tenantId).order("created_at", { ascending: false }).limit(5),
-  ]
+  // 4. 🔴 THE FIX: Use ONE Database Call to get ALL stats instantly via RPC
+  const [
+    { data: statsData, error: statsError },
+    { data: recentLeads }
+  ] = await Promise.all([
+    supabase.rpc('get_workspace_stats', { 
+      p_tenant_id: tenantId,
+      p_today: todayStr
+    }),
+    supabase.from("leads").select("id, name, created_at, status")
+      .eq('tenant_id', tenantId)
+      .order("created_at", { ascending: false }).limit(5)
+  ])
 
-  const statusQueries = CORE_STATUSES.map(status => 
-    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq('status', status)
-  )
+  if (statsError) {
+      console.error("Dashboard Stats Error:", statsError);
+  }
 
-  // Execute all queries concurrently
-  const results = await Promise.all([...baseQueries, ...statusQueries])
+  // 5. Parse the returned JSON safely
+  const stats = statsData || {};
+  const totalLeads = stats.total_leads || 0;
+  const activeTelecallers = stats.active_telecallers || 0;
+  const todaysCalls = stats.todays_calls || 0;
+  const pendingFollowUps = stats.pending_follow_ups || 0;
+  const statusCounts = stats.status_counts || {};
 
-  // 5. EXTRACT DATA SAFELY
-  const totalLeads = results[0].count || 0
-  const activeTelecallers = results[1].count || 0
-  const todaysCalls = results[2].count || 0
-  const pendingFollowUps = results[3].count || 0
-  const recentLeads = results[4].data || []
-
-  // Extract Status Counts for the Chart
-  const chartData = CORE_STATUSES.map((status, index) => ({
-    status,
-    count: results[5 + index].count || 0
-  }))
-  .filter(item => item.count > 0)
-  .sort((a, b) => b.count - a.count)
-  .slice(0, 6) // Top 6 statuses
+  // Calculate Chart Data using the aggregated JSON
+  const chartData = Object.entries(statusCounts)
+    .map(([status, count]) => ({ status, count: Number(count) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
 
   return (
     <>
@@ -167,7 +164,9 @@ async function DashboardContent() {
             <div className="space-y-4 pt-2">
               {chartData.length > 0 ? (
                 chartData.map((item) => {
-                  const percentage = Math.round((item.count / (totalLeads || 1)) * 100)
+                  // 🔴 Safeguard calculation added to completely prevent Infinity% issues
+                  const percentage = totalLeads > 0 ? Math.round((item.count / totalLeads) * 100) : 0;
+                  
                   return (
                     <div key={item.status} className="space-y-1">
                       <div className="flex justify-between text-xs">
@@ -175,7 +174,7 @@ async function DashboardContent() {
                         <span className="text-gray-500">{item.count} ({percentage}%)</span>
                       </div>
                       <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }} />
+                        <div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }} />
                       </div>
                     </div>
                   )
