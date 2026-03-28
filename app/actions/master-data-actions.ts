@@ -18,17 +18,21 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
         const cleanTerm = searchTerm.trim();
         if (!cleanTerm) return { success: true, data: [] };
 
+        // 🔴 Format for Full Text Search (Converts "capri global" to "capri:* & global:*")
+        // This ensures lightning-fast prefix matching.
+        const ftsQuery = cleanTerm.split(' ').filter(Boolean).map(word => `${word}:*`).join(' & ');
+
         let query = supabase
             .from('tenant_master_data')
             .select('company_name, pincode, source_file_name, additional_data')
             .eq('tenant_id', profile.tenant_id)
             .limit(50); 
 
-        // 🔴 THE FIX: Strict, indexed column searching prevents all timeouts.
-        if (searchType === 'company') {
-            query = query.ilike('company_name', `%${cleanTerm}%`);
-        } else if (searchType === 'pincode') {
-            query = query.eq('pincode', cleanTerm);
+        // 🔴 Execute the high-speed dictionary search
+        if (searchType === 'pincode') {
+            query = query.eq('pincode', cleanTerm); // Pincodes are exact, keep it basic
+        } else {
+            query = query.textSearch('fts_vector', ftsQuery); // Massive global search
         }
 
         const { data, error } = await query;
@@ -41,7 +45,6 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
         return { success: false, error: error.message || "Failed to search data." };
     }
 }
-
 // ==========================================
 // 2. Fetch Summary of Uploaded Files (For Admin)
 // ==========================================
