@@ -22,13 +22,15 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
             .from('tenant_master_data')
             .select('company_name, pincode, source_file_name, additional_data')
             .eq('tenant_id', profile.tenant_id)
-            .limit(50); // ALWAYS limit to 50 so the UI doesn't freeze
+            .limit(50); 
 
-        // Apply the fast search targeting both standard columns AND the JSONB data
+        // 🔴 THE FIX: Simplified search logic
         if (searchType === 'pincode') {
-            query = query.or(`pincode.eq.${cleanTerm},additional_data::text.ilike.%${cleanTerm}%`);
+            // Pincodes can still use an exact match or search the vector
+            query = query.ilike('search_vector', `%${cleanTerm}%`);
         } else {
-            query = query.or(`company_name.ilike.%${cleanTerm}%,additional_data::text.ilike.%${cleanTerm}%`);
+            // Instantly searches Company, Pincode, AND JSON data all at once!
+            query = query.ilike('search_vector', `%${cleanTerm}%`);
         }
 
         const { data, error } = await query;
