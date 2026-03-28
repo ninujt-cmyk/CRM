@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 // ==========================================
-// 1. GLOBAL SEARCH ACTION (For the Telecaller)
+// 1. GLOBAL SEARCH ACTION (Using High-Speed RPC)
 // ==========================================
 export async function searchMasterData(searchTerm: string, searchType: 'company' | 'pincode') {
     try {
@@ -19,23 +19,18 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
         if (!cleanTerm) return { success: true, data: [] };
 
         // 🔴 Format for Full Text Search (Converts "capri global" to "capri:* & global:*")
-        // This ensures lightning-fast prefix matching.
-        const ftsQuery = cleanTerm.split(' ').filter(Boolean).map(word => `${word}:*`).join(' & ');
-
-        let query = supabase
-            .from('tenant_master_data')
-            .select('company_name, pincode, source_file_name, additional_data')
-            .eq('tenant_id', profile.tenant_id)
-            .limit(50); 
-
-        // 🔴 Execute the high-speed dictionary search
-        if (searchType === 'pincode') {
-            query = query.eq('pincode', cleanTerm); // Pincodes are exact, keep it basic
-        } else {
-            query = query.textSearch('fts_vector', ftsQuery); // Massive global search
+        // The ':*' allows for partial word matches (e.g. typing "cap" finds "capri")
+        let formattedSearchTerm = cleanTerm;
+        if (searchType === 'company') {
+            formattedSearchTerm = cleanTerm.split(' ').filter(Boolean).map(word => `${word}:*`).join(' & ');
         }
 
-        const { data, error } = await query;
+        // 🔴 THE MAGIC: Call the database function directly
+        const { data, error } = await supabase.rpc('search_master_directory', {
+            p_tenant_id: profile.tenant_id,
+            p_search_term: formattedSearchTerm,
+            p_search_type: searchType
+        });
 
         if (error) throw error;
 
@@ -45,6 +40,7 @@ export async function searchMasterData(searchTerm: string, searchType: 'company'
         return { success: false, error: error.message || "Failed to search data." };
     }
 }
+
 // ==========================================
 // 2. Fetch Summary of Uploaded Files (For Admin)
 // ==========================================
