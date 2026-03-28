@@ -44,50 +44,43 @@ async function DashboardContent() {
     return <div className="p-6 text-red-500">Error: Your account is not linked to a workspace.</div>
   }
 
-  // 3. EXPLICITLY FILTER EVERY QUERY BY TENANT_ID (The Double-Lock)
-  const [
-    { count: totalLeads },
-    { count: activeTelecallers },
-    { count: todaysCalls },
-    { count: pendingFollowUps },
-    { data: recentLeads },
-    { data: leadStatuses }
-  ] = await Promise.all([
-    supabase.from("leads").select("*", { count: "exact", head: true })
-      .eq('tenant_id', tenantId), // 🔴 Locked
-      
-    supabase.from("users").select("*", { count: "exact", head: true })
-      .eq('tenant_id', tenantId) // 🔴 Locked
-      .eq("role", "telecaller")
-      .eq("is_active", true),
-      
-    supabase.from("call_logs").select("*", { count: "exact", head: true })
-      .eq('tenant_id', tenantId) // 🔴 Locked
-      .gte("created_at", new Date().toISOString().split('T')[0]),
-      
-    supabase.from("leads").select("*", { count: "exact", head: true })
-      .eq('tenant_id', tenantId) // 🔴 Locked
-      .eq("status", "follow_up"),
-      
-    supabase.from("leads").select("id, name, created_at, status")
-      .eq('tenant_id', tenantId) // 🔴 Locked
-      .order("created_at", { ascending: false }).limit(5),
-      
-    supabase.from("leads").select("status")
-      .eq('tenant_id', tenantId) // 🔴 Locked
-  ])
+  // 3. Define the Core Statuses for the Chart
+  const CORE_STATUSES = [
+    "new", "Interested", "Documents_Sent", "Login", 
+    "Disbursed", "Not_Interested", "follow_up", "not_eligible", "nr"
+  ]
 
-  // Calculate Chart Data
-  const statusCounts: Record<string, number> = {}
-  leadStatuses?.forEach((lead) => {
-    const status = lead.status || "Unknown"
-    statusCounts[status] = (statusCounts[status] || 0) + 1
-  })
+  // 4. BLAZING FAST PARALLEL QUERIES (Using head: true to avoid downloading rows)
+  const baseQueries = [
+    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId),
+    supabase.from("users").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq("role", "telecaller").eq("is_active", true),
+    supabase.from("call_logs").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).gte("created_at", new Date().toISOString().split('T')[0]),
+    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq("status", "follow_up"),
+    supabase.from("leads").select("id, name, created_at, status").eq('tenant_id', tenantId).order("created_at", { ascending: false }).limit(5),
+  ]
 
-  const chartData = Object.entries(statusCounts)
-    .map(([status, count]) => ({ status, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 6)
+  const statusQueries = CORE_STATUSES.map(status => 
+    supabase.from("leads").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq('status', status)
+  )
+
+  // Execute all queries concurrently
+  const results = await Promise.all([...baseQueries, ...statusQueries])
+
+  // 5. EXTRACT DATA SAFELY
+  const totalLeads = results[0].count || 0
+  const activeTelecallers = results[1].count || 0
+  const todaysCalls = results[2].count || 0
+  const pendingFollowUps = results[3].count || 0
+  const recentLeads = results[4].data || []
+
+  // Extract Status Counts for the Chart
+  const chartData = CORE_STATUSES.map((status, index) => ({
+    status,
+    count: results[5 + index].count || 0
+  }))
+  .filter(item => item.count > 0)
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 6) // Top 6 statuses
 
   return (
     <>
@@ -95,7 +88,7 @@ async function DashboardContent() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard 
           title="Total Leads" 
-          value={totalLeads || 0} 
+          value={totalLeads} 
           icon={<FileText className="h-5 w-5 text-white" />} 
           description="In your workspace"
           bgClass="bg-gradient-to-br from-slate-800 to-slate-900 text-white border-0 shadow-md"
@@ -104,7 +97,7 @@ async function DashboardContent() {
         />
         <StatsCard 
           title="Active Telecallers" 
-          value={activeTelecallers || 0} 
+          value={activeTelecallers} 
           icon={<Users className="h-5 w-5 text-white" />} 
           description="In your workspace"
           bgClass="bg-gradient-to-br from-indigo-600 to-indigo-600 text-white border-0 shadow-md"
@@ -113,7 +106,7 @@ async function DashboardContent() {
         />
         <StatsCard 
           title="Today's Calls" 
-          value={todaysCalls || 0} 
+          value={todaysCalls} 
           icon={<Phone className="h-5 w-5 text-white" />} 
           description="Made by your team"
           bgClass="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-0 shadow-md"
@@ -122,7 +115,7 @@ async function DashboardContent() {
         />
         <StatsCard 
           title="Pending Follow-ups" 
-          value={pendingFollowUps || 0} 
+          value={pendingFollowUps} 
           icon={<Clock className="h-5 w-5 text-white" />} 
           description="Requiring attention"
           bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
@@ -142,7 +135,7 @@ async function DashboardContent() {
           <CardContent>
             <div className="space-y-4">
               {recentLeads && recentLeads.length > 0 ? (
-                recentLeads.map((lead) => (
+                recentLeads.map((lead: any) => (
                   <div key={lead.id} className="flex items-center justify-between border-b border-slate-100 pb-4 last:border-0 last:pb-0">
                     <div className="flex flex-col">
                       <span className="font-medium text-sm text-gray-900">{lead.name || "Unnamed Lead"}</span>
