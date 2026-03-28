@@ -39,7 +39,7 @@ async function DashboardContent() {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // 🔴 THE FIX: Fetch minimal data and count it safely in memory. No SQL RPC needed.
+  // Fetch minimal data and count it safely in memory. No SQL RPC needed.
   const [
     { data: allLeads },
     { count: activeTelecallers },
@@ -137,6 +137,54 @@ function StatsCard({ title, value, icon, description, bgClass }: any) {
   )
 }
 
+// 🔴 RESTORED SKELETON LOADER
 function DashboardSkeleton() {
-  return <div className="p-10 text-center text-slate-500">Loading Dashboard...</div>
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <Skeleton className="h-4 w-[100px]" />
+              <Skeleton className="h-8 w-8 rounded-full" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-[60px] mb-2" />
+              <Skeleton className="h-3 w-[120px]" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7 mt-4">
+        <Card className="col-span-4">
+          <CardHeader><Skeleton className="h-6 w-[140px]" /></CardHeader>
+          <CardContent className="space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex justify-between items-center">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-[150px]" />
+                  <Skeleton className="h-3 w-[100px]" />
+                </div>
+                <Skeleton className="h-6 w-[80px] rounded-full" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card className="col-span-3">
+          <CardHeader><Skeleton className="h-6 w-[180px]" /></CardHeader>
+          <CardContent className="space-y-6 pt-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="space-y-2">
+                <div className="flex justify-between">
+                  <Skeleton className="h-3 w-[80px]" />
+                  <Skeleton className="h-3 w-[40px]" />
+                </div>
+                <Skeleton className="h-2 w-full rounded-full" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  )
 }
