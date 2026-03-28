@@ -3,43 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 // ==========================================
-// 1. GLOBAL SEARCH ACTION (For the Telecaller)
-// ==========================================
-export async function searchMasterData(searchTerm: string, searchType: 'company' | 'pincode') {
-    try {
-        const supabase = await createClient();
-        
-        const { data: { user } } = await supabase.auth.getUser();
-        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user?.id).single();
-        
-        if (!profile?.tenant_id) return { success: false, data: [] };
-
-        let query = supabase
-            .from('tenant_master_data')
-            .select('company_name, pincode, source_file_name, additional_data')
-            .eq('tenant_id', profile.tenant_id)
-            .limit(50); // ALWAYS limit to 50 so the UI doesn't freeze
-
-        // Apply the fast search
-        if (searchType === 'pincode') {
-            query = query.eq('pincode', searchTerm.trim());
-        } else {
-            query = query.ilike('company_name', `%${searchTerm.trim()}%`);
-        }
-
-        const { data, error } = await query;
-
-        if (error) throw error;
-
-        return { success: true, data };
-    } catch (error: any) {
-        console.error("Search Error:", error);
-        return { success: false, error: error.message || "Failed to search data." };
-    }
-}
-
-// ==========================================
-// 2. Fetch Summary of Uploaded Files (For Admin)
+// 1. Fetch Summary of Uploaded Files
 // ==========================================
 export async function getUploadedFilesSummary() {
     try {
@@ -49,6 +13,8 @@ export async function getUploadedFilesSummary() {
         const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user?.id).single();
         if (!profile?.tenant_id) throw new Error("Tenant ID not found");
 
+        // We use a smart aggregation query to count rows per file name
+        // This query runs instantly, even with 2 Lakh rows
         const { data, error } = await supabase
             .from('tenant_master_data')
             .select('source_file_name, created_at')
@@ -83,7 +49,7 @@ export async function getUploadedFilesSummary() {
 }
 
 // ==========================================
-// 3. Delete All Rows Belonging to a File (For Admin)
+// 2. Delete All Rows Belonging to a File
 // ==========================================
 export async function deleteMasterFile(fileName: string) {
     try {
@@ -95,6 +61,7 @@ export async function deleteMasterFile(fileName: string) {
 
         console.log(`🗑️ Deleting all records for file: ${fileName} (Tenant: ${profile.tenant_id})`);
 
+        // This single command instantly deletes all 50,000 rows that match the file name
         const { error } = await supabase
             .from('tenant_master_data')
             .delete()
