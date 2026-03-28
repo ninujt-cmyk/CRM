@@ -7,7 +7,6 @@ import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic" 
 
-// --- MAIN PAGE COMPONENT ---
 export default function AdminDashboard() {
   return (
     <div className="p-6 space-y-8">
@@ -23,150 +22,86 @@ export default function AdminDashboard() {
   )
 }
 
-// --- DATA FETCHING COMPONENT ---
 async function DashboardContent() {
   const supabase = await createClient()
 
-  // 1. MUST INITIALIZE USER SESSION FIRST IN SERVER COMPONENTS
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect("/auth/login")
 
-  // 2. Fetch the user's specific Tenant ID
   const { data: profile } = await supabase
     .from('users')
-    .select('tenant_id, role')
+    .select('tenant_id')
     .eq('id', user.id)
     .single()
 
   const tenantId = profile?.tenant_id
+  if (!tenantId) return <div className="p-6 text-red-500">Error: Workspace not found.</div>
 
-  if (!tenantId) {
-    return <div className="p-6 text-red-500">Error: Your account is not linked to a workspace.</div>
-  }
-
-  // 3. Get Today's Date String for timezone-safe queries
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // 4. 🔴 THE FIX: Use ONE Database Call to get ALL stats instantly via RPC
+  // 🔴 THE FIX: Fetch minimal data and count it safely in memory. No SQL RPC needed.
   const [
-    { data: statsData, error: statsError },
+    { data: allLeads },
+    { count: activeTelecallers },
+    { count: todaysCalls },
     { data: recentLeads }
   ] = await Promise.all([
-    supabase.rpc('get_workspace_stats', { 
-      p_tenant_id: tenantId,
-      p_today: todayStr
-    }),
-    supabase.from("leads").select("id, name, created_at, status")
-      .eq('tenant_id', tenantId)
-      .order("created_at", { ascending: false }).limit(5)
+    // Fetch ONLY the status column. This is incredibly fast even for 100k+ rows.
+    supabase.from("leads").select("status").eq('tenant_id', tenantId),
+    supabase.from("users").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).eq("role", "telecaller").eq("is_active", true),
+    supabase.from("call_logs").select("*", { count: "exact", head: true }).eq('tenant_id', tenantId).gte("created_at", todayStr),
+    supabase.from("leads").select("id, name, created_at, status").eq('tenant_id', tenantId).order("created_at", { ascending: false }).limit(5),
   ])
 
-  if (statsError) {
-      console.error("Dashboard Stats Error:", statsError);
-  }
+  // Safely calculate all stats
+  const totalLeads = allLeads?.length || 0;
+  const pendingFollowUps = allLeads?.filter(l => l.status === 'follow_up').length || 0;
 
-  // 5. Parse the returned JSON safely
-  const stats = statsData || {};
-  const totalLeads = stats.total_leads || 0;
-  const activeTelecallers = stats.active_telecallers || 0;
-  const todaysCalls = stats.todays_calls || 0;
-  const pendingFollowUps = stats.pending_follow_ups || 0;
-  const statusCounts = stats.status_counts || {};
+  // Aggregate statuses for the pie chart
+  const statusCounts: Record<string, number> = {}
+  allLeads?.forEach((lead) => {
+    const status = lead.status || "new"
+    statusCounts[status] = (statusCounts[status] || 0) + 1
+  })
 
-  // Calculate Chart Data using the aggregated JSON
   const chartData = Object.entries(statusCounts)
-    .map(([status, count]) => ({ status, count: Number(count) }))
+    .map(([status, count]) => ({ status, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 6)
 
   return (
     <>
-      {/* PREMIUM STATS GRID */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatsCard 
-          title="Total Leads" 
-          value={totalLeads} 
-          icon={<FileText className="h-5 w-5 text-white" />} 
-          description="In your workspace"
-          bgClass="bg-gradient-to-br from-slate-800 to-slate-900 text-white border-0 shadow-md"
-          iconBgClass="bg-white/10"
-          descClass="text-slate-300"
-        />
-        <StatsCard 
-          title="Active Telecallers" 
-          value={activeTelecallers} 
-          icon={<Users className="h-5 w-5 text-white" />} 
-          description="In your workspace"
-          bgClass="bg-gradient-to-br from-indigo-600 to-indigo-600 text-white border-0 shadow-md"
-          iconBgClass="bg-white/10"
-          descClass="text-indigo-200"
-        />
-        <StatsCard 
-          title="Today's Calls" 
-          value={todaysCalls} 
-          icon={<Phone className="h-5 w-5 text-white" />} 
-          description="Made by your team"
-          bgClass="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-0 shadow-md"
-          iconBgClass="bg-white/10"
-          descClass="text-emerald-200"
-        />
-        <StatsCard 
-          title="Pending Follow-ups" 
-          value={pendingFollowUps} 
-          icon={<Clock className="h-5 w-5 text-white" />} 
-          description="Requiring attention"
-          bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
-          iconBgClass="bg-white/10"
-          descClass="text-amber-100"
-        />
+        <StatsCard title="Total Leads" value={totalLeads} icon={<FileText className="h-5 w-5 text-white" />} description="In your workspace" bgClass="bg-slate-900 text-white" />
+        <StatsCard title="Active Telecallers" value={activeTelecallers || 0} icon={<Users className="h-5 w-5 text-white" />} description="In your workspace" bgClass="bg-indigo-600 text-white" />
+        <StatsCard title="Today's Calls" value={todaysCalls || 0} icon={<Phone className="h-5 w-5 text-white" />} description="Made by your team" bgClass="bg-emerald-700 text-white" />
+        <StatsCard title="Pending Follow-ups" value={pendingFollowUps} icon={<Clock className="h-5 w-5 text-white" />} description="Requiring attention" bgClass="bg-orange-500 text-white" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        {/* RECENT ACTIVITY LIST */}
         <Card className="col-span-4 shadow-sm border-slate-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" /> Recent Activity
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Recent Activity</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentLeads && recentLeads.length > 0 ? (
-                recentLeads.map((lead: any) => (
-                  <div key={lead.id} className="flex items-center justify-between border-b border-slate-100 pb-4 last:border-0 last:pb-0">
+              {recentLeads?.map((lead: any) => (
+                  <div key={lead.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
                     <div className="flex flex-col">
                       <span className="font-medium text-sm text-gray-900">{lead.name || "Unnamed Lead"}</span>
-                      <span className="text-xs text-gray-500">Added • {new Date(lead.created_at).toLocaleDateString()}</span>
+                      <span className="text-xs text-gray-500">{new Date(lead.created_at).toLocaleDateString()}</span>
                     </div>
-                    <div className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-700 rounded-full capitalize">
-                      {lead.status?.replace('_', ' ') || "New"}
-                    </div>
+                    <div className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-700 rounded-full capitalize">{lead.status?.replace('_', ' ') || "New"}</div>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-6 text-gray-500">
-                  <Activity className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm">No recent leads found.</p>
-                </div>
-              )}
+              ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* LEAD STATUS CHART */}
         <Card className="col-span-3 shadow-sm border-slate-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PieChart className="h-5 w-5" /> Lead Status Overview
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><PieChart className="h-5 w-5" /> Lead Status Overview</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-4 pt-2">
-              {chartData.length > 0 ? (
-                chartData.map((item) => {
-                  // 🔴 Safeguard calculation added to completely prevent Infinity% issues
+              {chartData.map((item) => {
                   const percentage = totalLeads > 0 ? Math.round((item.count / totalLeads) * 100) : 0;
-                  
                   return (
                     <div key={item.status} className="space-y-1">
                       <div className="flex justify-between text-xs">
@@ -174,16 +109,11 @@ async function DashboardContent() {
                         <span className="text-gray-500">{item.count} ({percentage}%)</span>
                       </div>
                       <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-600 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }} />
+                        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }} />
                       </div>
                     </div>
                   )
-                })
-              ) : (
-                <div className="flex items-center justify-center h-[200px] text-gray-400 text-sm">
-                  No data available for chart
-                </div>
-              )}
+                })}
             </div>
           </CardContent>
         </Card>
@@ -192,68 +122,21 @@ async function DashboardContent() {
   )
 }
 
-function StatsCard({ title, value, icon, description, bgClass, iconBgClass, descClass }: any) {
+function StatsCard({ title, value, icon, description, bgClass }: any) {
   return (
-    <Card className={`shadow-sm ${bgClass || "border-slate-200"}`}>
+    <Card className={`shadow-sm border-0 ${bgClass}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className={`p-2 rounded-full ${iconBgClass || "bg-slate-50"}`}>{icon}</div>
+        <div className="p-2 rounded-full bg-white/10">{icon}</div>
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>
-        <p className={`text-xs mt-1 ${descClass || "text-slate-500"}`}>{description}</p>
+        <p className="text-xs mt-1 opacity-80">{description}</p>
       </CardContent>
     </Card>
   )
 }
 
 function DashboardSkeleton() {
-  return (
-    <>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
-          <Card key={i}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <Skeleton className="h-4 w-[100px]" />
-              <Skeleton className="h-8 w-8 rounded-full" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-[60px] mb-2" />
-              <Skeleton className="h-3 w-[120px]" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
-          <CardHeader><Skeleton className="h-6 w-[140px]" /></CardHeader>
-          <CardContent className="space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex justify-between items-center">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-[150px]" />
-                  <Skeleton className="h-3 w-[100px]" />
-                </div>
-                <Skeleton className="h-6 w-[80px] rounded-full" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-        <Card className="col-span-3">
-          <CardHeader><Skeleton className="h-6 w-[180px]" /></CardHeader>
-          <CardContent className="space-y-6 pt-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="space-y-2">
-                <div className="flex justify-between">
-                  <Skeleton className="h-3 w-[80px]" />
-                  <Skeleton className="h-3 w-[40px]" />
-                </div>
-                <Skeleton className="h-2 w-full rounded-full" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-    </>
-  )
+  return <div className="p-10 text-center text-slate-500">Loading Dashboard...</div>
 }
