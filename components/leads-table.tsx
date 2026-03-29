@@ -663,56 +663,47 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     setSmsBody("")
   }
 
-  const handleBulkAssign = async () => {
+ const handleBulkAssign = async () => {
     if (bulkAssignTo.length === 0 || selectedLeads.length === 0) return
 
     try {
-      const assignments: Record<string, string[]> = {}
+      // 1. Get the Admin's ID to record who assigned it
+      const { data: { user } } = await supabase.auth.getUser()
+      const assignedById = user?.id
+
       const telecallerIds = bulkAssignTo
-
-      selectedLeads.forEach((leadId, index) => {
+      
+      // 2. Create an array of update operations
+      const updates = selectedLeads.map((leadId, index) => {
+        // Round-robin assignment if multiple telecallers are selected
         const telecallerId = telecallerIds[index % telecallerIds.length]
-        if (!assignments[telecallerId]) {
-          assignments[telecallerId] = []
-        }
-        assignments[telecallerId].push(leadId)
-      })
-
-      const promises = Object.entries(assignments).map(async ([assigneeId, leadIds]) => {
-        const response = await fetch('/api/admin/leads/bulk-assign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            leadIds: leadIds,
-            assignedTo: assigneeId,
-            assignerName: 'Admin' 
-          })
-        })
         
-        if (!response.ok) {
-           const res = await response.json()
-           throw new Error(res.error || 'Assignment failed')
-        }
-        return response.json()
+        return supabase
+          .from("leads")
+          .update({
+            assigned_to: telecallerId,
+            assigned_by: assignedById,
+            assigned_at: new Date().toISOString(),
+            status: 'new', // Reset status to new upon assignment
+            last_contacted: new Date().toISOString()
+          })
+          .eq("id", leadId)
       })
 
-      await Promise.all(promises)
-
-      const { error: statusUpdateError } = await supabase
-        .from("leads")
-        .update({
-            status: 'new',
-            last_contacted: new Date().toISOString()
-        })
-        .in("id", selectedLeads)
-
-      if (statusUpdateError) {
-          console.error("Warning: Leads assigned but failed to reset status to New:", statusUpdateError)
+      // 3. Execute all updates simultaneously using Promise.all
+      const results = await Promise.all(updates)
+      
+      // Check if any of the updates failed
+      const errors = results.filter(result => result.error)
+      if (errors.length > 0) {
+        throw new Error(`Failed to assign ${errors.length} leads.`)
       }
       
       setSuccessMessage(`Successfully assigned ${selectedLeads.length} leads and reset status to New.`)
       setSelectedLeads([])
       setBulkAssignTo([]) 
+      
+      // Refresh the page to show new assignments
       window.location.reload()
       
     } catch (error: any) {
