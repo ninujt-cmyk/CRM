@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,9 @@ export default function C2CReportsPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [agents, setAgents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // 🔴 NEW: Store current user's tenant info
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   // Filters
   const [dateRange, setDateRange] = useState<string>("today")
@@ -27,15 +30,40 @@ export default function C2CReportsPage() {
 
   const supabase = createClient()
 
+  // 🔴 1. FETCH CURRENT LOGGED-IN USER & TENANT ID
   useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase.from('users').select('tenant_id, role').eq('id', user.id).single()
+        setCurrentUser(profile)
+      }
+    }
+    fetchUser()
+  }, [supabase])
+
+  // 🔴 2. FETCH ISOLATED AGENTS DROPDOWN
+  useEffect(() => {
+    if (!currentUser) return; // Wait until we know who the user is
+
     const fetchDropdowns = async () => {
-      const { data } = await supabase.from('users').select('id, full_name').in('role', ['telecaller', 'agent'])
+      let query = supabase.from('users').select('id, full_name').in('role', ['telecaller', 'agent'])
+      
+      // Strict Tenant Isolation (Unless they are a super_admin)
+      if (currentUser.role !== 'super_admin' && currentUser.tenant_id) {
+          query = query.eq('tenant_id', currentUser.tenant_id)
+      }
+
+      const { data } = await query
       if (data) setAgents(data)
     }
     fetchDropdowns()
-  }, [supabase])
+  }, [currentUser, supabase])
 
+  // 🔴 3. FETCH ISOLATED CALL LOGS
   useEffect(() => {
+    if (!currentUser) return; // Wait until we know who the user is
+
     const fetchLogs = async () => {
       setLoading(true)
       
@@ -48,7 +76,12 @@ export default function C2CReportsPage() {
         `)
         .eq('call_type', 'outbound_c2c')
         .order('created_at', { ascending: false })
-        .limit(1000) // Limit for performance, consider pagination for massive datasets
+        .limit(1000)
+
+      // Strict Tenant Isolation (Unless they are a super_admin)
+      if (currentUser.role !== 'super_admin' && currentUser.tenant_id) {
+          query = query.eq('tenant_id', currentUser.tenant_id)
+      }
 
       // Apply Date Filter
       const today = new Date()
@@ -72,7 +105,7 @@ export default function C2CReportsPage() {
     }
 
     fetchLogs()
-  }, [dateRange, agentFilter, statusFilter, supabase])
+  }, [currentUser, dateRange, agentFilter, statusFilter, supabase])
 
   // --- Derived State (Search & KPIs) ---
   const filteredLogs = useMemo(() => {
@@ -94,7 +127,6 @@ export default function C2CReportsPage() {
       // Build Chart Data (Group by Day or Hour)
       const chartMap = new Map();
       filteredLogs.forEach(log => {
-          // If 'today', group by hour. Else group by day.
           const dateObj = new Date(log.created_at);
           const key = dateRange === 'today' 
               ? `${dateObj.getHours()}:00` 
@@ -106,7 +138,7 @@ export default function C2CReportsPage() {
           if (log.disposition === 'ANSWERED') entry.connected += 1;
       });
 
-      const chartData = Array.from(chartMap.values()).reverse(); // Reverse so oldest is left, newest right
+      const chartData = Array.from(chartMap.values()).reverse(); 
 
       return { attempted, connected, totalTalkTime, totalCredits, chartData };
   }, [filteredLogs, dateRange]);
