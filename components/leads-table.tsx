@@ -1,8 +1,8 @@
-// components/leads-table.tsx
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import Link from "next/link"
+import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { 
   User, Building, Calendar, Clock, Eye, Phone, Mail, 
@@ -38,14 +38,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { cn } from "@/lib/utils"
 
-// --- CONSTANTS ---
 const MAX_LEAD_CAP = 450; 
 
 const shuffleArray = <T,>(array: T[]): T[] => {
@@ -57,7 +55,6 @@ const shuffleArray = <T,>(array: T[]): T[] => {
   return newArray;
 };
 
-// --- HELPER: Check for Stale Leads ---
 const isStale = (lastContacted: string | null, status: string) => {
   if (['Disbursed', 'not_eligible', 'Not_Interested', 'nr', 'dead_bucket', 'recycle_pool'].includes(status)) return false; 
   if (!lastContacted) return true; 
@@ -146,9 +143,13 @@ interface SavedFilter {
 interface LeadsTableProps {
   leads: Lead[]
   telecallers: Array<{ id: string; full_name: string }>
+  telecallerStatus?: Record<string, boolean>
+  totalLeads: number
+  currentPage: number
+  pageSize: number
 }
 
-// --- Inline Editing Component ---
+// Inline Editing Component 
 interface InlineEditableCellProps {
     value: string | number | null;
     onSave: (newValue: string) => Promise<void>;
@@ -224,25 +225,55 @@ const InlineEditableCell = ({ value, onSave, type = "text", className, suffix }:
 const triggerButtonClass = "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3";
 const triggerGhostClass = "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-3";
 
-export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
-  // --- STATE DECLARATIONS ---
+export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}, totalLeads, currentPage, pageSize }: LeadsTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const supabase = createClient()
+
+  // STATE DECLARATIONS
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState("")
+  
+  // Debounced Search Term
+  const [localSearchTerm, setLocalSearchTerm] = useState(searchParams.get('search') || "")
   const [isCallInitiated, setIsCallInitiated] = useState(false)
   
-  // Filters
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [priorityFilter, setPriorityFilter] = useState<string>("all")
-  const [assignedToFilter, setAssignedToFilter] = useState<string>("all")
-  const [sourceFilter, setSourceFilter] = useState<string>("all")
-  const [scoreFilter, setScoreFilter] = useState<string>("all")
-  const [tagFilter, setTagFilter] = useState<string>("all")
-  
-  // Sorting
-  const [sortField, setSortField] = useState<string>("created_at")
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
+  // URL parameters sync
+  const createQueryString = useCallback((name: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value && value !== 'all') {
+      params.set(name, value)
+    } else {
+      params.delete(name)
+    }
+    // Reset page to 1 when filters change
+    if (name !== 'page') params.set('page', '1');
+    return params.toString()
+  }, [searchParams])
+
+  const handleFilterChange = (key: string, value: string) => {
+    router.push(`${pathname}?${createQueryString(key, value)}`);
+  }
+
+  // Debounce search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearchTerm !== (searchParams.get('search') || "")) {
+        router.push(`${pathname}?${createQueryString('search', localSearchTerm)}`);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localSearchTerm, pathname, router, createQueryString, searchParams]);
+
+  // Read current filters from URL
+  const statusFilter = searchParams.get('status') || 'all'
+  const priorityFilter = searchParams.get('priority') || 'all'
+  const assignedToFilter = searchParams.get('assigned_to') || 'all'
+  const sourceFilter = searchParams.get('source') || 'all'
+  const sortField = searchParams.get('sort') || 'created_at'
+  const sortDirection = searchParams.get('dir') || 'desc'
   
   // Columns Visibility
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
@@ -263,13 +294,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     actions: false
   })
 
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(40)
   const [selectedLeads, setSelectedLeads] = useState<string[]>([])
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
-  const [lastCallFrom, setLastCallFrom] = useState("")
-  const [lastCallTo, setLastCallTo] = useState("")
   const [bulkAssignTo, setBulkAssignTo] = useState<string[]>([])
   const [bulkStatus, setBulkStatus] = useState<string>("")
   const [bulkTagInput, setBulkTagInput] = useState("") 
@@ -300,33 +325,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
   const [errorMessage, setErrorMessage] = useState<string>("")
   const [duplicates, setDuplicates] = useState<any[]>([])
   const [showDuplicatesDialog, setShowDuplicatesDialog] = useState(false)
-  const [telecallerStatus, setTelecallerStatus] = useState<Record<string, boolean>>({})
-
-  const supabase = createClient()
-
-  useEffect(() => {
-    const fetchData = async () => {
-      // 1. Fetch Attendance (Only one call on load)
-      try {
-        const today = new Date().toISOString().split('T')[0]
-        const { data: attendanceRecords } = await supabase
-          .from("attendance")
-          .select("user_id, check_in")
-          .eq("date", today)
-        
-        if (attendanceRecords) {
-          const statusMap: Record<string, boolean> = {}
-          attendanceRecords.forEach(record => {
-            statusMap[record.user_id] = !!record.check_in
-          })
-          setTelecallerStatus(statusMap)
-        }
-      } catch (err) {
-        console.error("Error fetching telecaller status:", err)
-      }
-    };
-    fetchData();
-  }, [supabase]);
 
   const calculateLeadScore = (lead: Lead): number => {
     let score = 0
@@ -366,32 +364,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     }))
   }, [leads])
 
-  const dashboardStats = useMemo(() => {
-    const total = enrichedLeads.length
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    
-    const newToday = enrichedLeads.filter(l => new Date(l.created_at) >= today).length
-    const contacted = enrichedLeads.filter(l => l.status === 'contacted' || l.status === 'Interested').length
-    const converted = enrichedLeads.filter(l => l.status === 'Disbursed').length
-    const conversionRate = total > 0 ? ((converted / total) * 100).toFixed(1) : '0'
-    const avgScore = total > 0 
-      ? (enrichedLeads.reduce((sum, l) => sum + (l.lead_score || 0), 0) / total).toFixed(0)
-      : '0'
-    const unassigned = enrichedLeads.filter(l => !l.assigned_to).length
-    const highValue = enrichedLeads.filter(l => (l.loan_amount || 0) >= 2000000).length
-    const overdue = enrichedLeads.filter(l => l.follow_up_date && new Date(l.follow_up_date) < today).length
-
-    const statusDist = enrichedLeads.reduce((acc, lead) => {
-      acc[lead.status] = (acc[lead.status] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-    
-    return {
-      total, newToday, contacted, converted, conversionRate, avgScore, unassigned, highValue, overdue, statusDist
-    }
-  }, [enrichedLeads])
-
   const uniqueSources = useMemo(() => {
     const sources = new Set(enrichedLeads.map(l => l.source).filter(Boolean))
     return Array.from(sources)
@@ -402,73 +374,19 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     return Array.from(tags)
   }, [enrichedLeads])
 
-  const filteredLeads = enrichedLeads.filter(lead => {
-    const matchesSearch = searchTerm === "" || 
-      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      lead.phone.includes(searchTerm) ||
-      (lead.company && lead.company.toLowerCase().includes(searchTerm.toLowerCase()))
-    
-    const matchesStatus = statusFilter === "all" || lead.status === statusFilter
-    const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter
-    const matchesAssignedTo = assignedToFilter === "all" || 
-      (assignedToFilter === "unassigned" && !lead.assigned_to) ||
-      lead.assigned_to === assignedToFilter
-    const matchesSource = sourceFilter === "all" || lead.source === sourceFilter
-    
-    const matchesScore = scoreFilter === "all" || 
-      (scoreFilter === "hot" && (lead.lead_score || 0) >= 80) ||
-      (scoreFilter === "warm" && (lead.lead_score || 0) >= 50 && (lead.lead_score || 0) < 80) ||
-      (scoreFilter === "cold" && (lead.lead_score || 0) < 50)
-    
-    const matchesTag = tagFilter === "all" || (lead.tags || []).includes(tagFilter)
-    
-    const leadCreatedAt = new Date(lead.created_at).getTime();
-    const matchesDateFrom = dateFrom === "" || leadCreatedAt >= new Date(dateFrom).getTime();
-    const matchesDateTo = dateTo === "" || leadCreatedAt <= new Date(dateTo).setHours(23, 59, 59, 999); 
+  const totalPages = Math.ceil(totalLeads / (pageSize > 0 ? pageSize : 1))
 
-    const lastCalledAt = lead.last_contacted ? new Date(lead.last_contacted).getTime() : 0;
-    const matchesLastCallFrom = lastCallFrom === "" || lastCalledAt >= new Date(lastCallFrom).getTime();
-    const matchesLastCallTo = lastCallTo === "" || lastCalledAt <= new Date(lastCallTo).setHours(23, 59, 59, 999);
-
-    return matchesSearch && matchesStatus && matchesPriority && 
-           matchesAssignedTo && matchesSource && matchesScore && matchesTag &&
-           matchesDateFrom && matchesDateTo &&
-           matchesLastCallFrom && matchesLastCallTo
-  }).sort((a, b) => {
-    let aValue = a[sortField as keyof Lead]
-    let bValue = b[sortField as keyof Lead]
-    
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      aValue = aValue.toLowerCase()
-      bValue = bValue.toLowerCase()
-    }
-    
-    if (aValue === null) return sortDirection === 'asc' ? -1 : 1
-    if (bValue === null) return sortDirection === 'asc' ? 1 : -1
-    
-    if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
-    if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
-    return 0
-  })
-
-  const totalPages = Math.ceil(filteredLeads.length / (pageSize > 0 ? pageSize : 1))
-  const paginatedLeads = filteredLeads.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  )
-  
   const handlePageSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
-    if (value === "") {
-      setPageSize(0)
-      return
-    }
+    if (value === "") return;
     const newSize = parseInt(value)
     if (!isNaN(newSize) && newSize > 0) {
-      setPageSize(newSize)
-      setCurrentPage(1)
+      router.push(`${pathname}?${createQueryString('limit', newSize.toString())}`);
     }
+  }
+
+  const handlePageChange = (page: number) => {
+    router.push(`${pathname}?${createQueryString('page', page.toString())}`);
   }
 
   const handleInlineUpdate = async (leadId: string, field: string, value: string | number) => {
@@ -479,7 +397,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             .eq("id", leadId);
 
         if (error) throw error;
-        window.location.reload(); 
+        router.refresh(); 
     } catch (error) {
         console.error("Error updating lead inline:", error);
         setErrorMessage("Failed to update field");
@@ -510,7 +428,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     setShowDuplicatesDialog(true)
   }
 
-  // --- UPDATED: Bulk Resolve Duplicates (Safe Mode - dead_bucket) ---
   const handleBulkResolveDuplicates = async () => {
     if (duplicates.length === 0) return;
 
@@ -548,7 +465,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
         setSuccessMessage(`Successfully moved ${idsToUpdate.size} duplicates to Dead Bucket.`);
         setShowDuplicatesDialog(false);
-        window.location.reload();
+        router.refresh();
         
     } catch (error: any) {
         console.error("Error updating duplicates:", error);
@@ -583,7 +500,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
     const csvContent = [
       activeColumns.map(col => col.label).join(','),
-      ...filteredLeads.map(lead => 
+      ...enrichedLeads.map(lead => 
         activeColumns.map(col => {
           let val = col.value(lead)
           if (val === null || val === undefined) return ''
@@ -611,29 +528,14 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       id: Date.now().toString(),
       name: filterName,
       filters: {
-        searchTerm, statusFilter, priorityFilter, assignedToFilter,
-        sourceFilter, scoreFilter, tagFilter,
-        dateFrom, dateTo, lastCallFrom, lastCallTo
+        searchTerm: localSearchTerm, statusFilter, priorityFilter, assignedToFilter,
+        sourceFilter
       }
     }
     setSavedFilters([...savedFilters, filter])
     setFilterName("")
     setShowSaveFilterDialog(false)
     localStorage.setItem('savedFilters', JSON.stringify([...savedFilters, filter]))
-  }
-
-  const loadFilter = (filter: SavedFilter) => {
-    setSearchTerm(filter.filters.searchTerm || "")
-    setStatusFilter(filter.filters.statusFilter || "all")
-    setPriorityFilter(filter.filters.priorityFilter || "all")
-    setAssignedToFilter(filter.filters.assignedToFilter || "all")
-    setSourceFilter(filter.filters.sourceFilter || "all")
-    setScoreFilter(filter.filters.scoreFilter || "all")
-    setTagFilter(filter.filters.tagFilter || "all")
-    setDateFrom(filter.filters.dateFrom || "")
-    setDateTo(filter.filters.dateTo || "")
-    setLastCallFrom(filter.filters.lastCallFrom || "")
-    setLastCallTo(filter.filters.lastCallTo || "")
   }
 
   useEffect(() => {
@@ -643,10 +545,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
   const handleSort = (field: string) => {
     if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+      const newDir = sortDirection === 'asc' ? 'desc' : 'asc'
+      router.push(`${pathname}?${createQueryString('dir', newDir)}`);
     } else {
-      setSortField(field)
-      setSortDirection('desc')
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('sort', field)
+      params.set('dir', 'desc')
+      router.push(`${pathname}?${params.toString()}`);
     }
   }
 
@@ -667,15 +572,12 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     if (bulkAssignTo.length === 0 || selectedLeads.length === 0) return
 
     try {
-      // 1. Get the Admin's ID to record who assigned it
       const { data: { user } } = await supabase.auth.getUser()
       const assignedById = user?.id
 
       const telecallerIds = bulkAssignTo
       
-      // 2. Create an array of update operations
       const updates = selectedLeads.map((leadId, index) => {
-        // Round-robin assignment if multiple telecallers are selected
         const telecallerId = telecallerIds[index % telecallerIds.length]
         
         return supabase
@@ -684,27 +586,22 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             assigned_to: telecallerId,
             assigned_by: assignedById,
             assigned_at: new Date().toISOString(),
-            status: 'new', // Reset status to new upon assignment
+            status: 'new', 
             last_contacted: new Date().toISOString()
           })
           .eq("id", leadId)
       })
 
-      // 3. Execute all updates simultaneously using Promise.all
       const results = await Promise.all(updates)
-      
-      // Check if any of the updates failed
       const errors = results.filter(result => result.error)
       if (errors.length > 0) {
         throw new Error(`Failed to assign ${errors.length} leads.`)
       }
       
-      setSuccessMessage(`Successfully assigned ${selectedLeads.length} leads and reset status to New.`)
+      setSuccessMessage(`Successfully assigned ${selectedLeads.length} leads.`)
       setSelectedLeads([])
       setBulkAssignTo([]) 
-      
-      // Refresh the page to show new assignments
-      window.location.reload()
+      router.refresh()
       
     } catch (error: any) {
       console.error("Error bulk assigning leads:", error)
@@ -717,18 +614,14 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
     try {
       const updates = selectedLeads.map(async (leadId) => {
-         const lead = enrichedLeads.find(l => l.id === leadId);
-         if (!lead) return;
-
          let updateData: any = { status: bulkStatus, last_contacted: new Date().toISOString() };
-
          return supabase.from("leads").update(updateData).eq("id", leadId);
       })
 
       await Promise.all(updates)
       setSelectedLeads([])
       setBulkStatus("")
-      window.location.reload()
+      router.refresh()
     } catch (error) { console.error("Error bulk updating lead status:", error) }
   }
 
@@ -757,7 +650,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
       setSelectedLeads([])
       setBulkTagInput("")
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error adding tag:", error)
     }
@@ -783,7 +676,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         } else {
             setSelectedLeads([])
             setSuccessMessage(`Successfully deleted ${count} leads.`)
-            window.location.reload()
+            router.refresh()
         }
     } catch (error) {
         console.error("Error deleting leads:", error)
@@ -922,7 +815,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       }
 
       alert(`Auto-assign complete. Leads distributed to ${activeTelecallers.length} agents under capacity.`)
-      window.location.reload()
+      router.refresh()
       
     } catch (error) {
       console.error("Error auto-assigning leads:", error)
@@ -939,7 +832,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         })
         .eq("id", leadId)
       if (error) throw error
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error adding tag:", error)
     }
@@ -954,7 +847,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         .update({ tags: newTags })
         .eq("id", leadId)
       if (error) throw error
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error removing tag:", error)
     }
@@ -1005,7 +898,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         .eq("id", selectedLead.id)
 
       if (error) throw error
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error updating lead status:", error)
     }
@@ -1024,7 +917,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         .eq("id", leadId)
 
       if (error) throw error
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error changing lead status:", error)
     }
@@ -1045,7 +938,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         .eq("id", leadId)
       if (error) throw error
       setSuccessMessage("Lead assigned successfully")
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error("Error assigning lead:", error)
       setErrorMessage("Failed to assign lead")
@@ -1085,7 +978,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
         alert(`Successfully imported ${parsedLeads.length} leads!`);
         setIsImportOpen(false);
-        window.location.reload();
+        router.refresh()
       } catch (err: any) {
         alert("Import failed: " + err.message);
         console.error(err);
@@ -1105,10 +998,11 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
   }
 
   const selectAllLeads = () => {
-    if (selectedLeads.length === paginatedLeads.length) {
+    // Note: With Server-Side pagination, Select All only selects the current page.
+    if (selectedLeads.length === enrichedLeads.length) {
       setSelectedLeads([])
     } else {
-      setSelectedLeads(paginatedLeads.map(lead => lead.id))
+      setSelectedLeads(enrichedLeads.map(lead => lead.id))
     }
   }
 
@@ -1151,7 +1045,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     <div className="space-y-6">
       {/* Success/Error Messages */}
       {successMessage && (
-        <Card className="border-green-500 bg-green-50">
+        <Card className="border-green-500 bg-green-50 mt-4 mx-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -1161,7 +1055,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         </Card>
       )}
       {errorMessage && (
-        <Card className="border-red-500 bg-red-50">
+        <Card className="border-red-500 bg-red-50 mt-4 mx-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <XCircle className="h-5 w-5 text-red-600" />
@@ -1171,54 +1065,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         </Card>
       )}
 
-      {/* Quick Stats Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dashboardStats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+{dashboardStats.newToday}</span> new today
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
-            <Target className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dashboardStats.conversionRate}%</div>
-            <p className="text-xs text-muted-foreground">
-              {dashboardStats.converted} converted
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Lead Score</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dashboardStats.avgScore}</div>
-            <p className="text-xs text-muted-foreground">Out of 100</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">High Value Leads</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dashboardStats.highValue}</div>
-            <p className="text-xs text-muted-foreground">{dashboardStats.unassigned} unassigned</p>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Controls Bar */}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
@@ -1226,13 +1072,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search leads..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={localSearchTerm}
+              onChange={(e) => setLocalSearchTerm(e.target.value)}
               className="pl-8"
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => handleFilterChange('status', v)}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
@@ -1243,7 +1089,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <Select value={priorityFilter} onValueChange={(v) => handleFilterChange('priority', v)}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Priority" />
               </SelectTrigger>
@@ -1254,7 +1100,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 <SelectItem value="low">Low</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
+            <Select value={assignedToFilter} onValueChange={(v) => handleFilterChange('assigned_to', v)}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Assigned To" />
               </SelectTrigger>
@@ -1306,7 +1152,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
               <DropdownMenuSeparator />
               <div className="p-2">
                 <Label className="text-xs">Source</Label>
-                <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <Select value={sourceFilter} onValueChange={(v) => handleFilterChange('source', v)}>
                   <SelectTrigger className="w-full mt-1">
                     <SelectValue placeholder="All Sources" />
                   </SelectTrigger>
@@ -1318,66 +1164,14 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="p-2">
-                <Label className="text-xs">Lead Score</Label>
-                <Select value={scoreFilter} onValueChange={setScoreFilter}>
-                  <SelectTrigger className="w-full mt-1">
-                    <SelectValue placeholder="All Scores" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Scores</SelectItem>
-                    <SelectItem value="hot">Hot (80+)</SelectItem>
-                    <SelectItem value="warm">Warm (50-79)</SelectItem>
-                    <SelectItem value="cold">Cold (0-49)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="p-2">
-                <Label className="text-xs">Tags</Label>
-                <Select value={tagFilter} onValueChange={setTagFilter}>
-                  <SelectTrigger className="w-full mt-1">
-                    <SelectValue placeholder="All Tags" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Tags</SelectItem>
-                    {uniqueTags.map((tag) => (
-                      <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Date Filters</DropdownMenuLabel>
-              <div className="p-2 space-y-2">
-                <Label className="text-xs font-semibold">Lead Creation Date</Label>
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-8 text-xs" />
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-8 text-xs" />
-              </div>
-              <div className="p-2 space-y-2">
-                <Label className="text-xs font-semibold">Last Call Date</Label>
-                <Input type="date" value={lastCallFrom} onChange={(e) => setLastCallFrom(e.target.value)} className="h-8 text-xs" />
-                <Input type="date" value={lastCallTo} onChange={(e) => setLastCallTo(e.target.value)} className="h-8 text-xs" />
-              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowSaveFilterDialog(true)}>
                 <Save className="h-4 w-4 mr-2" />
                 Save Current Filter
               </DropdownMenuItem>
-              {savedFilters.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Saved Filters</DropdownMenuLabel>
-                  {savedFilters.map((filter) => (
-                    <DropdownMenuItem key={filter.id} onClick={() => loadFilter(filter)}>
-                      {filter.name}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Fixed Dropdown Trigger */}
           <DropdownMenu>
             <DropdownMenuTrigger className={triggerButtonClass}>
               <Layout className="h-4 w-4 mr-2" />
@@ -1409,7 +1203,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             Duplicates
           </Button>
 
-          {/* Fixed Dropdown Trigger */}
           <DropdownMenu>
             <DropdownMenuTrigger className={triggerButtonClass}>
               <Zap className="h-4 w-4 mr-2" />
@@ -1450,7 +1243,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
               <div className="flex items-center gap-2">
                 <Check className="h-5 w-5 text-blue-600" />
                 <span className="font-medium text-blue-900">
-                  {selectedLeads.length} lead{selectedLeads.length !== 1 ? 's' : ''} selected
+                  {selectedLeads.length} lead{selectedLeads.length !== 1 ? 's' : ''} selected on this page
                 </span>
               </div>
               
@@ -1466,10 +1259,9 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                     <SelectItem value="Interested">Interested</SelectItem>
                     <SelectItem value="Documents_Sent">Documents Sent</SelectItem>
                     <SelectItem value="Login">Login</SelectItem>
-                    <SelectItem value="nr">nr</SelectItem>
-                    <SelectItem value="self_employed">self_employed</SelectItem>
+                    <SelectItem value="nr">Not Reachable</SelectItem>
                     <SelectItem value="Disbursed">Disbursed</SelectItem>
-                    <SelectItem value="follow_up">follow_up</SelectItem>
+                    <SelectItem value="follow_up">Follow Up</SelectItem>
                     <SelectItem value="Not_Interested">Not Interested</SelectItem>
                     <SelectItem value="self_employed">Self Employed</SelectItem>
                     <SelectItem value="not_eligible">Not Eligible</SelectItem>
@@ -1486,41 +1278,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
                 <Separator orientation="vertical" className="h-8 mx-2" />
 
-                {/* Bulk Add Tags */}
-                <DropdownMenu>
-                    <DropdownMenuTrigger className={triggerButtonClass}>
-                        <Tag className="h-4 w-4 mr-2" />
-                        Add Tag
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-56">
-                        <DropdownMenuLabel>Add Tag to Selected</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <div className="p-2 flex gap-2">
-                             <Input 
-                                placeholder="Custom Tag" 
-                                value={bulkTagInput}
-                                onChange={(e) => setBulkTagInput(e.target.value)}
-                                className="h-8 text-xs"
-                             />
-                             <Button 
-                                size="sm" 
-                                className="h-8 px-2"
-                                onClick={() => handleBulkAddTag(bulkTagInput)}
-                                disabled={!bulkTagInput.trim()}
-                             >
-                                <Plus className="h-3 w-3" />
-                             </Button>
-                        </div>
-                        <DropdownMenuSeparator />
-                        {availableTags.map(tag => (
-                            <DropdownMenuItem key={tag} onClick={() => handleBulkAddTag(tag)}>
-                                {tag}
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* Manual Bulk Assignment with Status Dots */}
+                {/* Manual Bulk Assignment */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`${triggerButtonClass} w-[200px] justify-between border-dashed`}>
                       {bulkAssignTo.length === 0 ? (
@@ -1551,7 +1309,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                             })
                           }}
                         >
-                           {/* Green/Red Status Dot */}
                           <div className="flex items-center gap-2 w-full">
                             <div 
                               className={`h-2 w-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} 
@@ -1588,7 +1345,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
                 <div className="flex-1" />
 
-                {/* Bulk Delete Button */}
                 <Button 
                   variant="destructive" 
                   size="sm" 
@@ -1621,7 +1377,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                     <TableHead className="w-12 pl-4">
                     <input
                         type="checkbox"
-                        checked={selectedLeads.length === paginatedLeads.length && paginatedLeads.length > 0}
+                        checked={selectedLeads.length === enrichedLeads.length && enrichedLeads.length > 0}
                         onChange={selectAllLeads}
                         className="rounded border-gray-300"
                     />
@@ -1686,14 +1442,14 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 </TableRow>
                 </TableHeader>
                 <TableBody>
-                {paginatedLeads.length === 0 ? (
+                {enrichedLeads.length === 0 ? (
                     <TableRow>
                     <TableCell colSpan={Object.values(visibleColumns).filter(Boolean).length + 1} className="text-center py-8">
-                        <div className="text-gray-500">No leads found</div>
+                        <div className="text-gray-500">No leads found on this page</div>
                     </TableCell>
                     </TableRow>
                 ) : (
-                    paginatedLeads.map((lead) => (
+                    enrichedLeads.map((lead) => (
                     <TableRow key={lead.id} className={`group ${lead.status === 'dead_bucket' ? 'bg-gray-50 opacity-60' : ''}`}>
                         <TableCell className="pl-4">
                         <input
@@ -1804,7 +1560,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                         {visibleColumns.lastContacted && (
                         <TableCell>
                             {(() => {
-                            // Using standard last_contacted safely without API fetch spam
                             const lastContactTimestamp = lead.last_contacted;
                             const stale = isStale(lastContactTimestamp, lead.status);
 
@@ -1824,7 +1579,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                                         <span className="text-sm text-muted-foreground">Never</span>
                                     )}
 
-                                    {/* STALE BADGE */}
                                     {stale && (
                                         <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200 text-[10px] h-5 px-1 animate-pulse">
                                             Stale
@@ -1946,10 +1700,10 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                 </TableBody>
             </Table>
             
-            {/* Pagination */}
+            {/* Server-Side Pagination Controller */}
             <div className="flex items-center justify-between px-4 py-3 border-t bg-white mt-4">
                 <div className="text-sm text-muted-foreground">
-                    Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, filteredLeads.length)} of {filteredLeads.length} results.
+                    Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalLeads)} of {totalLeads} results.
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2 text-sm">
@@ -1968,10 +1722,11 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                             <PaginationItem>
                                 <PaginationPrevious 
                                     href="#" 
-                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} 
-                                    className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                                    onClick={(e) => { e.preventDefault(); handlePageChange(Math.max(1, currentPage - 1))}} 
+                                    className={currentPage <= 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                                 />
                             </PaginationItem>
+                            
                             {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
                                 Math.max(0, currentPage - 3),
                                 Math.min(totalPages, currentPage + 2)
@@ -1980,12 +1735,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                                     <PaginationLink 
                                         href="#" 
                                         isActive={page === currentPage}
-                                        onClick={() => setCurrentPage(page)}
+                                        onClick={(e) => { e.preventDefault(); handlePageChange(page)}}
                                     >
                                         {page}
                                     </PaginationLink>
                                 </PaginationItem>
                             ))}
+                            
                             {totalPages > 5 && currentPage < totalPages - 2 && (
                                 <PaginationItem>
                                     <span className="px-2 text-muted-foreground">...</span>
@@ -1994,8 +1750,8 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                             <PaginationItem>
                                 <PaginationNext 
                                     href="#" 
-                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} 
-                                    className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                                    onClick={(e) => { e.preventDefault(); handlePageChange(Math.min(totalPages, currentPage + 1))}} 
+                                    className={currentPage >= totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                                 />
                             </PaginationItem>
                         </PaginationContent>
@@ -2004,11 +1760,11 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             </div>
         </div>
       ) : (
-        /* --- KANBAN BOARD VIEW --- */
+        /* KANBAN BOARD VIEW */
         <div className="h-[calc(100vh-220px)] overflow-x-auto pb-4">
           <div className="flex gap-4 h-full min-w-[1200px]">
             {KANBAN_COLUMNS.map(col => {
-              const colLeads = filteredLeads.filter(l => l.status === col.id);
+              const colLeads = enrichedLeads.filter(l => l.status === col.id);
               const totalAmount = colLeads.reduce((sum, l) => sum + (l.loan_amount || 0), 0);
               
               return (
@@ -2202,15 +1958,15 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
                    <p className="text-xs text-muted-foreground">These rules automatically re-assign and reset lead status to 'New' if contact is missed.</p>
                    <div className="flex items-center justify-between">
                     <Label htmlFor="reassign-nr" className="flex flex-col gap-1">
-                      <span>Reassign "Not Reached" > 48hrs</span>
-                      <span className="text-xs text-muted-foreground font-normal">If lead status is 'nr' and last call was > 48 hours ago.</span>
+                      <span>Reassign "Not Reached" {'>'} 48hrs</span>
+                      <span className="text-xs text-muted-foreground font-normal">If lead status is 'nr' and last call was {'>'} 48 hours ago.</span>
                     </Label>
                     <Switch id="reassign-nr" checked={autoAssignRules.reassignNR} onCheckedChange={(checked) => setAutoAssignRules(prev => ({ ...prev, reassignNR: checked }))} />
                   </div>
                   <div className="flex items-center justify-between">
                     <Label htmlFor="reassign-interested" className="flex flex-col gap-1">
-                      <span>Reassign "Interested" > 72hrs</span>
-                       <span className="text-xs text-muted-foreground font-normal">If lead status is 'Interested' and last call was > 72 hours ago.</span>
+                      <span>Reassign "Interested" {'>'} 72hrs</span>
+                       <span className="text-xs text-muted-foreground font-normal">If lead status is 'Interested' and last call was {'>'} 72 hours ago.</span>
                     </Label>
                     <Switch id="reassign-interested" checked={autoAssignRules.reassignInterested} onCheckedChange={(checked) => setAutoAssignRules(prev => ({ ...prev, reassignInterested: checked }))} />
                   </div>
@@ -2267,7 +2023,6 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
             </div>
             <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setShowDuplicatesDialog(false)}>Close</Button>
-                {/* Updated Button Logic */}
                 <Button variant="destructive" onClick={handleBulkResolveDuplicates}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Mark Duplicates (Keep Newest)
