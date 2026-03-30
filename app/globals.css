@@ -199,20 +199,6 @@
     display: none;
   }
 
-  /* Line Clamps */
-  .line-clamp-1 {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
-  }
-  .line-clamp-2 {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-
   /* Subtle bounce animation for touch feedback */
   .mobile-bounce:active {
     transform: scale(0.96);
