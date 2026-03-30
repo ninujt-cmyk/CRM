@@ -20,6 +20,10 @@ interface SearchParams {
   date_range?: string
   from?: string
   to?: string
+  page?: string
+  limit?: string
+  sort?: string
+  dir?: string
 }
 
 export default function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
@@ -54,7 +58,7 @@ export default function LeadsPage({ searchParams }: { searchParams: SearchParams
 async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const supabase = await createClient()
   
-  // 🔴 1. SECURE TENANT LOOKUP
+  // 1. SECURE TENANT LOOKUP
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
@@ -71,23 +75,27 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const tenantId = profile.tenant_id;
   const userRole = profile.role || 'telecaller';
 
-  // 🔴 2. HIGH-SPEED BASE QUERIES (Lean Fetching)
-  // Fix: Explicitly selecting ONLY necessary columns cuts payload size by ~80%
+  // 2. PAGINATION SETUP
+  const currentPage = parseInt(searchParams.page || '1')
+  const pageSize = parseInt(searchParams.limit || '40')
+  const rangeFrom = (currentPage - 1) * pageSize
+  const rangeTo = rangeFrom + pageSize - 1
+
+  // 3. BASE QUERIES
   let query = supabase.from("leads")
     .select(`
-      id, name, phone, email, status, priority, source, created_at, assigned_to, 
+      id, name, phone, email, company, status, priority, source, created_at, assigned_to, last_contacted, loan_amount, loan_type, follow_up_date, notes, tags,
       assigned_user:users!leads_assigned_to_fkey(id, full_name), 
       assigner:users!leads_assigned_by_fkey(id, full_name)
     `)
     .eq("tenant_id", tenantId) 
-    .order("created_at", { ascending: false })
-    .limit(300) // Fix: Prevent memory crashes by capping visual rows. Agents can use filters to find older leads.
   
+  // FIXED: Using estimated count drastically reduces egress and prevents timeouts on large tables
   let countQuery = supabase.from("leads")
-    .select("id", { count: "exact", head: true }) // Requesting 'id' instead of '*' is slightly faster for counting
+    .select("id", { count: "estimated", head: true }) 
     .eq("tenant_id", tenantId) 
 
-  // 🔴 3. HIERARCHY ENFORCEMENT
+  // 4. HIERARCHY ENFORCEMENT
   if (['manager', 'team_leader'].includes(userRole)) {
      const { data: myAgents } = await supabase
         .from('users')
@@ -103,7 +111,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
      countQuery = countQuery.or(filterString);
   }
 
-  // 4. Apply Frontend Filters
+  // 5. SERVER-SIDE FILTERS
   const applyFilters = (q: any) => {
     if (searchParams.status && searchParams.status !== 'all') q = q.eq("status", searchParams.status)
     if (searchParams.priority && searchParams.priority !== 'all') q = q.eq("priority", searchParams.priority)
@@ -113,8 +121,8 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     }
     if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
     
+    // Server-side text search
     if (searchParams.search) {
-      // Searching text fields
       const searchStr = searchParams.search.trim();
       q = q.or(`name.ilike.%${searchStr}%,email.ilike.%${searchStr}%,phone.ilike.%${searchStr}%`)
     }
@@ -145,9 +153,17 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   query = applyFilters(query)
   countQuery = applyFilters(countQuery)
 
+  // Apply Sorting
+  const sortField = searchParams.sort || 'created_at'
+  const sortDir = searchParams.dir === 'asc'
+  query = query.order(sortField, { ascending: sortDir })
+
+  // Apply Pagination
+  query = query.range(rangeFrom, rangeTo)
+
   const todayDate = new Date().toISOString().split('T')[0]
 
-  // 5. PARALLEL FETCHING
+  // 6. PARALLEL FETCHING
   const [
     { data: leads },
     { count: totalLeads },
@@ -163,7 +179,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         .eq("tenant_id", tenantId) 
         .eq("is_active", true),
     supabase.from("leads")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("tenant_id", tenantId) 
         .is("assigned_to", null),
     supabase.from("attendance")
@@ -181,7 +197,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatsCard 
           title="Total Filtered Leads" 
-          value={totalLeads} 
+          value={totalLeads || 0} 
           icon={<FileSpreadsheet className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -189,7 +205,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         />
         <StatsCard 
           title="Company Unassigned Pool" 
-          value={unassignedLeads} 
+          value={unassignedLeads || 0} 
           icon={<UserPlus className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -221,17 +237,19 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-base">
               <FileSpreadsheet className="h-4 w-4 text-blue-600" />
-              {leads ? `Showing latest ${leads.length} Records` : `All Leads`}
+              Leads Database
             </div>
-            {totalLeads && totalLeads > 300 && (
-               <span className="text-xs text-amber-600 font-medium bg-amber-50 px-2 py-1 rounded">
-                 Use filters above to search older leads
-               </span>
-            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <LeadsTable leads={leads || []} telecallers={telecallers || []} telecallerStatus={telecallerStatus} />
+          <LeadsTable 
+            leads={leads || []} 
+            telecallers={telecallers || []} 
+            telecallerStatus={telecallerStatus}
+            totalLeads={totalLeads || 0}
+            currentPage={currentPage}
+            pageSize={pageSize}
+          />
         </CardContent>
       </Card>
     </>
