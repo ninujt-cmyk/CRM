@@ -81,17 +81,16 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const rangeFrom = (currentPage - 1) * pageSize
   const rangeTo = rangeFrom + pageSize - 1
 
-  // 3. BASE QUERIES
+  // 3. BASE QUERIES 
+  // Using '*' is safe here because we are heavily paginating via .range()
   let query = supabase.from("leads")
     .select(`
-      id, name, phone, email, company, status, priority, source, created_at, assigned_to, last_contacted, loan_amount, loan_type, follow_up_date, notes, tags,
+      *,
       assigned_user:users!leads_assigned_to_fkey(id, full_name), 
       assigner:users!leads_assigned_by_fkey(id, full_name)
     `)
     .eq("tenant_id", tenantId) 
   
-  // FIXED: Using "planned" count asks Postgres for stats instead of scanning rows.
-  // Using "*" instead of "id" is recommended by PostgREST for accurate planned counts.
   let countQuery = supabase.from("leads")
     .select("id", { count: "exact", head: true }) 
     .eq("tenant_id", tenantId) 
@@ -122,6 +121,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     }
     if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
     
+    // Server-side text search
     if (searchParams.search) {
       const searchStr = searchParams.search.trim();
       q = q.or(`name.ilike.%${searchStr}%,email.ilike.%${searchStr}%,phone.ilike.%${searchStr}%`)
@@ -153,20 +153,23 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   query = applyFilters(query)
   countQuery = applyFilters(countQuery)
 
+  // Apply Sorting
   const sortField = searchParams.sort || 'created_at'
   const sortDir = searchParams.dir === 'asc'
   query = query.order(sortField, { ascending: sortDir })
+
+  // Apply Pagination
   query = query.range(rangeFrom, rangeTo)
 
   const todayDate = new Date().toISOString().split('T')[0]
 
-  // 6. PARALLEL FETCHING
+  // 6. PARALLEL FETCHING WITH ERROR LOGGING
   const [
-    { data: leads },
-    { count: totalLeads },
-    { data: telecallers },
-    { count: unassignedLeads },
-    { data: attendanceData }
+    leadsResponse,
+    countResponse,
+    telecallersResponse,
+    unassignedResponse,
+    attendanceResponse
   ] = await Promise.all([
     query,
     countQuery, 
@@ -186,18 +189,26 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         .not("check_in", "is", null)
   ])
 
-  const telecallerStatus: Record<string, boolean> = {}
-  attendanceData?.forEach((rec: any) => { telecallerStatus[rec.user_id] = true })
+  // Log exactly why a query fails so we aren't guessing
+  if (leadsResponse.error) {
+    console.error("SUPABASE DATA FETCH ERROR:", leadsResponse.error.message, leadsResponse.error.details);
+  }
 
-  // Fallback to leads.length if planned count fails or returns 0 incorrectly
-  const finalTotalLeads = totalLeads || (leads?.length ?? 0);
+  const leads = leadsResponse.data || [];
+  const totalLeads = countResponse.count || 0;
+  const telecallers = telecallersResponse.data || [];
+  const unassignedLeads = unassignedResponse.count || 0;
+  const attendanceData = attendanceResponse.data || [];
+
+  const telecallerStatus: Record<string, boolean> = {}
+  attendanceData.forEach((rec: any) => { telecallerStatus[rec.user_id] = true })
 
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatsCard 
           title="Total Filtered Leads" 
-          value={finalTotalLeads} 
+          value={totalLeads} 
           icon={<FileSpreadsheet className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -205,7 +216,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         />
         <StatsCard 
           title="Company Unassigned Pool" 
-          value={unassignedLeads || 0} 
+          value={unassignedLeads} 
           icon={<UserPlus className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -213,7 +224,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         />
         <StatsCard 
           title="Active Team Agents" 
-          value={`${attendanceData?.length || 0} / ${telecallers?.length || 0}`} 
+          value={`${attendanceData.length} / ${telecallers.length}`} 
           icon={<UserPlus className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -228,7 +239,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
-          <LeadFilters telecallers={telecallers || []} telecallerStatus={telecallerStatus} />
+          <LeadFilters telecallers={telecallers} telecallerStatus={telecallerStatus} />
         </CardContent>
       </Card>
 
@@ -243,10 +254,10 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         </CardHeader>
         <CardContent className="p-0">
           <LeadsTable 
-            leads={leads || []} 
-            telecallers={telecallers || []} 
+            leads={leads} 
+            telecallers={telecallers} 
             telecallerStatus={telecallerStatus}
-            totalLeads={finalTotalLeads}
+            totalLeads={totalLeads}
             currentPage={currentPage}
             pageSize={pageSize}
           />
