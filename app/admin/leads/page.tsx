@@ -93,7 +93,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   // FIXED: Using "planned" count asks Postgres for stats instead of scanning rows.
   // Using "*" instead of "id" is recommended by PostgREST for accurate planned counts.
   let countQuery = supabase.from("leads")
-    .select("*", { count: "planned", head: true }) 
+    .select("id", { count: "exact", head: true }) 
     .eq("tenant_id", tenantId) 
 
   // 4. HIERARCHY ENFORCEMENT
@@ -176,7 +176,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         .eq("tenant_id", tenantId) 
         .eq("is_active", true),
     supabase.from("leads")
-        .select("*", { count: "planned", head: true }) // FIXED
+        .select("id", { count: "exact", head: true })
         .eq("tenant_id", tenantId) 
         .is("assigned_to", null),
     supabase.from("attendance")
