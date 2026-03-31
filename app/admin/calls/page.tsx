@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link"; 
 import { SummaryAnalytics } from "@/components/admin/summary-analytics"; 
 import { TelecallerTable } from "@/components/admin/telecaller-table";
-import { Skeleton } from "@/components/ui/skeleton"; // <--- NEW IMPORT
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +85,7 @@ async function getTelecallerLeadSummary(searchParams: { from?: string; to?: stri
 // --- Loading Skeleton Component ---
 function DashboardSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full">
       {/* Analytics Cards Skeleton */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[...Array(4)].map((_, i) => (
@@ -104,19 +104,23 @@ async function DashboardContent({ searchParams }: { searchParams: { from?: strin
   const { data: summaryData, grandTotals } = await getTelecallerLeadSummary(searchParams);
 
   return (
-    <>
+    <div className="space-y-6 w-full min-w-0">
       <SummaryAnalytics data={summaryData} grandTotals={grandTotals} />
       
-      <Card className="shadow-sm border-gray-200">
-        <CardContent className="p-4">
-          <TelecallerTable 
-            data={summaryData} 
-            grandTotals={grandTotals} 
-            statuses={LEAD_STATUSES} 
-          />
+      {/* ADDED: w-full and overflow-hidden to the Card to prevent stretching */}
+      <Card className="shadow-sm border-gray-200 w-full overflow-hidden">
+        {/* ADDED: overflow-x-auto to allow horizontal scrolling inside the card */}
+        <CardContent className="p-4 w-full overflow-x-auto">
+          <div className="min-w-max">
+            <TelecallerTable 
+              data={summaryData} 
+              grandTotals={grandTotals} 
+              statuses={LEAD_STATUSES} 
+            />
+          </div>
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }
 
@@ -127,9 +131,10 @@ export default function TelecallerLeadSummaryPage({
   searchParams: { from?: string; to?: string };
 }) {
   return (
-    <div className="space-y-6 p-8 bg-gray-50/50 min-h-screen">
+    // ADDED: max-w-full and overflow-x-hidden to the main wrapper
+    <div className="space-y-6 p-8 bg-gray-50/50 min-h-screen w-full max-w-full overflow-x-hidden">
       
-      {/* Header & Controls (Renders Immediately) */}
+      {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
@@ -151,7 +156,6 @@ export default function TelecallerLeadSummaryPage({
         </div>
       </div>
 
-      {/* Suspense Boundary wrapping the heavy data fetching */}
       <Suspense fallback={<DashboardSkeleton />}>
         <DashboardContent searchParams={searchParams} />
       </Suspense>
