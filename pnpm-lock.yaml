@@ -137,6 +137,9 @@ importers:
       lucide-react:
         specifier: ^0.454.0
         version: 0.454.0(react@18.3.1)
+      meilisearch:
+        specifier: ^0.56.0
+        version: 0.56.0
       next:
         specifier: ^14.2.35
         version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1687,6 +1690,9 @@ packages:
 
   magic-string@0.30.19:
     resolution: {integrity: sha512-2N21sPY9Ws53PZvsEpVtNuSW+ScYbQdp4b9qUaL+9QkHUrGFKo56Lg9Emg5s9V/qrtNBmiR01sYhUOwu3H+VOw==}
+
+  meilisearch@0.56.0:
+    resolution: {integrity: sha512-kBXba8DcSrLWHYqopCm2JL90oBy97VdIfHkP1ii7/eHufeEEEk9Zu5Vv/IFQpNzmhEpWszVFVlGvZoI6QJeGzA==}
 
   minimalistic-assert@1.0.1:
     resolution: {integrity: sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A==}
@@ -3581,6 +3587,8 @@ snapshots:
   magic-string@0.30.19:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  meilisearch@0.56.0: {}
 
   minimalistic-assert@1.0.1: {}
 
