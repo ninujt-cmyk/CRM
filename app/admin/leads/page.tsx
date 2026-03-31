@@ -90,9 +90,10 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     `)
     .eq("tenant_id", tenantId) 
   
-  // FIXED: Using estimated count drastically reduces egress and prevents timeouts on large tables
+  // FIXED: Using "planned" count asks Postgres for stats instead of scanning rows.
+  // Using "*" instead of "id" is recommended by PostgREST for accurate planned counts.
   let countQuery = supabase.from("leads")
-    .select("id", { count: "estimated", head: true }) 
+    .select("*", { count: "planned", head: true }) 
     .eq("tenant_id", tenantId) 
 
   // 4. HIERARCHY ENFORCEMENT
@@ -121,7 +122,6 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     }
     if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
     
-    // Server-side text search
     if (searchParams.search) {
       const searchStr = searchParams.search.trim();
       q = q.or(`name.ilike.%${searchStr}%,email.ilike.%${searchStr}%,phone.ilike.%${searchStr}%`)
@@ -153,12 +153,9 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   query = applyFilters(query)
   countQuery = applyFilters(countQuery)
 
-  // Apply Sorting
   const sortField = searchParams.sort || 'created_at'
   const sortDir = searchParams.dir === 'asc'
   query = query.order(sortField, { ascending: sortDir })
-
-  // Apply Pagination
   query = query.range(rangeFrom, rangeTo)
 
   const todayDate = new Date().toISOString().split('T')[0]
@@ -179,7 +176,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         .eq("tenant_id", tenantId) 
         .eq("is_active", true),
     supabase.from("leads")
-        .select("id", { count: "estimated", head: true })
+        .select("*", { count: "planned", head: true }) // FIXED
         .eq("tenant_id", tenantId) 
         .is("assigned_to", null),
     supabase.from("attendance")
@@ -192,12 +189,15 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const telecallerStatus: Record<string, boolean> = {}
   attendanceData?.forEach((rec: any) => { telecallerStatus[rec.user_id] = true })
 
+  // Fallback to leads.length if planned count fails or returns 0 incorrectly
+  const finalTotalLeads = totalLeads || (leads?.length ?? 0);
+
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatsCard 
           title="Total Filtered Leads" 
-          value={totalLeads || 0} 
+          value={finalTotalLeads} 
           icon={<FileSpreadsheet className="h-6 w-6 text-white" />} 
           bgClass="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white border-0 shadow-md"
           iconBgClass="bg-white/10"
@@ -246,7 +246,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
             leads={leads || []} 
             telecallers={telecallers || []} 
             telecallerStatus={telecallerStatus}
-            totalLeads={totalLeads || 0}
+            totalLeads={finalTotalLeads}
             currentPage={currentPage}
             pageSize={pageSize}
           />
