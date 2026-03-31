@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+// Added useTransition here
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react"
 import Link from "next/link"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -13,7 +14,7 @@ import {
   BarChart3, Users, DollarSign, Target, Zap,
   Layout, Table as TableIcon, Settings, Save,
   AlertTriangle, CheckCircle2, XCircle, Sparkles, Upload,
-  Pencil, RefreshCw, Skull
+  Pencil, RefreshCw, Skull, Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -231,6 +232,9 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const searchParams = useSearchParams();
   const supabase = createClient()
 
+  // MAGIC FIX: useTransition keeps the current UI alive while fetching in the background
+  const [isPending, startTransition] = useTransition();
+
   // STATE DECLARATIONS
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
@@ -254,14 +258,18 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   }, [searchParams])
 
   const handleFilterChange = (key: string, value: string) => {
-    router.push(`${pathname}?${createQueryString(key, value)}`);
+    startTransition(() => {
+      router.push(`${pathname}?${createQueryString(key, value)}`, { scroll: false });
+    });
   }
 
-  // Debounce search effect
+  // Debounce search effect (Wrapped in Transition)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localSearchTerm !== (searchParams.get('search') || "")) {
-        router.push(`${pathname}?${createQueryString('search', localSearchTerm)}`);
+        startTransition(() => {
+          router.push(`${pathname}?${createQueryString('search', localSearchTerm)}`, { scroll: false });
+        });
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -381,12 +389,16 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
     if (value === "") return;
     const newSize = parseInt(value)
     if (!isNaN(newSize) && newSize > 0) {
-      router.push(`${pathname}?${createQueryString('limit', newSize.toString())}`);
+      startTransition(() => {
+        router.push(`${pathname}?${createQueryString('limit', newSize.toString())}`, { scroll: false });
+      });
     }
   }
 
   const handlePageChange = (page: number) => {
-    router.push(`${pathname}?${createQueryString('page', page.toString())}`);
+    startTransition(() => {
+      router.push(`${pathname}?${createQueryString('page', page.toString())}`, { scroll: false });
+    });
   }
 
   const handleInlineUpdate = async (leadId: string, field: string, value: string | number) => {
@@ -544,15 +556,17 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   }, [])
 
   const handleSort = (field: string) => {
-    if (sortField === field) {
-      const newDir = sortDirection === 'asc' ? 'desc' : 'asc'
-      router.push(`${pathname}?${createQueryString('dir', newDir)}`);
-    } else {
-      const params = new URLSearchParams(searchParams.toString())
-      params.set('sort', field)
-      params.set('dir', 'desc')
-      router.push(`${pathname}?${params.toString()}`);
-    }
+    startTransition(() => {
+      if (sortField === field) {
+        const newDir = sortDirection === 'asc' ? 'desc' : 'asc'
+        router.push(`${pathname}?${createQueryString('dir', newDir)}`, { scroll: false });
+      } else {
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('sort', field)
+        params.set('dir', 'desc')
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      }
+    });
   }
 
   const handleBulkEmail = async () => {
@@ -1069,7 +1083,12 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            {/* Added loading spinner when fetching */}
+            {isPending ? (
+               <Loader2 className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground animate-spin" />
+            ) : (
+               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            )}
             <Input
               placeholder="Search leads..."
               value={localSearchTerm}
