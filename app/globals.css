@@ -222,3 +222,21 @@
     overscroll-behavior: contain;
   }
 }
+
+/* --- 7. DESKTOP/LAPTOP AUTO-SCALING (Auto-Zoom Out) --- */
+
+/* For smaller laptops (e.g., 13" - 14" screens between 1025px and 1440px width) */
+@media (min-width: 1025px) and (max-width: 1440px) {
+  html {
+    /* Acts exactly like pressing CTRL - once (~87.5% zoom) */
+    font-size: 14px; 
+  }
+}
+
+/* For very small laptops or split-screen windows (between 769px and 1024px width) */
+@media (min-width: 769px) and (max-width: 1024px) {
+  html {
+    /* Acts exactly like pressing CTRL - twice (~75% zoom) */
+    font-size: 12px; 
+  }
+}
