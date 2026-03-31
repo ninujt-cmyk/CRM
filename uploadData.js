@@ -3,8 +3,8 @@ const { MeiliSearch } = require('meilisearch');
 const companies = require('./companies.json'); // Your test data
 
 const client = new MeiliSearch({
-  host: 'YOUR_RENDER_URL_HERE',
-  apiKey: 'YOUR_MASTER_KEY_HERE',
+  host: 'https://hanva-search.onrender.com',
+  apiKey: 'CreateAStrongPasswordHere123!',
 });
 
 async function setupDatabase() {
