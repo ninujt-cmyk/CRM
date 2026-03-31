@@ -175,7 +175,8 @@ export default function TelecallerDisbursementReport() {
         const { data: users, error } = await supabase
             .from('users')
             .select('id, full_name')
-            .eq('role', 'telecaller'); 
+            .eq('role', 'telecaller')
+            .eq('is_active', true); // **FIX APPLIED HERE**: Filter by is_active = true
 
         if (error) return;
         const map: UserMap = {};
