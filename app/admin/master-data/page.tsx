@@ -1,5 +1,6 @@
 "use client"
 
+import CompanySearch from '@/components/CompanySearch'; // Adjust the path if necessary
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import ExcelJS from "exceljs" // Properly imported ExcelJS
@@ -297,4 +298,18 @@ export default function MasterDataUploadPage() {
 
     </div>
   )
+}
+
+export default function Dashboard() {
+  return (
+    <main className="min-h-screen bg-gray-50 py-10">
+      <div className="max-w-7xl mx-auto px-4">
+        <h1 className="text-3xl font-bold mb-8">Welcome to Hanva CRM</h1>
+        
+        {/* Render the search component here */}
+        <CompanySearch />
+        
+      </div>
+    </main>
+  );
 }
