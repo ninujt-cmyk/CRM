@@ -3,20 +3,18 @@
 import { useState, useEffect } from 'react';
 import { searchClient } from '@/lib/meilisearch';
 
-// Define the shape of your new data
-interface CompanyData {
-  id: string | number;
-  company_name: string;
-  pincode: string;
-  bank_name: string;
-  category: string;
-  city_name: string;
-}
-
 export default function TelecallerSearchPage() {
+  const [searchMode, setSearchMode] = useState<'company' | 'pincode'>('company');
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<CompanyData[]>([]);
+  const [results, setResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  // Clear results when switching tabs
+  const handleModeSwitch = (mode: 'company' | 'pincode') => {
+    setSearchMode(mode);
+    setQuery('');
+    setResults([]);
+  };
 
   useEffect(() => {
     const performSearch = async () => {
@@ -27,10 +25,14 @@ export default function TelecallerSearchPage() {
       
       setIsSearching(true);
       try {
-        const searchResult = await searchClient.index('companies').search(query, { 
-          limit: 15 // Fetch top 15 results
-        });
-        setResults(searchResult.hits as CompanyData[]);
+        // Here is the magic: We restrict the search to ONLY the selected column
+        const searchOptions = {
+          limit: 15,
+          attributesToSearchOn: searchMode === 'company' ? ['company_name'] : ['pincode'],
+        };
+
+        const searchResult = await searchClient.index('companies').search(query, searchOptions);
+        setResults(searchResult.hits);
       } catch (error) {
         console.error('Search error:', error);
       } finally {
@@ -38,87 +40,86 @@ export default function TelecallerSearchPage() {
       }
     };
 
-    const debounceFn = setTimeout(() => performSearch(), 200);
+    const debounceFn = setTimeout(() => performSearch(), 250);
     return () => clearTimeout(debounceFn);
-  }, [query]);
-
-  // Simple logic to check if the user is typing a pincode (only numbers)
-  const isPincodeSearch = /^\d+$/.test(query.trim());
+  }, [query, searchMode]);
 
   return (
-    <div className="p-8 min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">Global Search</h1>
-        
-        {/* Search Bar */}
-        <div className="relative mb-8">
-          <input
-            type="text"
-            placeholder="Search by Company Name or Pincode..."
-            className="w-full p-5 pl-12 text-lg border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {/* A simple search icon placeholder */}
-          <span className="absolute left-4 top-5 text-gray-400 text-xl">🔍</span>
-        </div>
+    <div className="p-8 max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-8 text-gray-800">Telecaller Directory</h1>
+      
+      {/* Search Mode Toggles */}
+      <div className="flex space-x-4 mb-6">
+        <button 
+          onClick={() => handleModeSwitch('company')}
+          className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+            searchMode === 'company' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          Search by Company Name
+        </button>
+        <button 
+          onClick={() => handleModeSwitch('pincode')}
+          className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+            searchMode === 'pincode' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          Search by Pincode
+        </button>
+      </div>
 
-        {isSearching && <p className="text-gray-500 mb-4 animate-pulse">Searching...</p>}
+      {/* Search Input */}
+      <input
+        type="text"
+        placeholder={searchMode === 'company' ? "Type company name (e.g., Hanva Technologies)..." : "Type 6-digit Pincode..."}
+        className="w-full p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-lg"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
 
-        {/* Results Container */}
-        <div className="space-y-3">
-          {results.length > 0 ? (
-            results.map((item) => (
-              <div 
-                key={item.id} 
-                className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow flex items-center justify-between"
-              >
-                {/* CONDITIONAL RENDER: Pincode vs Company Name */}
-                {isPincodeSearch ? (
-                  <>
-                    {/* View for Pincode Search */}
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-500 mb-1">Pincode Match</div>
-                      <h3 className="font-bold text-xl text-gray-800">{item.pincode}</h3>
-                    </div>
-                    <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="text-sm text-gray-500">City</div>
-                      <div className="font-medium text-gray-700">{item.city_name || 'N/A'}</div>
-                    </div>
-                    <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="text-sm text-gray-500">Bank Name</div>
-                      <div className="font-medium text-blue-600">{item.bank_name || 'N/A'}</div>
-                    </div>
-                  </>
+      {isSearching && <p className="text-gray-500 mt-4 animate-pulse">Searching database...</p>}
+
+      {/* Results Display */}
+      <div className="mt-6 space-y-4">
+        {results.length > 0 ? (
+          results.map((item) => (
+            <div key={item.id} className="p-5 border border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between">
+              
+              {/* Left Side: The Match */}
+              <div>
+                {searchMode === 'company' ? (
+                  <h3 className="text-xl font-bold text-gray-900">{item.company_name}</h3>
                 ) : (
-                  <>
-                    {/* View for Company Search */}
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-500 mb-1">Company</div>
-                      <h3 className="font-bold text-lg text-gray-800">{item.company_name}</h3>
-                    </div>
-                    <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="text-sm text-gray-500">Bank Name</div>
-                      <div className="font-medium text-blue-600">{item.bank_name || 'N/A'}</div>
-                    </div>
-                    <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="text-sm text-gray-500">Category</div>
-                      <span className="inline-block px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full font-medium mt-1">
-                        {item.category || 'N/A'}
-                      </span>
-                    </div>
-                  </>
+                  <h3 className="text-xl font-bold text-gray-900">Pincode: {item.pincode}</h3>
                 )}
               </div>
-            ))
-          ) : (
-            query && !isSearching && (
-              <div className="p-8 text-center bg-white border border-gray-200 rounded-xl">
-                <p className="text-gray-500 text-lg">No records found for "{query}"</p>
+
+              {/* Right Side: The Context (File Name, City, Category) */}
+              <div className="mt-3 md:mt-0 flex flex-col items-start md:items-end text-sm">
+                <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full border border-gray-200 mb-2 font-medium">
+                  File: {item.file_name || 'Unknown File'}
+                </span>
+                
+                {searchMode === 'company' ? (
+                  <span className="text-blue-600 font-semibold flex items-center gap-1">
+                    <span className="text-gray-500 font-normal">Category:</span> {item.category || 'N/A'}
+                  </span>
+                ) : (
+                  <span className="text-green-600 font-semibold flex items-center gap-1">
+                    <span className="text-gray-500 font-normal">City:</span> {item.city || 'N/A'}
+                  </span>
+                )}
               </div>
-            )
-          )}
-        </div>
+
+            </div>
+          ))
+        ) : (
+          query && !isSearching && (
+            <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+              <p className="text-gray-500 text-lg">No results found for "{query}"</p>
+            </div>
+          )
+        )}
       </div>
     </div>
   );
