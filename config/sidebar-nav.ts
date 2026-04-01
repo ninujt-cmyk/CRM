@@ -15,7 +15,8 @@ import {
   Presentation,      // Replaced KeyRound for "Wallboard" (Represents a large display/board)
   Workflow,          // Replaced KeyRound for "Operations" (Interconnected processes)
   PhoneOutgoing,     // Replaced KeyRound for "Dialer" (Directly indicates outbound calling)
-  Settings 
+  Settings,
+  CloudUpload 
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -51,7 +52,7 @@ export const sidebarGroups = [
       { name: "Logins", href: "/admin/logins", icon: UserCheck },
       { name: "Wallboard", href: "/admin/wallboard", icon: Presentation },
       { name: "IVR", href: "/admin/ivr-campaigns", icon: Workflow },
-      { name: "Files", href: "/admin/documents", icon: PhoneOutgoing },
+      { name: "Files", href: "/admin/master-data", icon: CloudUpload },
     ]
   },
   {
