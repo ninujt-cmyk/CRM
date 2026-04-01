@@ -33,7 +33,8 @@ import {
   MessageCircle,   // Team Chat
   Fingerprint,     // Logins (Identity/Security)
   ChevronsLeft,
-  AlignLeft
+  AlignLeft,
+  UserSearch 
 } from "lucide-react"
 
 const navigation = [
@@ -47,7 +48,7 @@ const navigation = [
   { name: "Leave", href: "/telecaller/leave", icon: CalendarOff },
   { name: "Team Chat", href: "/telecaller/chat", icon: MessageCircle },
   { name: "Logins", href: "/telecaller/logins", icon: Fingerprint },
-  { name: "Files", href: "/telecaller/documents", icon: Fingerprint },
+  { name: "Files", href: "/telecaller/global-search", icon: UserSearch },
 ]
 
 // --- SUB-COMPONENT: Nav Item with 3D Effects ---
