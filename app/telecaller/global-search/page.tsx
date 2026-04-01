@@ -87,11 +87,10 @@ export default function TelecallerSearchPage() {
               {/* Highlight strip at the top for visual pop */}
               <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
               
-              {/* CENTERED, BIG FILE NAME */}
-              <div className="flex justify-center w-full mb-6 mt-2">
+              {/* CENTERED, BIG FILE NAME (Extension & label removed) */}
+              <div className="flex justify-center w-full mb-6 mt-4">
                 <div className="bg-indigo-50 text-indigo-800 border border-indigo-200 text-xl md:text-2xl font-black px-8 py-3 rounded-lg text-center tracking-wide shadow-sm">
-                  <span className="text-indigo-500 text-sm font-semibold uppercase tracking-widest block mb-1">Source File</span>
-                  {item.file_name || 'UNKNOWN FILE'}
+                  {item.file_name ? item.file_name.replace(/\.[^/.]+$/, "") : 'UNKNOWN FILE'}
                 </div>
               </div>
 
