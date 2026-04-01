@@ -1,14 +1,20 @@
 "use client";
 
 import { useState } from 'react';
-import Papa from 'papaparse'; // We now use PapaParse on the client side
+import Papa from 'papaparse'; 
 
 export default function MasterDataPage() {
+  // --- UPLOAD STATE ---
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [uploadType, setUploadType] = useState<'company' | 'pincode'>('company');
   const [file, setFile] = useState<File | null>(null);
 
+  // --- DELETE STATE ---
+  const [deleteFileName, setDeleteFileName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // --- UPLOAD FUNCTIONS ---
   const downloadSample = () => {
     let csvContent = uploadType === 'company' 
       ? "company_name,category\nHanva Technologies PVT LTD,IT Software" 
@@ -27,7 +33,6 @@ export default function MasterDataPage() {
     setIsUploading(true);
     setUploadProgress({ current: 0, total: 0 });
 
-    // Parse the file in the browser to avoid server memory crashes
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -36,7 +41,6 @@ export default function MasterDataPage() {
         const totalRows = allRows.length;
         setUploadProgress({ current: 0, total: totalRows });
 
-        // Chunk size: 2500 rows per request (safe for Free Tier servers)
         const chunkSize = 2500; 
         
         for (let i = 0; i < totalRows; i += chunkSize) {
@@ -55,7 +59,6 @@ export default function MasterDataPage() {
 
             if (!response.ok) throw new Error("Batch failed");
             
-            // Update progress bar
             setUploadProgress(prev => ({ 
               ...prev, 
               current: Math.min(prev.current + chunkSize, totalRows) 
@@ -80,10 +83,46 @@ export default function MasterDataPage() {
     });
   };
 
+  // --- DELETE FUNCTION ---
+  const handleDeleteSubmit = async () => {
+    if (!deleteFileName.trim()) {
+      alert("Please enter the exact file name you want to delete.");
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `WARNING: Are you sure you want to delete ALL data associated with "${deleteFileName}"? This cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch('/api/admin/delete-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: deleteFileName.trim() }),
+      });
+
+      if (response.ok) {
+        alert(`Deletion process started for "${deleteFileName}". It will be removed from the database shortly.`);
+        setDeleteFileName(''); 
+      } else {
+        const errorData = await response.json();
+        alert(`Delete failed: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("A network error occurred.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <div className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8 text-gray-800">Master Data Management</h1>
+    <div className="p-8 max-w-3xl mx-auto space-y-8">
+      <h1 className="text-3xl font-bold text-gray-800">Master Data Management</h1>
       
+      {/* --- UPLOAD SECTION --- */}
       <div className="p-6 border border-gray-200 rounded-xl bg-white shadow-sm">
         <h2 className="text-xl font-semibold mb-6">Upload Directory Data</h2>
         
@@ -117,7 +156,6 @@ export default function MasterDataPage() {
           />
         </div>
 
-        {/* Live Progress Bar */}
         {isUploading && (
           <div className="mb-6">
             <div className="flex justify-between text-sm text-gray-600 mb-1">
@@ -143,6 +181,35 @@ export default function MasterDataPage() {
           {isUploading ? 'Processing...' : 'Upload Data'}
         </button>
       </div>
+
+      {/* --- DELETION SECTION --- */}
+      <div className="p-6 border border-red-200 rounded-xl bg-red-50 shadow-sm">
+        <h2 className="text-xl font-semibold mb-2 text-red-800">Delete File Data</h2>
+        <p className="text-sm text-red-600 mb-6">
+          Remove all records associated with a specific uploaded file. Type the exact file name (e.g., <span className="font-mono bg-red-100 px-1 rounded border border-red-200">ICICI.csv</span>).
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-4">
+          <input 
+            type="text" 
+            placeholder="Enter exact file name..." 
+            value={deleteFileName}
+            onChange={(e) => setDeleteFileName(e.target.value)}
+            disabled={isDeleting}
+            className="flex-1 p-3 border border-red-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none"
+          />
+          <button 
+            onClick={handleDeleteSubmit}
+            disabled={!deleteFileName || isDeleting}
+            className={`px-6 py-3 rounded-lg font-bold text-white transition-colors whitespace-nowrap ${
+              !deleteFileName || isDeleting ? 'bg-red-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md'
+            }`}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete File Data'}
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }
