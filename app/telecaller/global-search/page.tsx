@@ -25,7 +25,6 @@ export default function TelecallerSearchPage() {
       
       setIsSearching(true);
       try {
-        // Here is the magic: We restrict the search to ONLY the selected column
         const searchOptions = {
           limit: 15,
           attributesToSearchOn: searchMode === 'company' ? ['company_name'] : ['pincode'],
@@ -80,37 +79,50 @@ export default function TelecallerSearchPage() {
       {isSearching && <p className="text-gray-500 mt-4 animate-pulse">Searching database...</p>}
 
       {/* Results Display */}
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 space-y-6">
         {results.length > 0 ? (
           results.map((item) => (
-            <div key={item.id} className="p-5 border border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between">
+            <div key={item.id} className="p-6 border border-gray-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow flex flex-col relative overflow-hidden">
               
-              {/* Left Side: The Match */}
-              <div>
-                {searchMode === 'company' ? (
-                  <h3 className="text-xl font-bold text-gray-900">{item.company_name}</h3>
-                ) : (
-                  <h3 className="text-xl font-bold text-gray-900">Pincode: {item.pincode}</h3>
-                )}
+              {/* Highlight strip at the top for visual pop */}
+              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
+              
+              {/* CENTERED, BIG FILE NAME */}
+              <div className="flex justify-center w-full mb-6 mt-2">
+                <div className="bg-indigo-50 text-indigo-800 border border-indigo-200 text-xl md:text-2xl font-black px-8 py-3 rounded-lg text-center tracking-wide shadow-sm">
+                  <span className="text-indigo-500 text-sm font-semibold uppercase tracking-widest block mb-1">Source File</span>
+                  {item.file_name || 'UNKNOWN FILE'}
+                </div>
               </div>
 
-              {/* Right Side: The Context (File Name, City, Category) */}
-              <div className="mt-3 md:mt-0 flex flex-col items-start md:items-end text-sm">
-                <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full border border-gray-200 mb-2 font-medium">
-                  File: {item.file_name || 'Unknown File'}
-                </span>
+              {/* Bottom Section: Company/Pincode and Category/City */}
+              <div className="flex flex-col md:flex-row items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-100">
                 
-                {searchMode === 'company' ? (
-                  <span className="text-blue-600 font-semibold flex items-center gap-1">
-                    <span className="text-gray-500 font-normal">Category:</span> {item.category || 'N/A'}
-                  </span>
-                ) : (
-                  <span className="text-green-600 font-semibold flex items-center gap-1">
-                    <span className="text-gray-500 font-normal">City:</span> {item.city || 'N/A'}
-                  </span>
-                )}
-              </div>
+                {/* Left Side: The Match */}
+                <div className="text-center md:text-left mb-3 md:mb-0">
+                  {searchMode === 'company' ? (
+                    <h3 className="text-xl font-bold text-gray-900">{item.company_name}</h3>
+                  ) : (
+                    <h3 className="text-xl font-bold text-gray-900">Pincode: {item.pincode}</h3>
+                  )}
+                </div>
 
+                {/* Right Side: The Context */}
+                <div className="text-lg">
+                  {searchMode === 'company' ? (
+                    <span className="text-blue-700 font-semibold flex items-center gap-2">
+                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">Category:</span> 
+                      {item.category || 'N/A'}
+                    </span>
+                  ) : (
+                    <span className="text-green-700 font-semibold flex items-center gap-2">
+                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">City:</span> 
+                      {item.city || 'N/A'}
+                    </span>
+                  )}
+                </div>
+
+              </div>
             </div>
           ))
         ) : (
