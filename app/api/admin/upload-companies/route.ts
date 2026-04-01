@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import { adminClient } from '@/lib/meilisearch';
 import Papa from 'papaparse';
+import { randomUUID } from 'crypto';
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const uploadType = formData.get('uploadType') as string; // 'company' or 'pincode'
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // 1. Grab the actual name of the uploaded file (e.g., "Delhi_Leads_2026.csv")
     const uploadedFileName = file.name; 
-
     const fileText = await file.text();
     let data: any[] = [];
 
@@ -26,19 +26,22 @@ export async function POST(request: Request) {
     } else if (file.name.toLowerCase().endsWith('.json')) {
       data = JSON.parse(fileText);
     } else {
-      return NextResponse.json({ error: 'Unsupported file type.' }, { status: 400 });
+      return NextResponse.json({ error: 'Unsupported file type. Use .csv or .json' }, { status: 400 });
     }
 
-    // 2. Inject the file name into every row and clean the data
+    // Process and clean the data
     const formattedData = data.map((row) => {
-      if (row.company_name) {
+      // Auto-generate an ID so the admin doesn't need an 'id' column in the Excel file
+      row.id = randomUUID();
+      row.file_name = uploadedFileName;
+      row.data_type = uploadType; // Tag the data type
+
+      // Clean company names only if it's a company upload
+      if (uploadType === 'company' && row.company_name) {
         row.company_name = row.company_name
           .replace(/\bpvt\.?\b/gi, 'PVT')
           .replace(/\bltd\.?\b/gi, 'LTD');
       }
-      
-      // Attach the file name to the row so the telecaller can see it later
-      row.file_name = uploadedFileName; 
       
       return row;
     });
