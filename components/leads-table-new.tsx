@@ -149,6 +149,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
   const handleStatusUpdate = async (newStatus: string, note?: string, callbackDate?: string) => {
     try {
       if (!selectedLead?.id) return
+
+      // 🔴 MULTI-TENANT FIX: Get Current User's Tenant ID
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Unauthorized")
+      
+      const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
+      const tenantId = profile?.tenant_id
       
       const updateData: any = { 
         status: newStatus,
@@ -160,6 +167,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         const { error: noteError } = await supabase
           .from("notes")
           .insert({
+            tenant_id: tenantId, // 🔴 INJECTED
             lead_id: selectedLead.id,
             note: note,
             note_type: "status_change"
@@ -173,6 +181,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
         const { error: followUpError } = await supabase
           .from("follow_ups")
           .insert({
+            tenant_id: tenantId, // 🔴 INJECTED
             lead_id: selectedLead.id,
             scheduled_date: callbackDate,
             status: "scheduled"
@@ -221,8 +230,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
 
   const handleAssignLead = async (leadId: string, telecallerId: string) => {
     try {
+      // 🔴 MULTI-TENANT FIX: Get Current User's Tenant ID
       const { data: { user } } = await supabase.auth.getUser()
-      const assignedById = user?.id
+      if (!user) throw new Error("Unauthorized")
+      
+      const assignedById = user.id
+      const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
+      const tenantId = profile?.tenant_id
 
       const { error } = await supabase
         .from("leads")
@@ -238,6 +252,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       // --- INSERT NOTIFICATION WHEN ASSIGNED ---
       if (telecallerId !== "unassigned") {
         await supabase.from("notifications").insert({
+          tenant_id: tenantId, // 🔴 INJECTED
           user_id: telecallerId,
           type: "lead_assignment",
           title: "New Lead Assigned",
@@ -275,9 +290,13 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
     if (!bulkAssignTo || selectedLeads.length === 0) return
 
     try {
-      // Get the current user ID once, outside the loop
+      // 🔴 MULTI-TENANT FIX: Get Current User's Tenant ID
       const { data: { user } } = await supabase.auth.getUser()
-      const assignedById = user?.id
+      if (!user) throw new Error("Unauthorized")
+          
+      const assignedById = user.id
+      const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
+      const tenantId = profile?.tenant_id
 
       // Create all the update promises
       const updates = selectedLeads.map(leadId => 
@@ -302,6 +321,7 @@ export function LeadsTable({ leads = [], telecallers = [] }: LeadsTableProps) {
       // --- INSERT NOTIFICATIONS WHEN BULK ASSIGNED ---
       if (bulkAssignTo !== "unassigned") {
         const notifications = selectedLeads.map(leadId => ({
+          tenant_id: tenantId, // 🔴 INJECTED
           user_id: bulkAssignTo,
           type: "lead_assignment",
           title: "New Lead Assigned",
