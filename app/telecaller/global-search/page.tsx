@@ -7,16 +7,33 @@ export default function TelecallerSearchPage() {
   const [searchMode, setSearchMode] = useState<'company' | 'pincode'>('company');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
-  // State to hold smart nearby suggestions
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  
+  // NEW: Track which items the telecaller has already clicked/processed
+  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
-  // Clear results when switching tabs
   const handleModeSwitch = (mode: 'company' | 'pincode') => {
     setSearchMode(mode);
     setQuery('');
     setResults([]);
     setSuggestions([]);
+  };
+
+  // NEW: One-click copy and mark as processed
+  const handleProcessItem = (item: any) => {
+    const textToCopy = searchMode === 'company' 
+      ? `Company: ${item.company_name} | File: ${item.file_name} | Category: ${item.category}`
+      : `Pincode: ${item.pincode} | City: ${item.city} | File: ${item.file_name}`;
+    
+    navigator.clipboard.writeText(textToCopy);
+    
+    // Add to processed list to change UI color
+    setProcessedIds(prev => {
+      const newSet = new Set(prev);
+      newSet.add(item.id);
+      return newSet;
+    });
   };
 
   useEffect(() => {
@@ -32,32 +49,27 @@ export default function TelecallerSearchPage() {
         const searchOptions = {
           limit: 15,
           attributesToSearchOn: searchMode === 'company' ? ['company_name'] : ['pincode'],
+          // NEW: Tell Meilisearch to highlight the matched text
+          attributesToHighlight: ['*'], 
         };
 
         const searchResult = await searchClient.index('companies').search(query, searchOptions);
         
-        // --- STRICT EXACT MATCH FOR PINCODES ---
-        // Prevents Meilisearch typo-tolerance from showing '560002' when searching '560001'
         let validHits = searchResult.hits;
         if (searchMode === 'pincode') {
           validHits = validHits.filter((item) => String(item.pincode) === query.trim());
         }
 
         setResults(validHits);
-        setSuggestions([]); // Clear previous suggestions
+        setSuggestions([]); 
 
-        // --- SMART INTELLIGENCE FEATURE ---
-        // If it's a pincode search, yielded 0 EXACT hits, and they've typed at least 4 digits
+        // Smart Pincode Suggestions
         if (searchMode === 'pincode' && validHits.length === 0 && query.length >= 4) {
-          
-          // Grab the first 3 or 4 digits to find the general geographic region/city
           const prefix = query.length === 6 ? query.substring(0, 4) : query.substring(0, 3);
-          
           const suggestionResult = await searchClient.index('companies').search(prefix, {
-            limit: 6, // Show top 6 alternative nearby areas
+            limit: 6,
             attributesToSearchOn: ['pincode'],
           });
-          
           setSuggestions(suggestionResult.hits);
         }
 
@@ -68,122 +80,134 @@ export default function TelecallerSearchPage() {
       }
     };
 
-    const debounceFn = setTimeout(() => performSearch(), 250);
+    const debounceFn = setTimeout(() => performSearch(), 200); // Reduced to 200ms for faster typing feel
     return () => clearTimeout(debounceFn);
   }, [query, searchMode]);
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8 text-gray-800">Telecaller Directory</h1>
+    <div className="p-8 max-w-4xl mx-auto bg-gray-50 min-h-screen">
+      <h1 className="text-2xl font-bold mb-6 text-gray-800">Telecaller Directory</h1>
       
       {/* Search Mode Toggles */}
-      <div className="flex space-x-4 mb-6">
+      <div className="flex space-x-3 mb-6">
         <button 
           onClick={() => handleModeSwitch('company')}
-          className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-            searchMode === 'company' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          className={`px-5 py-2 rounded-md font-medium text-sm transition-colors ${
+            searchMode === 'company' ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
           }`}
         >
-          Search by Company Name
+          Company Search
         </button>
         <button 
           onClick={() => handleModeSwitch('pincode')}
-          className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-            searchMode === 'pincode' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          className={`px-5 py-2 rounded-md font-medium text-sm transition-colors ${
+            searchMode === 'pincode' ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
           }`}
         >
-          Search by Pincode
+          Pincode Search
         </button>
       </div>
 
       {/* Search Input */}
-      <input
-        type="text"
-        placeholder={searchMode === 'company' ? "Type company name (e.g., Hanva Technologies)..." : "Type 6-digit Pincode..."}
-        className="w-full p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-lg"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-
-      {isSearching && <p className="text-gray-500 mt-4 animate-pulse">Searching database...</p>}
+      <div className="relative mb-8">
+        <input
+          type="text"
+          placeholder={searchMode === 'company' ? "hcl" : "Type 6-digit Pincode..."}
+          className="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-lg bg-white"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {isSearching && <span className="absolute right-4 top-4 text-gray-400 text-sm animate-pulse">Searching...</span>}
+      </div>
 
       {/* Results Display */}
-      <div className="mt-6 space-y-6">
+      <div className="space-y-4">
         {results.length > 0 ? (
-          results.map((item) => (
-            <div key={item.id} className="p-6 border border-gray-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow flex flex-col relative overflow-hidden">
-              
-              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
-              
-              <div className="flex justify-center w-full mb-6 mt-4">
-                <div className="bg-indigo-50 text-indigo-800 border border-indigo-200 text-xl md:text-2xl font-black px-8 py-3 rounded-lg text-center tracking-wide shadow-sm">
-                  {item.file_name ? item.file_name.replace(/\.[^/.]+$/, "") : 'UNKNOWN FILE'}
-                </div>
-              </div>
+          results.map((item) => {
+            const isProcessed = processedIds.has(item.id);
+            const fileNameFormatted = item.file_name || 'Unknown.csv';
 
-              <div className="flex flex-col md:flex-row items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <div className="text-center md:text-left mb-3 md:mb-0">
+            return (
+              <div 
+                key={item.id} 
+                onClick={() => handleProcessItem(item)}
+                className={`p-5 border rounded-xl shadow-sm transition-all cursor-pointer flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
+                  isProcessed ? 'bg-green-50 border-green-200 hover:bg-green-100' : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
+                }`}
+                title="Click to copy and mark as processed"
+              >
+                {/* Left Side: Highlighted Match */}
+                <div className="flex-1">
                   {searchMode === 'company' ? (
-                    <h3 className="text-xl font-bold text-gray-900">{item.company_name}</h3>
+                    // Using _formatted to display Meilisearch's automatic <em> highlighting
+                    <h3 
+                      className="text-lg font-bold text-gray-900 uppercase"
+                      dangerouslySetInnerHTML={{ __html: item._formatted?.company_name || item.company_name }}
+                    />
                   ) : (
-                    <h3 className="text-xl font-bold text-gray-900">Pincode: {item.pincode}</h3>
+                    <h3 
+                      className="text-lg font-bold text-gray-900"
+                      dangerouslySetInnerHTML={{ __html: `Pincode: ${item._formatted?.pincode || item.pincode}` }}
+                    />
                   )}
+                  {isProcessed && <span className="text-xs font-bold text-green-600 uppercase tracking-wider mt-1 block">✓ Copied & Processed</span>}
                 </div>
 
-                <div className="text-lg">
+                {/* Right Side: File & Category Tags */}
+                <div className="flex flex-col items-start md:items-end gap-2">
+                  <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm border border-gray-200 whitespace-nowrap">
+                    File: {fileNameFormatted}
+                  </span>
+                  
                   {searchMode === 'company' ? (
-                    <span className="text-blue-700 font-semibold flex items-center gap-2">
-                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">Category:</span> 
-                      {item.category || 'N/A'}
+                    <span className="text-sm text-gray-500">
+                      Category: <span className="text-blue-600 font-semibold">{item.category || 'N/A'}</span>
                     </span>
                   ) : (
-                    <span className="text-green-700 font-semibold flex items-center gap-2">
-                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">City:</span> 
-                      {item.city || 'N/A'}
+                    <span className="text-sm text-gray-500">
+                      City: <span className="text-green-600 font-semibold">{item.city || 'N/A'}</span>
                     </span>
                   )}
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           query && !isSearching && (
             <div>
-              {/* --- SMART INTELLIGENCE UI --- */}
               {suggestions.length > 0 ? (
-                <div className="bg-amber-50 border-l-4 border-amber-500 p-6 rounded-r-lg shadow-sm">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 text-amber-500 text-3xl mr-4">
-                      💡
-                    </div>
-                    <div className="w-full">
-                      <h3 className="text-xl font-bold text-amber-900">Exact Pincode Not Found</h3>
-                      <p className="mt-1 text-amber-800 font-medium text-lg">
-                        Pivot Script: <span className="italic">"Are you available in any of these nearby locations?"</span>
-                      </p>
-                      
-                      {/* Suggestion Grid */}
-                      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {suggestions.map((suggestion) => (
-                          <div key={suggestion.id} className="bg-white p-3 border border-amber-200 rounded-lg shadow-sm flex flex-col justify-center items-center text-center">
-                            <span className="font-black text-xl text-gray-900">{suggestion.pincode}</span>
-                            <span className="text-sm text-gray-600 font-medium mt-1">{suggestion.city || 'Unknown City'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                <div className="bg-amber-50 border border-amber-200 p-5 rounded-lg shadow-sm">
+                  <h3 className="text-lg font-bold text-amber-900 mb-2">Pincode Not Found</h3>
+                  <p className="text-amber-800 text-sm mb-4">Ask the customer: <i>"Are you available in any of these nearby locations?"</i></p>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {suggestions.map((suggestion) => (
+                      <span key={suggestion.id} className="bg-white border border-amber-300 px-3 py-1 rounded-md text-sm font-bold text-gray-800 shadow-sm">
+                        {suggestion.pincode} <span className="font-normal text-gray-500 ml-1">({suggestion.city})</span>
+                      </span>
+                    ))}
                   </div>
                 </div>
               ) : (
-                // Standard fallback if absolutely nothing is nearby
-                <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                  <p className="text-gray-500 text-lg">No results found for "{query}"</p>
+                <div className="text-center py-8 text-gray-500">
+                  No results found for "{query}".
                 </div>
               )}
             </div>
           )
         )}
       </div>
+      
+      {/* Add some global CSS for the Meilisearch highlight tags */}
+      <style dangerouslySetInnerHTML={{__html: `
+        em {
+          font-style: normal;
+          background-color: #fef08a; /* Yellow highlight */
+          color: #000;
+          padding: 0 2px;
+          border-radius: 2px;
+        }
+      `}} />
     </div>
   );
 }
