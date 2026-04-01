@@ -7,7 +7,7 @@ export default function TelecallerSearchPage() {
   const [searchMode, setSearchMode] = useState<'company' | 'pincode'>('company');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
-  // NEW: State to hold smart nearby suggestions
+  // State to hold smart nearby suggestions
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
@@ -66,14 +66,14 @@ export default function TelecallerSearchPage() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8 text-gray-800">Telecaller Directory</h1>
+      <h1 className="text-3xl font-bold mb-8 text-slate-800">Telecaller Directory</h1>
       
       {/* Search Mode Toggles */}
       <div className="flex space-x-4 mb-6">
         <button 
           onClick={() => handleModeSwitch('company')}
           className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-            searchMode === 'company' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            searchMode === 'company' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
           }`}
         >
           Search by Company Name
@@ -81,7 +81,7 @@ export default function TelecallerSearchPage() {
         <button 
           onClick={() => handleModeSwitch('pincode')}
           className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-            searchMode === 'pincode' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            searchMode === 'pincode' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
           }`}
         >
           Search by Pincode
@@ -91,56 +91,52 @@ export default function TelecallerSearchPage() {
       {/* Search Input */}
       <input
         type="text"
-        placeholder={searchMode === 'company' ? "Type company name (e.g., Hanva Technologies)..." : "Type 6-digit Pincode..."}
-        className="w-full p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-lg"
+        placeholder={searchMode === 'company' ? "Type company name (e.g., hcl)..." : "Type 6-digit Pincode..."}
+        className="w-full p-4 border border-slate-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-lg text-slate-800"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
 
-      {isSearching && <p className="text-gray-500 mt-4 animate-pulse">Searching database...</p>}
+      {isSearching && <p className="text-slate-500 mt-4 animate-pulse">Searching database...</p>}
 
       {/* Results Display */}
-      <div className="mt-6 space-y-6">
+      <div className="mt-4 space-y-4">
         {results.length > 0 ? (
           results.map((item) => (
-            <div key={item.id} className="p-6 border border-gray-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow flex flex-col relative overflow-hidden">
+            <div key={item.id} className="p-5 border border-slate-200 rounded-xl bg-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               
-              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
-              
-              <div className="flex justify-center w-full mb-6 mt-4">
-                <div className="bg-indigo-50 text-indigo-800 border border-indigo-200 text-xl md:text-2xl font-black px-8 py-3 rounded-lg text-center tracking-wide shadow-sm">
-                  {item.file_name ? item.file_name.replace(/\.[^/.]+$/, "") : 'UNKNOWN FILE'}
-                </div>
+              {/* Left Side: Company Name / Pincode */}
+              <div>
+                {searchMode === 'company' ? (
+                  <h3 className="text-[1.15rem] font-bold text-slate-900 tracking-tight">{item.company_name}</h3>
+                ) : (
+                  <h3 className="text-[1.15rem] font-bold text-slate-900 tracking-tight">{item.pincode}</h3>
+                )}
               </div>
 
-              <div className="flex flex-col md:flex-row items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <div className="text-center md:text-left mb-3 md:mb-0">
-                  {searchMode === 'company' ? (
-                    <h3 className="text-xl font-bold text-gray-900">{item.company_name}</h3>
-                  ) : (
-                    <h3 className="text-xl font-bold text-gray-900">Pincode: {item.pincode}</h3>
-                  )}
+              {/* Right Side: File Name Pill & Category */}
+              <div className="flex flex-col items-start md:items-end gap-1.5 w-full md:w-auto mt-2 md:mt-0">
+                <div className="bg-slate-100/80 text-slate-700 text-sm font-medium px-3.5 py-1 rounded-full border border-slate-200">
+                  File: {item.file_name || 'Unknown'}
                 </div>
-
-                <div className="text-lg">
+                <div className="text-[0.9rem]">
                   {searchMode === 'company' ? (
-                    <span className="text-blue-700 font-semibold flex items-center gap-2">
-                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">Category:</span> 
-                      {item.category || 'N/A'}
+                    <span className="text-slate-500">
+                      Category: <span className="text-blue-600 font-semibold">{item.category || 'N/A'}</span>
                     </span>
                   ) : (
-                    <span className="text-green-700 font-semibold flex items-center gap-2">
-                      <span className="text-gray-500 font-normal text-sm uppercase tracking-wider">City:</span> 
-                      {item.city || 'N/A'}
+                    <span className="text-slate-500">
+                      City: <span className="text-green-600 font-semibold">{item.city || 'N/A'}</span>
                     </span>
                   )}
                 </div>
               </div>
+
             </div>
           ))
         ) : (
           query && !isSearching && (
-            <div>
+            <div className="mt-6">
               {/* --- SMART INTELLIGENCE UI --- */}
               {suggestions.length > 0 ? (
                 <div className="bg-amber-50 border-l-4 border-amber-500 p-6 rounded-r-lg shadow-sm">
@@ -158,8 +154,8 @@ export default function TelecallerSearchPage() {
                       <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         {suggestions.map((suggestion) => (
                           <div key={suggestion.id} className="bg-white p-3 border border-amber-200 rounded-lg shadow-sm flex flex-col justify-center items-center text-center">
-                            <span className="font-black text-xl text-gray-900">{suggestion.pincode}</span>
-                            <span className="text-sm text-gray-600 font-medium mt-1">{suggestion.city || 'Unknown City'}</span>
+                            <span className="font-black text-xl text-slate-900">{suggestion.pincode}</span>
+                            <span className="text-sm text-slate-600 font-medium mt-1">{suggestion.city || 'Unknown City'}</span>
                           </div>
                         ))}
                       </div>
@@ -168,8 +164,8 @@ export default function TelecallerSearchPage() {
                 </div>
               ) : (
                 // Standard fallback if absolutely nothing is nearby
-                <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                  <p className="text-gray-500 text-lg">No results found for "{query}"</p>
+                <div className="text-center py-10 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                  <p className="text-slate-500 text-lg">No results found for "{query}"</p>
                 </div>
               )}
             </div>
