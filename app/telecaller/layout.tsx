@@ -47,7 +47,7 @@ export default async function TelecallerLayout({
             <div className="flex-1 flex flex-col overflow-hidden relative"> 
               
               {/* ✅ TOP NAVIGATION AREA */}
-              <div className="flex flex-col border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <div className="flex flex-col border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-40">
                 {/* Status Bar */}
                 {user && (
                    <div className="w-full">
