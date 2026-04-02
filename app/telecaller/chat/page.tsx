@@ -274,7 +274,8 @@ export default function AdminWhatsAppPanel() {
             ) : (
               <div className="flex items-center gap-2 md:gap-3 bg-black/5 p-2 rounded-md border border-black/10 hover:bg-black/10 transition-colors w-full">
                 <div className={`p-2 rounded-md ${finalIsPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                   {finalIsPDF ? <FileText size={16} md:size={20} /> : <File size={16} md:size={20} />}
+                   {/* FIXED: Replaced invalid md:size props with Tailwind classes */}
+                   {finalIsPDF ? <FileText className="w-4 h-4 md:w-5 md:h-5" /> : <File className="w-4 h-4 md:w-5 md:h-5" />}
                 </div>
                 <div className="flex-1 min-w-0 pr-1 md:pr-2">
                   <p className="text-[12px] md:text-[13px] font-medium truncate text-slate-800" title={finalFileName}>{finalFileName}</p>
