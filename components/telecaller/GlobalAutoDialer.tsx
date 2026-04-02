@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { PhoneForwarded, Loader2, Timer, CheckCircle2, User, PauseCircle } from "lucide-react"
+// 1. Added 'X' to the imports
+import { PhoneForwarded, Loader2, Timer, CheckCircle2, User, PauseCircle, X } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
 
 export function GlobalAutoDialer() {
-    // Added 'paused' state
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline' | 'paused'>('offline')
     const [countdown, setCountdown] = useState(10) 
     const [isVisible, setIsVisible] = useState(false)
@@ -91,7 +91,7 @@ export function GlobalAutoDialer() {
     const handleDatabaseStatusChange = (dbStatus: string, autoDialerStatus: string) => {
         if (!tenantEnabled) return;
 
-        // 🔴 CRITICAL NEW LOGIC: Intercept if Admin paused the dialer!
+        // CRITICAL NEW LOGIC: Intercept if Admin paused the dialer!
         if (autoDialerStatus === 'paused' && dbStatus !== 'on_call') {
             changeState('paused');
             setIsVisible(true); // Keep it visible so the agent knows it was paused by admin
@@ -240,6 +240,16 @@ export function GlobalAutoDialer() {
 
     return (
         <div className={`fixed bottom-6 left-6 z-50 bg-white border-2 rounded-lg shadow-2xl p-4 w-80 animate-in slide-in-from-bottom-5 ${dialState === 'paused' ? 'border-amber-500' : 'border-emerald-500'}`}>
+            
+            {/* 2. Added the Close/Dismiss Button */}
+            <button
+                onClick={() => setIsVisible(false)}
+                className="absolute top-2 right-2 text-slate-400 hover:text-slate-700 transition-colors"
+                aria-label="Hide Dialer"
+            >
+                <X className="h-4 w-4" />
+            </button>
+
             <div className="flex items-start gap-4">
                 <div className="mt-1">
                     {dialState === 'dialing' && <Loader2 className="h-6 w-6 text-emerald-600 animate-spin" />}
@@ -249,7 +259,7 @@ export function GlobalAutoDialer() {
                     {dialState === 'paused' && <PauseCircle className="h-6 w-6 text-amber-600" />}
                 </div>
 
-                <div className="flex-1">
+                <div className="flex-1 pr-4"> {/* Added pr-4 to prevent text from overlapping the close button */}
                     <h4 className="font-bold text-slate-800 text-sm">
                         {dialState === 'dialing' && "Dialing Customer..."}
                         {dialState === 'on_call' && "Call in Progress"}
