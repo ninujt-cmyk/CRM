@@ -46,7 +46,7 @@ const navigation = [
   { name: "Notes", href: "/telecaller/notes", icon: StickyNote },
   { name: "Attendance", href: "/telecaller/attendance", icon: UserCheck },
   { name: "Leave", href: "/telecaller/leave", icon: CalendarOff },
-  { name: "Team Chat", href: "/telecaller/chat", icon: MessageCircle },
+  { name: "Whatsapp", href: "/telecaller/chat", icon: MessageCircle },
   { name: "Logins", href: "/telecaller/logins", icon: Fingerprint },
   { name: "Files", href: "/telecaller/global-search", icon: UserSearch },
 ]
