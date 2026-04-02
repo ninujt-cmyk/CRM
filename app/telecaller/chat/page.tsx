@@ -1,147 +1,495 @@
-"use client";
+"use client"
 
-import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Users } from "lucide-react";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import { useChat } from "@/hooks/use-chat";
+import { useEffect, useState, useRef } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { 
+  Search, Send, User, Check, CheckCheck, 
+  Loader2, MessageSquare, Bot, ExternalLink, ShieldAlert, Filter,
+  Download, FileText, File, Image as ImageIcon
+} from "lucide-react"
+import { sendWhatsAppText } from "@/app/actions/whatsapp"
+import Link from "next/link"
 
-export default function ChatPage() {
-  const [newMessage, setNewMessage] = useState("");
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { messages, currentUser, loading, error, sendMessage } = useChat();
+// --- TYPES ---
+interface ChatLead {
+  id: string
+  name: string
+  phone: string
+  status: string
+  last_message_at: string
+  unread_count: number
+  assigned_to: string | null
+  telecaller_name?: string
+  created_at: string
+  last_message_content?: string
+  last_message_type?: string
+}
 
-  // Scroll to bottom when messages change
+interface ChatMessage {
+  id: string
+  direction: 'inbound' | 'outbound'
+  message_type: string
+  content: string | null
+  status: string 
+  created_at: string
+  fonada_message_id?: string
+  lead_id: string 
+  media_url?: string | null     
+  media_type?: string | null    
+  file_name?: string | null     
+}
+
+export default function AdminWhatsAppPanel() {
+  const supabase = createClient()
+  
+  // State
+  const [leads, setLeads] = useState<ChatLead[]>([])
+  const [filteredLeads, setFilteredLeads] = useState<ChatLead[]>([]) 
+  const [searchQuery, setSearchQuery] = useState("")
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false)
+  const [selectedLead, setSelectedLead] = useState<ChatLead | null>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [inputText, setInputText] = useState("")
+  
+  // Loading States
+  const [loadingLeads, setLoadingLeads] = useState(true)
+  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [sending, setSending] = useState(false)
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // --- NOTIFICATION SETUP ---
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
     }
-  }, [messages]);
+  }, []);
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !currentUser) return;
-
-    const success = await sendMessage(newMessage);
-    if (success) {
-      setNewMessage("");
-    }
+  const playNotificationSound = () => {
+    const audio = new Audio('/notification.wav');
+    audio.play().catch(e => console.log("Audio play blocked by browser:", e));
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  // 1. FETCH ALL LEADS
+  const fetchLeadsAndUsers = async () => {
+    const { data: leadsData } = await supabase
+      .from('leads')
+      .select('id, name, phone, status, last_message_at, unread_count, assigned_to, created_at, last_message_content, last_message_type')
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(150)
+
+    const { data: usersData } = await supabase.from('users').select('id, full_name')
+
+    if (leadsData && usersData) {
+      const mappedLeads = leadsData.map(lead => {
+        const owner = usersData.find(u => u.id === lead.assigned_to)
+        return { ...lead, telecaller_name: owner?.full_name || "Unassigned" }
+      })
+      setLeads(mappedLeads as ChatLead[])
     }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Users className="h-12 w-12 mx-auto text-gray-400 animate-spin" />
-          <p className="mt-4 text-gray-500">Loading chat...</p>
-        </div>
-      </div>
-    );
+    setLoadingLeads(false)
   }
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Users className="h-12 w-12 mx-auto text-gray-400" />
-          <p className="mt-4 text-gray-500">{error}</p>
-        </div>
-      </div>
-    );
+  // 1B. GLOBAL REALTIME LISTENER
+  useEffect(() => {
+    fetchLeadsAndUsers()
+    
+    const leadChannel = supabase.channel('admin_leads_update')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, () => {
+        fetchLeadsAndUsers() 
+      }).subscribe()
+
+    const globalNotificationChannel = supabase.channel('global_notifications')
+      .on('postgres_changes', 
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'chat_messages', 
+        filter: "direction=eq.inbound" 
+      }, 
+      (payload) => {
+        const newMsg = payload.new as ChatMessage;
+        const isLookingAtDifferentTab = document.hidden;
+
+        setSelectedLead((currentSelectedLead) => {
+             const isLookingAtDifferentChat = currentSelectedLead?.id !== newMsg.lead_id;
+             
+             if (isLookingAtDifferentTab || isLookingAtDifferentChat) {
+                playNotificationSound();
+    
+                if ("Notification" in window && Notification.permission === "granted") {
+                   new Notification("New WhatsApp Message", {
+                      body: newMsg.content ? newMsg.content.substring(0, 50) + "..." : "You received a new message.",
+                      icon: "/favicon.ico"
+                   });
+                }
+             }
+             return currentSelectedLead; 
+        });
+
+      }).subscribe()
+
+    return () => { 
+        supabase.removeChannel(leadChannel);
+        supabase.removeChannel(globalNotificationChannel); 
+    }
+  }, []) 
+
+  // 2. FILTER LOGIC
+  useEffect(() => {
+    let result = leads;
+    if (searchQuery) {
+        const lowerQ = searchQuery.toLowerCase();
+        result = result.filter(l => 
+            l.name.toLowerCase().includes(lowerQ) || 
+            l.phone.includes(lowerQ) ||
+            (l.telecaller_name && l.telecaller_name.toLowerCase().includes(lowerQ))
+        );
+    }
+    if (showUnreadOnly) {
+        result = result.filter(l => l.unread_count > 0);
+    }
+    setFilteredLeads(result);
+  }, [leads, searchQuery, showUnreadOnly]);
+
+  // 3. FETCH MESSAGES & HANDLE REALTIME DLRs
+  useEffect(() => {
+    if (!selectedLead) return
+
+    const fetchMessages = async () => {
+      setLoadingMessages(true)
+      const { data } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('lead_id', selectedLead.id)
+        .order('created_at', { ascending: true })
+      
+      if (data) setMessages(data)
+      setLoadingMessages(false)
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
+
+      if (selectedLead.unread_count > 0) {
+          await supabase.from('leads').update({ unread_count: 0 }).eq('id', selectedLead.id)
+          setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, unread_count: 0 } : l))
+      }
+    }
+
+    fetchMessages()
+
+    const msgChannel = supabase.channel(`admin_chat_${selectedLead.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `lead_id=eq.${selectedLead.id}` }, 
+      (payload) => {
+          setMessages(prev => [...prev, payload.new as ChatMessage])
+          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `lead_id=eq.${selectedLead.id}` },
+      (payload) => {
+          setMessages(prev => prev.map(msg => msg.id === payload.new.id ? payload.new as ChatMessage : msg))
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(msgChannel) }
+  }, [selectedLead])
+
+  // 4. SEND MESSAGE
+  const handleSend = async () => {
+    if (!inputText.trim() || sending || !selectedLead) return
+    setSending(true)
+    const textToSend = inputText
+    setInputText("")
+    
+    const res = await sendWhatsAppText(selectedLead.id, selectedLead.phone, textToSend)
+    if (!res.success) {
+        alert("Failed: " + res.error)
+        setInputText(textToSend)
+    }
+    setSending(false)
   }
 
-  if (!currentUser) {
+  // --- RENDER HELPER FOR MESSAGES & MEDIA ---
+  const renderMessageBubble = (msg: ChatMessage) => {
+    const isOutbound = msg.direction === 'outbound'
+    const isTemplate = msg.message_type === 'template'
+    
+    let textToDisplay = msg.content || "";
+    let extractedUrl: string | null = null;
+    let isImage = false;
+    let isPDF = false;
+    let fileName = "Document";
+
+    // 1. URL Extraction Logic (Finds URLs hidden inside normal text)
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = textToDisplay.match(urlRegex);
+
+    if (!msg.media_url && urls && urls.length > 0) {
+      extractedUrl = urls[0];
+      // Remove the URL from the text so we don't display the ugly string
+      textToDisplay = textToDisplay.replace(extractedUrl, '').trim();
+      
+      // Determine file type from extension
+      isImage = !!extractedUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i);
+      isPDF = !!extractedUrl.match(/\.(pdf)(\?.*)?$/i);
+      // Try to get a clean filename
+      fileName = extractedUrl.split('/').pop()?.split('?')[0] || "Document";
+    }
+
+    // 2. Final Data Resolution (Uses explicit columns if they exist, otherwise uses extracted data)
+    const finalMediaUrl = msg.media_url || extractedUrl;
+    const finalIsImage = msg.media_url ? msg.media_type?.startsWith('image/') : isImage;
+    const finalIsPDF = msg.media_url ? msg.media_type === 'application/pdf' : isPDF;
+    const finalFileName = msg.file_name || fileName;
+
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Users className="h-12 w-12 mx-auto text-gray-400" />
-          <p className="mt-4 text-gray-500">Please sign in to access chat</p>
+      <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+        <div className={`max-w-[70%] min-w-[120px] rounded-lg p-3 shadow-sm relative group flex flex-col gap-2
+          ${isOutbound ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none'}`}
+        >
+          {isTemplate && (
+             <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-1 border-b pb-1 border-slate-200/50 uppercase tracking-wider">
+               <Bot className="h-3 w-3" /> Automated Template
+             </div>
+          )}
+          
+          {/* Text Content (Minus the URL) */}
+          {textToDisplay && (
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
+              {textToDisplay.split(/(\*[^*]+\*)/g).map((part, index) =>
+                part.startsWith('*') && part.endsWith('*') ? (
+                  <strong key={index} className="font-bold text-black">{part.slice(1, -1)}</strong>
+                ) : ( part )
+              )}
+            </p>
+          )}
+
+          {/* Media Preview Block */}
+          {finalMediaUrl && (
+            finalIsImage ? (
+              <div className="relative group rounded-md overflow-hidden border border-black/10 bg-black/5 self-start">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={finalMediaUrl} alt="Attached Media" className="max-w-full max-h-64 object-contain rounded-md block" />
+                <a 
+                  href={finalMediaUrl} download target="_blank" rel="noopener noreferrer" 
+                  className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Download Image"
+                >
+                  <Download size={16} />
+                </a>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 bg-black/5 p-2.5 rounded-md border border-black/10 hover:bg-black/10 transition-colors w-full">
+                <div className={`p-2 rounded-md ${finalIsPDF ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                   {finalIsPDF ? <FileText size={20} /> : <File size={20} />}
+                </div>
+                <div className="flex-1 min-w-0 pr-2">
+                  <p className="text-[13px] font-medium truncate text-slate-800" title={finalFileName}>{finalFileName}</p>
+                  <p className="text-[10px] text-slate-500 uppercase">{finalIsPDF ? 'PDF Document' : 'File Attachment'}</p>
+                </div>
+                <a 
+                  href={finalMediaUrl} target="_blank" rel="noopener noreferrer" download
+                  className="p-1.5 bg-white rounded-full shadow-sm hover:bg-slate-50 transition-colors border border-slate-200 shrink-0"
+                  title="Download File"
+                >
+                  <Download size={14} className="text-slate-700" />
+                </a>
+              </div>
+            )
+          )}
+          
+          <div className="flex items-center justify-end gap-1 mt-1">
+            <span className="text-[10px] text-slate-500 font-medium">
+              {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </span>
+            {isOutbound && (
+              <span className="flex items-center">
+                {msg.status === 'read' ? <CheckCheck size={16} className="text-blue-500" /> : 
+                 msg.status === 'delivered' ? <CheckCheck size={16} className="text-gray-400" /> : 
+                 <Check size={16} className="text-gray-400" />}
+              </span>
+            )}
+          </div>
         </div>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b p-4">
-        <h1 className="text-2xl font-bold">Team Chat</h1>
-        <p className="text-sm text-gray-500">Chat with your team in real-time</p>
-      </div>
+    <div className="flex h-[calc(100vh-6rem)] bg-white border rounded-xl shadow-lg overflow-hidden">
+      
+      {/* --- LEFT SIDEBAR: GOD MODE --- */}
+      <div className="w-1/3 border-r bg-slate-50 flex flex-col">
+        {/* Header */}
+        <div className="p-4 bg-[#005c4b] text-white flex items-center justify-between">
+          <h2 className="font-bold flex items-center gap-2"><MessageSquare className="h-5 w-5" /> All Chats</h2>
+          <Badge variant="outline" className="bg-white/20 text-white border-none">{leads.length}</Badge>
+        </div>
 
-      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                "flex gap-3",
-                message.sender_id === currentUser.id ? "flex-row-reverse" : ""
-              )}
+        {/* Search & Filter */}
+        <div className="p-3 border-b bg-white space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input 
+              placeholder="Search..." 
+              className="pl-9 bg-slate-100 border-none"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <button 
+              onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-2 ${
+                showUnreadOnly ? 'bg-green-100 border-green-500 text-green-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}
             >
-              <Avatar>
-                <AvatarImage src={message.sender_avatar || undefined} />
-                <AvatarFallback>
-                  {message.sender_name.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div
-                className={cn(
-                  "max-w-xs lg:max-w-md rounded-lg p-3",
-                  message.sender_id === currentUser.id
-                    ? "bg-blue-500 text-white rounded-br-none"
-                    : "bg-gray-100 text-gray-900 rounded-bl-none"
-                )}
+              <Filter className="h-3 w-3" /> {showUnreadOnly ? "Filter: Unread Only" : "Show All Chats"}
+            </button>
+        </div>
+
+        {/* Lead List */}
+        <div className="flex-1 overflow-y-auto">
+          {loadingLeads ? (
+            <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="text-center p-10 text-slate-500 text-sm">No chats found.</div>
+          ) : (
+            filteredLeads.map(lead => (
+              <div 
+                key={lead.id} 
+                onClick={() => setSelectedLead(lead)}
+                className={`p-3 border-b cursor-pointer transition-all hover:bg-slate-50 ${
+                  selectedLead?.id === lead.id ? 'bg-blue-50 border-l-4 border-l-[#005c4b]' : 'border-l-4 border-l-transparent'
+                }`}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-medium">
-                    {message.sender_name}
-                  </span>
-                  <span className="text-xs opacity-70">
-                    {format(new Date(message.created_at), "h:mm a")}
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className={`font-semibold truncate pr-2 ${lead.unread_count > 0 ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                    {lead.name}
+                  </h3>
+                  <span className={`text-[10px] whitespace-nowrap ${lead.unread_count > 0 ? 'text-green-600 font-bold' : 'text-slate-400'}`}>
+                    {lead.last_message_at 
+                      ? new Date(lead.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })
+                      : "New"
+                    }
                   </span>
                 </div>
-                <p className="text-sm">{message.content}</p>
+
+                <div className="flex items-center gap-1 mb-2">
+                    {lead.last_message_type === 'outbound' ? (
+                       <CheckCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                    ) : (
+                       <div className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse"></div>
+                    )}
+                    <p className={`text-xs truncate max-w-[180px] ${lead.unread_count > 0 ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
+                      {lead.last_message_content?.replace(/(https?:\/\/[^\s]+)/g, '📎 Attachment') || "Attachment"}
+                    </p>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-white text-slate-500 border-slate-200">
+                        {lead.telecaller_name?.split(' ')[0]} 
+                    </Badge>
+                  </div>
+                  {lead.unread_count > 0 && (
+                    <div className="bg-[#25D366] text-white text-[10px] font-bold h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full shadow-sm">{lead.unread_count}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {messages.length === 0 && (
-            <div className="text-center py-8">
-              <Users className="h-12 w-12 mx-auto text-gray-400" />
-              <p className="mt-2 text-gray-500">No messages yet</p>
-              <p className="text-sm text-gray-400">Be the first to start the conversation!</p>
-            </div>
+            ))
           )}
         </div>
-      </ScrollArea>
+      </div>
 
-      <div className="border-t p-4">
-        <div className="flex gap-2">
-          <Input
-            placeholder="Type your message..."
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={handleKeyPress}
-            className="flex-1"
-          />
-          <Button
-            onClick={handleSendMessage}
-            disabled={!newMessage.trim()}
-            size="icon"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+      {/* --- RIGHT SIDEBAR: CHAT WINDOW --- */}
+      <div className="w-2/3 flex flex-col bg-[#efeae2]">
+        {selectedLead ? (
+          <>
+            {/* Rich Header */}
+            <div className="bg-white px-6 py-3 border-b flex items-center justify-between shadow-sm z-10">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 bg-[#005c4b] text-white rounded-full flex items-center justify-center font-bold text-lg">
+                  {selectedLead.name.charAt(0)}
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                    {selectedLead.name}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                        selectedLead.status === 'New' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                    }`}>{selectedLead.status}</span>
+                  </h2>
+                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                    <span>{selectedLead.phone}</span>
+                    <span className="h-3 w-[1px] bg-slate-300"></span>
+                    <span>Owner: <strong>{selectedLead.telecaller_name}</strong></span>
+                  </div>
+                </div>
+              </div>
+              <Link href={`/admin/leads/${selectedLead.id}`}>
+                <Button variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50 gap-2">
+                  <ExternalLink className="h-4 w-4" /> CRM Profile
+                </Button>
+              </Link>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {loadingMessages ? (
+                 <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+              ) : (
+                messages.map((msg) => <div key={msg.id}>{renderMessageBubble(msg)}</div>)
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input & Quick Reply Chips */}
+            <div className="flex flex-col bg-[#f0f2f5]">
+                 <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
+                 {[
+                    "👋 Hi, I tried calling you.",
+                    "📄 Kindly share your Aadhar & PAN.",
+                    "📍 Can you send your current Address?",
+                    "✅ Application Approved!"
+                 ].map((text) => (
+                    <button
+                      key={text}
+                      onClick={() => setInputText(text)}
+                      className="text-xs bg-white border border-gray-300 rounded-full px-3 py-1 hover:bg-green-50 hover:border-green-500 hover:text-green-700 whitespace-nowrap transition-colors"
+                    >
+                      {text}
+                    </button>
+                 ))}
+                </div>
+
+                <div className="p-4 flex items-center gap-3">
+                  <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode">
+                    <ShieldAlert className="h-5 w-5" />
+                  </div>
+                  <Input 
+                    className="flex-1 bg-white border-none shadow-sm h-12 text-base"
+                    placeholder="Type a message..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                    disabled={sending}
+                  />
+                  <Button onClick={handleSend} disabled={!inputText.trim() || sending} className="bg-[#005c4b] hover:bg-[#064e40] h-12 w-12 rounded-full p-0">
+                    {sending ? <Loader2 className="animate-spin h-5 w-5" /> : <Send className="h-5 w-5 ml-1" />}
+                  </Button>
+                </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-[#f8f9fa]">
+            <div className="h-24 w-24 bg-slate-200 rounded-full flex items-center justify-center mb-6">
+               <MessageSquare className="h-10 w-10 text-slate-400" />
+            </div>
+            <h2 className="text-2xl font-light text-slate-600 mb-2">WhatsApp Inbox</h2>
+            <p>Select a chat to view history and status.</p>
+          </div>
+        )}
       </div>
     </div>
-  );
+  )
 }
