@@ -6,6 +6,8 @@ import { PushSubscriber } from "@/components/push-subscriber"
 import { TelecallerTicker } from "@/components/telecaller-ticker"
 import { DailyWelcomeModal } from "@/components/telecaller/daily-welcome-modal"
 import { GlobalAutoDialer } from "@/components/telecaller/GlobalAutoDialer"
+import { Watermark } from "@/components/watermark"
+
 
 // ✅ 1. IMPORT YOUR AGENT STATUS BAR & SUPABASE SERVER
 import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
@@ -33,6 +35,7 @@ export default async function TelecallerLayout({
     >
       <AuthGuard requiredRole="telecaller">
         <PushSubscriber />
+        <Watermark />
         <CallTrackingProvider>
           
           <DailyWelcomeModal />
