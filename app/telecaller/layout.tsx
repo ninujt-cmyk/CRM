@@ -8,7 +8,6 @@ import { DailyWelcomeModal } from "@/components/telecaller/daily-welcome-modal"
 import { GlobalAutoDialer } from "@/components/telecaller/GlobalAutoDialer"
 import { Watermark } from "@/components/watermark"
 
-
 // ✅ 1. IMPORT YOUR AGENT STATUS BAR & SUPABASE SERVER
 import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
 import { createClient } from "@/lib/supabase/server"
@@ -42,26 +41,28 @@ export default async function TelecallerLayout({
           <GlobalAutoDialer />
           
           {/* ✅ Added dark:bg-gray-900 so dark mode actually changes the background */}
-          <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+          <div className="flex h-screen bg-gray-50 dark:bg-slate-950">
             <TelecallerSidebar />
             
             <div className="flex-1 flex flex-col overflow-hidden relative"> 
               
-              {/* ✅ 3. INJECT THE STATUS BAR HERE */}
-              {/* It sits right at the top of the content view, just below your main header */}
-              {user && (
-                 <div className="z-40 w-full">
-                   <AgentStatusBar userId={user.id} />
-                 </div>
-              )}
+              {/* ✅ TOP NAVIGATION AREA */}
+              <div className="flex flex-col border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-40">
+                {/* Status Bar */}
+                {user && (
+                   <div className="w-full">
+                     <AgentStatusBar userId={user.id} />
+                   </div>
+                )}
 
-              <div className="absolute top-20 w-full flex justify-center z-50 bg-transparent pointer-events-none">
-                 <div className="w-full max-w-4xl pointer-events-auto opacity-90 hover:opacity-100 transition-opacity">
-                    <TelecallerTicker />
-                 </div>
+                {/* ✅ Ticker moved here - embedded naturally, NOT floating */}
+                <div className="w-full px-4 overflow-hidden">
+                  <TelecallerTicker />
+                </div>
               </div>
 
-              <main className="flex-1 overflow-y-auto relative">
+              {/* ✅ Main Content Area - Clicks will work perfectly here now */}
+              <main className="flex-1 overflow-y-auto relative p-6">
                 {children}
               </main>
             </div>
