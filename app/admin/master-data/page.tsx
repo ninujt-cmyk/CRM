@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Papa from 'papaparse'; 
+import { searchClient } from '@/lib/meilisearch'; // Added search client import
 
 export default function MasterDataPage() {
   // --- UPLOAD STATE ---
@@ -13,6 +14,52 @@ export default function MasterDataPage() {
   // --- DELETE STATE ---
   const [deleteFileName, setDeleteFileName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // --- SEARCH STATE ---
+  const [searchMode, setSearchMode] = useState<'company' | 'pincode'>('company');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // --- SEARCH FUNCTIONALITY ---
+  useEffect(() => {
+    const performSearch = async () => {
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        return;
+      }
+      setIsSearching(true);
+      try {
+        const searchOptions = {
+          limit: 10,
+          attributesToSearchOn: searchMode === 'company' ? ['company_name'] : ['pincode'],
+        };
+
+        const result = await searchClient.index('companies').search(searchQuery, searchOptions);
+        
+        let validHits = result.hits;
+        if (searchMode === 'pincode') {
+          // Strict exact match for pincodes on the admin panel
+          validHits = validHits.filter((item) => String(item.pincode) === searchQuery.trim());
+        }
+
+        setSearchResults(validHits);
+      } catch (error) {
+        console.error('Search error:', error);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    const debounceFn = setTimeout(() => performSearch(), 250);
+    return () => clearTimeout(debounceFn);
+  }, [searchQuery, searchMode]);
+
+  const handleModeSwitch = (mode: 'company' | 'pincode') => {
+    setSearchMode(mode);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
 
   // --- UPLOAD FUNCTIONS ---
   const downloadSample = () => {
@@ -119,7 +166,7 @@ export default function MasterDataPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto space-y-8">
+    <div className="p-8 max-w-4xl mx-auto space-y-8">
       <h1 className="text-3xl font-bold text-gray-800">Master Data Management</h1>
       
       {/* --- UPLOAD SECTION --- */}
@@ -207,6 +254,76 @@ export default function MasterDataPage() {
           >
             {isDeleting ? 'Deleting...' : 'Delete File Data'}
           </button>
+        </div>
+      </div>
+
+      {/* --- NEW: DATA VERIFICATION / SEARCH SECTION --- */}
+      <div className="p-6 border border-gray-200 rounded-xl bg-white shadow-sm">
+        <h2 className="text-xl font-semibold mb-6 text-gray-800">Verify Directory Data</h2>
+        
+        <div className="flex space-x-4 mb-6">
+          <button 
+            onClick={() => handleModeSwitch('company')} 
+            className={`px-5 py-2 rounded-lg font-medium transition-colors text-sm ${searchMode === 'company' ? 'bg-gray-800 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            Search by Company
+          </button>
+          <button 
+            onClick={() => handleModeSwitch('pincode')} 
+            className={`px-5 py-2 rounded-lg font-medium transition-colors text-sm ${searchMode === 'pincode' ? 'bg-gray-800 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            Search by Pincode
+          </button>
+        </div>
+
+        <input
+          type="text"
+          placeholder={searchMode === 'company' ? "Type company name to verify..." : "Type 6-digit Pincode to verify..."}
+          className="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-md mb-4"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+
+        {isSearching && <p className="text-gray-500 text-sm animate-pulse mb-4">Searching database...</p>}
+
+        <div className="space-y-4">
+          {searchResults.length > 0 ? (
+            searchResults.map((item) => (
+              <div key={item.id} className="p-4 border border-gray-200 rounded-lg bg-white flex flex-col md:flex-row md:items-center justify-between">
+                
+                {/* Left Side: Name / Pincode */}
+                <div className="mb-2 md:mb-0">
+                  {searchMode === 'company' ? (
+                    <h3 className="text-lg font-bold text-gray-900">{item.company_name}</h3>
+                  ) : (
+                    <h3 className="text-lg font-bold text-gray-900">Pincode: {item.pincode}</h3>
+                  )}
+                </div>
+
+                {/* Right Side: File Name Pill & Category/City (Styled from Image) */}
+                <div className="flex flex-col items-start md:items-end text-sm">
+                  <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full border border-gray-200 mb-1">
+                    File: {item.file_name || 'Unknown'}
+                  </span>
+                  
+                  {searchMode === 'company' ? (
+                    <span className="text-gray-500 mt-1">
+                      Category: <span className="text-blue-600 font-semibold">{item.category || 'N/A'}</span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-500 mt-1">
+                      City: <span className="text-green-600 font-semibold">{item.city || 'N/A'}</span>
+                    </span>
+                  )}
+                </div>
+
+              </div>
+            ))
+          ) : (
+            searchQuery && !isSearching && (
+              <p className="text-gray-500 text-sm">No records found for "{searchQuery}"</p>
+            )
+          )}
         </div>
       </div>
 
