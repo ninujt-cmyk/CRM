@@ -196,14 +196,14 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       {/* Branding */}
       <div className={cn("h-24 flex items-center border-b border-slate-100/50 px-6 transition-all duration-500", isCollapsed ? "justify-center" : "justify-start gap-4")}>
         <div className="relative group cursor-default">
-            {/* Logo Container - Made Circular and White */}
+            {/* Logo Container - Fixed Dimensions */}
             <div className="h-12 w-12 bg-white border border-slate-100/50 rounded-full flex items-center justify-center shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] flex-shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-blue-600/50 overflow-hidden">
               <Image 
                 src="/icons/icon-64x64.jpg" 
                 alt="Logo"
-                width={64}
-                height={64}
-                className="object-contain rounded-full"
+                width={48} 
+                height={48} 
+                className="w-full h-full object-contain rounded-full p-0.5" 
               />
             </div>
             <div className="absolute -inset-2 bg-blue-500/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
@@ -211,7 +211,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
         
         {!isCollapsed && (
           <div className="flex flex-col overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
-            <span className="font-extrabold text-slate-800 text-xl tracking-tight">Hanva</span>
+            <span className="font-extrabold text-slate-800 dark:text-slate-100 text-xl tracking-tight">Hanva</span>
             <span className="text-[10px] text-blue-600 font-bold uppercase tracking-[0.2em]">Telecaller Panel</span>
           </div>
         )}
