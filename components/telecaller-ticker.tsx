@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { TrendingUp, Award } from "lucide-react"
+import { TrendingUp, Award, Target } from "lucide-react"
 
 export function TelecallerTicker() {
   const [message, setMessage] = useState("Loading targets...")
@@ -62,39 +62,39 @@ export function TelecallerTicker() {
   }, [])
 
   return (
-    <div className="w-full overflow-hidden whitespace-nowrap py-3 bg-transparent flex items-center">
+    <div className="w-full overflow-hidden whitespace-nowrap py-2 flex items-center">
       <div className="inline-block animate-marquee w-full">
-        <div className="flex items-center gap-4 text-gray-800 font-medium text-sm md:text-base">
+        <div className="flex items-center gap-4 text-slate-700 dark:text-slate-300 font-medium text-sm">
           
           {/* Main Message */}
           <span className="flex items-center gap-2">
             {isTargetAchieved ? 
-              <Award className="h-5 w-5 text-green-600" /> : 
-              <TrendingUp className="h-5 w-5 text-blue-600" />
+              <Award className="h-4 w-4 text-green-500" /> : 
+              <Target className="h-4 w-4 text-blue-500" />
             }
             {message}
           </span>
 
           {/* Spacer */}
-          <span className="mx-16 text-gray-300">|</span> 
+          <span className="mx-16 text-slate-300 dark:text-slate-700">|</span> 
           
           {/* Duplicate 1 */}
           <span className="flex items-center gap-2">
              {isTargetAchieved ? 
-              <Award className="h-5 w-5 text-green-600" /> : 
-              <TrendingUp className="h-5 w-5 text-blue-600" />
+              <Award className="h-4 w-4 text-green-500" /> : 
+              <Target className="h-4 w-4 text-blue-500" />
             }
              {message}
           </span>
 
           {/* Spacer */}
-          <span className="mx-16 text-gray-300">|</span> 
+          <span className="mx-16 text-slate-300 dark:text-slate-700">|</span> 
 
           {/* Duplicate 2 */}
           <span className="flex items-center gap-2">
              {isTargetAchieved ? 
-              <Award className="h-5 w-5 text-green-600" /> : 
-              <TrendingUp className="h-5 w-5 text-blue-600" />
+              <Award className="h-4 w-4 text-green-500" /> : 
+              <Target className="h-4 w-4 text-blue-500" />
             }
              {message}
           </span>
@@ -104,7 +104,6 @@ export function TelecallerTicker() {
       <style jsx>{`
         .animate-marquee {
           display: inline-block;
-          /* Increased to 40s for slower speed */
           animation: marquee 50s linear infinite; 
         }
         @keyframes marquee {
