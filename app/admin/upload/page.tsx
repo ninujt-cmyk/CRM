@@ -13,7 +13,7 @@ import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { 
   Upload, CheckCircle, AlertCircle, Download, 
-  Zap, ArrowRight, History, PieChart 
+  Zap, ArrowRight, History, PieChart, Share2 
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -88,7 +88,7 @@ export default function UploadPage() {
   const [autoDistribute, setAutoDistribute] = useState(false)
   const [activeCount, setActiveCount] = useState<number>(0)
   const [duplicateAction, setDuplicateAction] = useState<'skip' | 'allow'>('skip')
-  const [globalSource, setGlobalSource] = useState("other") // Default to "other" to match DB constraints
+  const [globalSource, setGlobalSource] = useState("other") 
   const [globalTags, setGlobalTags] = useState("")
   
   // --- State: Step 4 (Upload & Progress) ---
@@ -189,7 +189,7 @@ export default function UploadPage() {
     setIsUploading(true)
     setUploadStats({ total: 0, success: 0, failed: 0, skipped: 0 })
     setFailedRows([])
-    setAssignmentSummary({}) // Reset summary
+    setAssignmentSummary({}) 
     
     // 1. Parse ALL Data
     const lines = rawFileContent.split("\n").filter(line => line.trim()).slice(1)
@@ -247,47 +247,36 @@ export default function UploadPage() {
         const batch = uniqueRows.slice(i, i + BATCH_SIZE)
         const leadsToInsert: any[] = []
 
-        // --- UPDATED DUPLICATE LOGIC START ---
         if (duplicateAction === 'skip') {
             const phones = batch.map(r => r.phone).filter(Boolean)
             
-            // Fetch status along with phone for existing leads
             const { data: existing } = await supabase
                 .from("leads")
                 .select("phone, status")
                 .in("phone", phones)
             
-            // Map existing phones to their status
             const existingMap = new Map<string, string>();
             if (existing) {
                 existing.forEach(e => existingMap.set(e.phone, e.status));
             }
 
-            // Define statuses that trigger a SKIP (Active Leads)
             const skipStatuses = ['Interested', 'follow_up', 'DISBURSED', 'Disbursed', 'Login', 'Documents_Sent'];
 
             batch.forEach(row => {
                 if (existingMap.has(row.phone)) {
                     const existingStatus = existingMap.get(row.phone);
-                    
-                    // Check if status is one of the restricted ones
                     if (existingStatus && skipStatuses.includes(existingStatus)) {
-                        // SKIP: Lead exists and is active/converted
                         skipCount++
                     } else {
-                        // UPLOAD: Lead exists but is junk/cold (e.g. 'new', 'Not_Interested', 'nr') -> Treat as fresh lead (Duplicate Entry)
                         leadsToInsert.push(row)
                     }
                 } else {
-                    // Lead does not exist -> UPLOAD
                     leadsToInsert.push(row)
                 }
             })
         } else {
-            // "Allow Duplicates" selected -> Upload everything
             leadsToInsert.push(...batch)
         }
-        // --- UPDATED DUPLICATE LOGIC END ---
 
         if (leadsToInsert.length > 0) {
             const currentBatchAssignments: Record<string, number> = {} 
@@ -357,7 +346,124 @@ export default function UploadPage() {
     }
   }
 
-  // --- Handlers: Step 4 (Results) ---
+  // --- Handlers: Step 4 (Results & Sharing) ---
+  
+  // Generates a "Screenshot" canvas image of the report and triggers native share
+  const handleShareReport = async () => {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const entries = Object.entries(assignmentSummary)
+    const rowHeight = 45
+    const paddingTop = 140
+    const paddingBottom = 60
+
+    canvas.width = 600
+    canvas.height = paddingTop + (entries.length * rowHeight) + paddingBottom
+
+    // Background
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // Header Banner
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillRect(0, 0, canvas.width, 100)
+    ctx.strokeStyle = '#e2e8f0'
+    ctx.strokeRect(0, 0, canvas.width, 100)
+
+    // Title
+    ctx.fillStyle = '#0f172a'
+    ctx.font = 'bold 28px system-ui, -apple-system, sans-serif'
+    ctx.fillText('Assignment Report', 40, 50)
+
+    // Subtitle Date
+    ctx.fillStyle = '#64748b'
+    ctx.font = '16px system-ui, -apple-system, sans-serif'
+    const dateStr = new Date().toLocaleString(undefined, { 
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+    })
+    ctx.fillText(dateStr, 40, 80)
+
+    // Total Stat (Top Right)
+    ctx.fillStyle = '#0284c7'
+    ctx.font = 'bold 18px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'right'
+    ctx.fillText(`${uploadStats.success} Distributed`, 560, 80)
+
+    // Rows
+    let y = paddingTop
+    ctx.textAlign = 'left'
+
+    entries.forEach(([id, count]) => {
+      const agent = telecallers.find(t => t.id === id)
+      const name = agent?.full_name || 'Unknown Agent'
+
+      // Agent Name
+      ctx.fillStyle = '#334155'
+      ctx.font = '600 18px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText(name, 40, y)
+
+      // Count Badge Background
+      ctx.fillStyle = '#f1f5f9'
+      ctx.beginPath()
+      if (ctx.roundRect) {
+        ctx.roundRect(480, y - 22, 80, 30, 15)
+      } else {
+        ctx.fillRect(480, y - 22, 80, 30) // Fallback for older browsers
+      }
+      ctx.fill()
+
+      // Count Text
+      ctx.fillStyle = '#0f172a'
+      ctx.font = 'bold 16px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(`${count}`, 520, y - 1)
+
+      // Divider Line
+      ctx.strokeStyle = '#f8fafc'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(40, y + 20)
+      ctx.lineTo(560, y + 20)
+      ctx.stroke()
+
+      y += rowHeight
+    })
+
+    // Footer
+    ctx.fillStyle = '#94a3b8'
+    ctx.font = '14px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Generated by Hanva CRM', canvas.width / 2, canvas.height - 20)
+
+    // Generate File and Share
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      const file = new File([blob], `Assignment_Report_${Date.now()}.png`, { type: 'image/png' })
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            title: 'Lead Distribution Report',
+            files: [file]
+          })
+        } catch (err) {
+          console.error('Share cancelled or failed', err)
+        }
+      } else {
+        // Fallback: Force Download if Share API isn't supported (e.g., Desktop Chrome)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = file.name
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+    })
+  }
+
   const downloadErrorCSV = () => {
     if (failedRows.length === 0) return
     const headers = ["Row", "Name", "Phone", "Error Message"]
@@ -650,11 +756,16 @@ export default function UploadPage() {
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent>
-                                    <DialogHeader>
-                                        <DialogTitle>Lead Distribution Report</DialogTitle>
-                                        <DialogDescription>
-                                            Breakdown of leads assigned in this upload batch.
-                                        </DialogDescription>
+                                    <DialogHeader className="flex flex-row items-start justify-between pr-6">
+                                        <div>
+                                            <DialogTitle>Lead Distribution Report</DialogTitle>
+                                            <DialogDescription>
+                                                Breakdown of leads assigned in this upload batch.
+                                            </DialogDescription>
+                                        </div>
+                                        <Button variant="secondary" size="sm" onClick={handleShareReport} className="gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100">
+                                            <Share2 className="h-4 w-4" /> Share
+                                        </Button>
                                     </DialogHeader>
                                     <div className="space-y-2 mt-2 max-h-[300px] overflow-y-auto">
                                         {Object.entries(assignmentSummary).map(([id, count]) => {
