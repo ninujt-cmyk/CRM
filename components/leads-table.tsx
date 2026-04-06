@@ -1,6 +1,5 @@
 "use client";
 
-// Added useTransition here
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react"
 import Link from "next/link"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
@@ -150,7 +149,6 @@ interface LeadsTableProps {
   pageSize: number
 }
 
-// Inline Editing Component 
 interface InlineEditableCellProps {
     value: string | number | null;
     onSave: (newValue: string) => Promise<void>;
@@ -231,20 +229,25 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const supabase = createClient()
-
-  // MAGIC FIX: useTransition keeps the current UI alive while fetching in the background
   const [isPending, startTransition] = useTransition();
 
-  // STATE DECLARATIONS
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
-  
-  // Debounced Search Term
-  const [localSearchTerm, setLocalSearchTerm] = useState(searchParams.get('search') || "")
   const [isCallInitiated, setIsCallInitiated] = useState(false)
+
+  // 1. Get the current actual URL search
+  const currentUrlSearch = searchParams.get("search") || ""
+
+  // 2. Local state
+  const [localSearchTerm, setLocalSearchTerm] = useState(currentUrlSearch)
   
-  // URL parameters sync
+  // 3. Keep local state in sync if the URL changes externally (from LeadFilters)
+  useEffect(() => {
+    setLocalSearchTerm(currentUrlSearch)
+  }, [currentUrlSearch])
+
+  // 4. URL parameters sync for other dropdowns
   const createQueryString = useCallback((name: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== 'all') {
@@ -252,7 +255,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
     } else {
       params.delete(name)
     }
-    // Reset page to 1 when filters change
     if (name !== 'page') params.set('page', '1');
     return params.toString()
   }, [searchParams])
@@ -263,17 +265,24 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
     });
   }
 
-  // Debounce search effect (Wrapped in Transition)
+  // 5. BULLETPROOF DEBOUNCE: Only push after typing stops, no loops.
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localSearchTerm !== (searchParams.get('search') || "")) {
+      const activeUrlParams = new URLSearchParams(window.location.search)
+      const actualUrlSearch = activeUrlParams.get("search") || ""
+
+      if (localSearchTerm !== actualUrlSearch) {
         startTransition(() => {
-          router.push(`${pathname}?${createQueryString('search', localSearchTerm)}`, { scroll: false });
-        });
+          if (localSearchTerm) activeUrlParams.set("search", localSearchTerm)
+          else activeUrlParams.delete("search")
+
+          activeUrlParams.set("page", "1")
+          router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
+        })
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [localSearchTerm, pathname, router, createQueryString, searchParams]);
+  }, [localSearchTerm, pathname, router]); // Excluded searchParams to prevent infinite loop
 
   // Read current filters from URL
   const statusFilter = searchParams.get('status') || 'all'
@@ -283,23 +292,11 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const sortField = searchParams.get('sort') || 'created_at'
   const sortDirection = searchParams.get('dir') || 'desc'
   
-  // Columns Visibility
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
-    name: true,
-    contact: false, 
-    company: false, 
-    status: true,
-    notes: true,
-    priority: false,
-    score: true,
-    created: true,
-    lastContacted: true,
-    loanAmount: true,
-    loanType: false, 
-    source: false,   
-    tags: true, 
-    assignedTo: true,
-    actions: false
+    name: true, contact: false, company: false, status: true,
+    notes: true, priority: false, score: true, created: true,
+    lastContacted: true, loanAmount: true, loanType: false, 
+    source: false, tags: true, assignedTo: true, actions: false
   })
 
   const [selectedLeads, setSelectedLeads] = useState<string[]>([])
@@ -321,11 +318,8 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const [smsBody, setSmsBody] = useState("")
   const [showAutoAssignDialog, setShowAutoAssignDialog] = useState(false)
   const [autoAssignRules, setAutoAssignRules] = useState({
-    enabled: false,
-    method: 'round-robin', 
-    criteria: '',
-    reassignNR: false, 
-    reassignInterested: false 
+    enabled: false, method: 'round-robin', criteria: '',
+    reassignNR: false, reassignInterested: false 
   })
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -1012,7 +1006,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   }
 
   const selectAllLeads = () => {
-    // Note: With Server-Side pagination, Select All only selects the current page.
     if (selectedLeads.length === enrichedLeads.length) {
       setSelectedLeads([])
     } else {
@@ -1083,7 +1076,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
           <div className="relative w-full sm:w-64">
-            {/* Added loading spinner when fetching */}
             {isPending ? (
                <Loader2 className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground animate-spin" />
             ) : (
