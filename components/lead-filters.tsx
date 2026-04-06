@@ -18,23 +18,18 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  
-  // Reference to check if user is currently typing
-  const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // Local state
+  // Local state and a shield to prevent erasing while typing
   const [search, setSearch] = useState(searchParams.get("search") || "")
+  const isTyping = useRef(false)
+  
   const [customStart, setCustomStart] = useState(searchParams.get("from") || "")
   const [customEnd, setCustomEnd] = useState(searchParams.get("to") || "")
 
-  // FIX: Sync URL -> Local State SAFELY. 
-  // Only overwrite the text box if the user is NOT actively typing in it.
+  // Sync from URL only if the user is NOT actively typing
   useEffect(() => {
-    const urlSearch = searchParams.get("search") || ""
-    if (urlSearch === "") {
-      setSearch("") // Always clear if URL is cleared
-    } else if (document.activeElement !== searchInputRef.current) {
-      setSearch(urlSearch) // Sync from other search bar if this one isn't focused
+    if (!isTyping.current) {
+      setSearch(searchParams.get("search") || "")
     }
   }, [searchParams])
 
@@ -49,32 +44,32 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
       }
     })
     
-    params.set("page", "1") // Always reset to page 1 on filter change
+    params.set("page", "1") 
     
     startTransition(() => {
       router.push(`${pathname}?${params.toString()}`, { scroll: false })
     })
   }
 
-  // DEBOUNCED SEARCH LISTENER
+  // BULLETPROOF DEBOUNCE: Push to URL only when typing stops
   useEffect(() => {
+    if (!isTyping.current) return
+
     const timer = setTimeout(() => {
+      isTyping.current = false
       const activeUrlParams = new URLSearchParams(window.location.search)
-      const actualUrlSearch = activeUrlParams.get("search") || ""
+      
+      if (search) activeUrlParams.set("search", search)
+      else activeUrlParams.delete("search")
 
-      if (search !== actualUrlSearch) {
-         if (search) activeUrlParams.set("search", search)
-         else activeUrlParams.delete("search")
-
-         activeUrlParams.set("page", "1")
-         startTransition(() => {
-           router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
-         })
-      }
+      activeUrlParams.set("page", "1")
+      startTransition(() => {
+        router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
+      })
     }, 500)
     
     return () => clearTimeout(timer)
-  }, [search, pathname, router]) 
+  }, [search, pathname, router])
 
   // --- INSTANT HANDLERS FOR DROPDOWNS ---
   const handleDateRangeChange = (val: string) => {
@@ -102,7 +97,6 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
     })
   }
 
-  // Derive current values directly from URL
   const currentStatus = searchParams.get("status") || "all"
   const currentPriority = searchParams.get("priority") || "all"
   const currentAssignedTo = searchParams.get("assigned_to") || "all"
@@ -121,10 +115,12 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
           )}
           <Input 
-            ref={searchInputRef}
-            placeholder="Search name, phone..." 
+            placeholder="Search phone number..." 
             value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
+            onChange={(e) => {
+              isTyping.current = true
+              setSearch(e.target.value)
+            }} 
             className="pl-9" 
           />
         </div>
