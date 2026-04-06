@@ -236,15 +236,39 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
 
-  const [localSearchTerm, setLocalSearchTerm] = useState(searchParams.get("search") || "")
-  const isTyping = useRef(false)
+  // 1. Protected Debounce Sync state
+  const [inputValue, setInputValue] = useState(searchParams.get("search") || "")
+  const lastPushedValue = useRef(searchParams.get("search") || "")
   
-  // Sync from URL only if the user is NOT actively typing
+  // 2. Sync from URL to input (ONLY if updated by the top search bar)
   useEffect(() => {
-    if (!isTyping.current) {
-      setLocalSearchTerm(searchParams.get("search") || "")
+    const currentUrlSearch = searchParams.get("search") || "";
+    if (currentUrlSearch !== lastPushedValue.current) {
+      setInputValue(currentUrlSearch);
+      lastPushedValue.current = currentUrlSearch;
     }
-  }, [searchParams])
+  }, [searchParams]);
+
+  // 3. Debounce local state to URL
+  useEffect(() => {
+    if (inputValue === lastPushedValue.current) return;
+
+    const timer = setTimeout(() => {
+      lastPushedValue.current = inputValue;
+      
+      const params = new URLSearchParams(window.location.search);
+      if (inputValue) params.set("search", inputValue);
+      else params.delete("search");
+      
+      params.set("page", "1");
+
+      startTransition(() => {
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [inputValue, pathname, router]);
 
   const createQueryString = useCallback((name: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -262,26 +286,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
       router.push(`${pathname}?${createQueryString(key, value)}`, { scroll: false });
     });
   }
-
-  // BULLETPROOF DEBOUNCE
-  useEffect(() => {
-    if (!isTyping.current) return;
-
-    const timer = setTimeout(() => {
-      isTyping.current = false;
-      const activeUrlParams = new URLSearchParams(window.location.search)
-
-      if (localSearchTerm) activeUrlParams.set("search", localSearchTerm)
-      else activeUrlParams.delete("search")
-      
-      activeUrlParams.set("page", "1")
-      
-      startTransition(() => {
-        router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
-      })
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localSearchTerm, pathname, router]); 
 
   // Read current filters from URL
   const statusFilter = searchParams.get('status') || 'all'
@@ -533,7 +537,7 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
       id: Date.now().toString(),
       name: filterName,
       filters: {
-        searchTerm: localSearchTerm, statusFilter, priorityFilter, assignedToFilter,
+        searchTerm: inputValue, statusFilter, priorityFilter, assignedToFilter,
         sourceFilter
       }
     }
@@ -1082,11 +1086,8 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
             )}
             <Input
               placeholder="Search phone number..."
-              value={localSearchTerm}
-              onChange={(e) => {
-                isTyping.current = true
-                setLocalSearchTerm(e.target.value)
-              }}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
               className="pl-8"
             />
           </div>
