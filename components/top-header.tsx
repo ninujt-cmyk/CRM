@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { User } from "@supabase/supabase-js"
@@ -30,7 +30,7 @@ import {
 
 // Icons
 import { 
-  Settings, LogOut, User as UserIcon, Search, Menu, ChevronRight, X 
+  Settings, LogOut, User as UserIcon, Search, Menu, ChevronRight, X, Loader2 
 } from "lucide-react"
 
 import { NotificationCenter } from "@/components/notification-center"
@@ -52,33 +52,57 @@ interface TopHeaderProps {
 }
 
 export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
-  const [user, setUser] = useState<User | null>(initialUser || null)
-  const [loading, setLoading] = useState(!initialUser)
-  const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [searchValue, setSearchValue] = useState("")
-  
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClient()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const supabase = createClient()
+  
+  const [isPending, startTransition] = useTransition()
 
-  // Debounce Search
+  const [user, setUser] = useState<User | null>(initialUser || null)
+  const [loading, setLoading] = useState(!initialUser)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  
+  // 1. Protected Sync State
+  const [searchValue, setSearchValue] = useState(searchParams.get("search") || "")
+  const lastPushedValue = useRef(searchParams.get("search") || "")
+  const isTyping = useRef(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // 2. Sync from URL to input (ONLY if updated externally by another search bar)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const params = new URLSearchParams(searchParams)
-      if (searchValue) {
-        params.set('search', searchValue)
-      } else {
-        params.delete('search')
-      }
-      if (params.toString() !== searchParams.toString()) {
-        router.replace(`${pathname}?${params.toString()}`)
-      }
-    }, 400)
+    const currentUrlSearch = searchParams.get("search") || "";
+    if (currentUrlSearch !== lastPushedValue.current) {
+      setSearchValue(currentUrlSearch);
+      lastPushedValue.current = currentUrlSearch;
+    }
+  }, [searchParams]);
 
-    return () => clearTimeout(timer)
-  }, [searchValue, router, pathname, searchParams])
+  // 3. Bulletproof Debounce: Push to URL only when typing stops
+  useEffect(() => {
+    if (searchValue === lastPushedValue.current) return;
+
+    const timer = setTimeout(() => {
+      isTyping.current = false;
+      lastPushedValue.current = searchValue;
+
+      // Grab latest URL state directly from window so filters aren't lost
+      const params = new URLSearchParams(window.location.search);
+      if (searchValue) params.set("search", searchValue);
+      else params.delete("search");
+      
+      // If we are on a paginated route, reset to page 1
+      if (pathname.includes('/leads')) {
+        params.set("page", "1");
+      }
+
+      startTransition(() => {
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchValue, pathname, router]);
 
   // Initial User Load
   useEffect(() => {
@@ -176,14 +200,24 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
         )}
 
         <div className={`${isSearchOpen ? 'flex w-full md:w-96' : 'hidden md:flex md:w-80'} relative group transition-all`}>
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+          {isPending ? (
+            <Loader2 className="absolute left-3 top-2.5 h-4 w-4 text-blue-500 animate-spin pointer-events-none" />
+          ) : (
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+          )}
           <Input 
             ref={searchInputRef}
-            placeholder="Search leads, users..." 
+            placeholder="Search phone number..." 
             className="pl-9 pr-12 h-9 bg-slate-50/50 border-slate-200 focus-visible:ring-blue-500 focus-visible:bg-white transition-all w-full"
             value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            onBlur={() => !searchValue && setIsSearchOpen(false)} 
+            onChange={(e) => {
+              isTyping.current = true;
+              setSearchValue(e.target.value);
+            }}
+            onBlur={() => {
+              isTyping.current = false;
+              if (!searchValue) setIsSearchOpen(false);
+            }} 
           />
           <div className="absolute right-2 top-2 flex items-center">
             {isSearchOpen ? (
@@ -209,7 +243,6 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
           </div>
         ) : (
           <DropdownMenu>
-            {/* FIX: Replaced custom Button component with native button to ensure event propagation */}
             <DropdownMenuTrigger asChild>
               <button className="rounded-full h-9 w-9 border border-slate-200 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 flex items-center justify-center bg-white cursor-pointer">
                 <Avatar className="h-full w-full">
@@ -221,7 +254,6 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
               </button>
             </DropdownMenuTrigger>
             
-            {/* FIX: Removed forceMount to prevent visual locking */}
             <DropdownMenuContent className="w-56 mt-2 mr-2" align="end">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
