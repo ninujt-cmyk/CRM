@@ -17,18 +17,23 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  
-  // useTransition allows Next.js to fetch new data in the background without freezing the UI
   const [isPending, startTransition] = useTransition()
 
-  // Local state only for text inputs (to prevent UI lag while typing)
-  const [search, setSearch] = useState(searchParams.get("search") || "")
+  // 1. Get the current actual URL search
+  const currentUrlSearch = searchParams.get("search") || ""
+
+  // 2. Local state
+  const [search, setSearch] = useState(currentUrlSearch)
   const [customStart, setCustomStart] = useState(searchParams.get("from") || "")
   const [customEnd, setCustomEnd] = useState(searchParams.get("to") || "")
 
-  // --- CORE LIVE UPDATE FUNCTION ---
+  // 3. Keep local state in sync if the URL changes from the other search bar
+  useEffect(() => {
+    setSearch(currentUrlSearch)
+  }, [currentUrlSearch])
+
   const updateUrlParams = (updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString())
+    const params = new URLSearchParams(window.location.search) // Use absolute current state
     
     Object.entries(updates).forEach(([key, value]) => {
       if (value && value !== "all") {
@@ -38,25 +43,33 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
       }
     })
     
-    // Push the new URL without triggering a full page reload or scrolling to top
+    params.set("page", "1") // Always reset to page 1 on filter change
+    
     startTransition(() => {
       router.push(`${pathname}?${params.toString()}`, { scroll: false })
     })
   }
 
-  // --- DEBOUNCED SEARCH LISTENER ---
-  // Wait 400ms after the user stops typing to execute the search
+  // 4. BULLETPROOF DEBOUNCE: Only push after typing stops, no loops.
   useEffect(() => {
     const timer = setTimeout(() => {
-      const currentUrlSearch = searchParams.get("search") || ""
-      if (search !== currentUrlSearch) {
-         updateUrlParams({ search })
+      const activeUrlParams = new URLSearchParams(window.location.search)
+      const actualUrlSearch = activeUrlParams.get("search") || ""
+
+      // Only push if what we typed is actually different from the URL
+      if (search !== actualUrlSearch) {
+         if (search) activeUrlParams.set("search", search)
+         else activeUrlParams.delete("search")
+
+         activeUrlParams.set("page", "1")
+         startTransition(() => {
+           router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
+         })
       }
-    }, 400)
+    }, 500)
     
     return () => clearTimeout(timer)
-  }, [search])
-
+  }, [search, pathname, router]) // Excluded searchParams to prevent infinite loop
 
   // --- INSTANT HANDLERS FOR DROPDOWNS ---
   const handleDateRangeChange = (val: string) => {
@@ -84,7 +97,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
     })
   }
 
-  // Derive current values directly from URL so they stay perfectly in sync
+  // Derive current values directly from URL
   const currentStatus = searchParams.get("status") || "all"
   const currentPriority = searchParams.get("priority") || "all"
   const currentAssignedTo = searchParams.get("assigned_to") || "all"
@@ -95,7 +108,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"> 
         
-        {/* TEXT SEARCH (Debounced) */}
+        {/* TEXT SEARCH */}
         <div className="relative col-span-2 lg:col-span-1">
           {isPending ? (
             <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 h-4 w-4 animate-spin" />
@@ -110,7 +123,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           />
         </div>
 
-        {/* STATUS DROPDOWN (Instant) */}
+        {/* STATUS DROPDOWN */}
         <Select value={currentStatus} onValueChange={(val) => updateUrlParams({ status: val })}>
           <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
@@ -123,7 +136,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           </SelectContent>
         </Select>
 
-        {/* PRIORITY DROPDOWN (Instant) */}
+        {/* PRIORITY DROPDOWN */}
         <Select value={currentPriority} onValueChange={(val) => updateUrlParams({ priority: val })}>
           <SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger>
           <SelectContent>
@@ -134,7 +147,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           </SelectContent>
         </Select>
 
-        {/* TELECALLER DROPDOWN (Instant) */}
+        {/* TELECALLER DROPDOWN */}
         <Select value={currentAssignedTo} onValueChange={(val) => updateUrlParams({ assigned_to: val })}>
           <SelectTrigger><SelectValue placeholder="Telecaller" /></SelectTrigger>
           <SelectContent>
@@ -151,7 +164,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           </SelectContent>
         </Select>
 
-        {/* SOURCE DROPDOWN (Instant) */}
+        {/* SOURCE DROPDOWN */}
         <Select value={currentSource} onValueChange={(val) => updateUrlParams({ source: val })}>
           <SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger>
           <SelectContent>
@@ -163,7 +176,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           </SelectContent>
         </Select>
 
-        {/* DATE RANGE DROPDOWN (Instant) */}
+        {/* DATE RANGE DROPDOWN */}
         <div className="relative">
           <Select value={currentDateRange} onValueChange={handleDateRangeChange}>
             <SelectTrigger className={currentDateRange !== "all" ? "border-blue-500 bg-blue-50 text-blue-700" : ""}>
@@ -183,7 +196,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
         </div>
       </div>
 
-      {/* CUSTOM DATES (Instant) */}
+      {/* CUSTOM DATES */}
       {currentDateRange === "custom" && (
         <div className="flex items-center gap-2 p-3 bg-slate-50 border rounded-md w-fit">
           <div className="flex items-center gap-2">
