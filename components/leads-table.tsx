@@ -230,24 +230,26 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const searchParams = useSearchParams();
   const supabase = createClient()
   const [isPending, startTransition] = useTransition();
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
 
-  // 1. Get the current actual URL search
-  const currentUrlSearch = searchParams.get("search") || ""
-
-  // 2. Local state
-  const [localSearchTerm, setLocalSearchTerm] = useState(currentUrlSearch)
+  const [localSearchTerm, setLocalSearchTerm] = useState(searchParams.get("search") || "")
   
-  // 3. Keep local state in sync if the URL changes externally (from LeadFilters)
+  // FIX: Sync URL -> Local State SAFELY. 
+  // Only overwrite the text box if the user is NOT actively typing in it.
   useEffect(() => {
-    setLocalSearchTerm(currentUrlSearch)
-  }, [currentUrlSearch])
+    const urlSearch = searchParams.get("search") || ""
+    if (urlSearch === "") {
+      setLocalSearchTerm("") 
+    } else if (document.activeElement !== searchInputRef.current) {
+      setLocalSearchTerm(urlSearch) 
+    }
+  }, [searchParams])
 
-  // 4. URL parameters sync for other dropdowns
   const createQueryString = useCallback((name: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== 'all') {
@@ -265,7 +267,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
     });
   }
 
-  // 5. BULLETPROOF DEBOUNCE: Only push after typing stops, no loops.
   useEffect(() => {
     const timer = setTimeout(() => {
       const activeUrlParams = new URLSearchParams(window.location.search)
@@ -282,7 +283,7 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [localSearchTerm, pathname, router]); // Excluded searchParams to prevent infinite loop
+  }, [localSearchTerm, pathname, router]); 
 
   // Read current filters from URL
   const statusFilter = searchParams.get('status') || 'all'
@@ -1082,6 +1083,7 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             )}
             <Input
+              ref={searchInputRef}
               placeholder="Search leads..."
               value={localSearchTerm}
               onChange={(e) => setLocalSearchTerm(e.target.value)}
