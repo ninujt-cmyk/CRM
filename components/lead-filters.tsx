@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, X, Calendar, Loader2 } from "lucide-react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
-import { useState, useEffect, useTransition } from "react"
+import { useState, useEffect, useTransition, useRef } from "react"
 import { Label } from "@/components/ui/label"
 
 interface LeadFiltersProps {
@@ -18,22 +18,28 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  
+  // Reference to check if user is currently typing
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // 1. Get the current actual URL search
-  const currentUrlSearch = searchParams.get("search") || ""
-
-  // 2. Local state
-  const [search, setSearch] = useState(currentUrlSearch)
+  // Local state
+  const [search, setSearch] = useState(searchParams.get("search") || "")
   const [customStart, setCustomStart] = useState(searchParams.get("from") || "")
   const [customEnd, setCustomEnd] = useState(searchParams.get("to") || "")
 
-  // 3. Keep local state in sync if the URL changes from the other search bar
+  // FIX: Sync URL -> Local State SAFELY. 
+  // Only overwrite the text box if the user is NOT actively typing in it.
   useEffect(() => {
-    setSearch(currentUrlSearch)
-  }, [currentUrlSearch])
+    const urlSearch = searchParams.get("search") || ""
+    if (urlSearch === "") {
+      setSearch("") // Always clear if URL is cleared
+    } else if (document.activeElement !== searchInputRef.current) {
+      setSearch(urlSearch) // Sync from other search bar if this one isn't focused
+    }
+  }, [searchParams])
 
   const updateUrlParams = (updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(window.location.search) // Use absolute current state
+    const params = new URLSearchParams(window.location.search) 
     
     Object.entries(updates).forEach(([key, value]) => {
       if (value && value !== "all") {
@@ -50,13 +56,12 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
     })
   }
 
-  // 4. BULLETPROOF DEBOUNCE: Only push after typing stops, no loops.
+  // DEBOUNCED SEARCH LISTENER
   useEffect(() => {
     const timer = setTimeout(() => {
       const activeUrlParams = new URLSearchParams(window.location.search)
       const actualUrlSearch = activeUrlParams.get("search") || ""
 
-      // Only push if what we typed is actually different from the URL
       if (search !== actualUrlSearch) {
          if (search) activeUrlParams.set("search", search)
          else activeUrlParams.delete("search")
@@ -69,7 +74,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
     }, 500)
     
     return () => clearTimeout(timer)
-  }, [search, pathname, router]) // Excluded searchParams to prevent infinite loop
+  }, [search, pathname, router]) 
 
   // --- INSTANT HANDLERS FOR DROPDOWNS ---
   const handleDateRangeChange = (val: string) => {
@@ -116,6 +121,7 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
           )}
           <Input 
+            ref={searchInputRef}
             placeholder="Search name, phone..." 
             value={search} 
             onChange={(e) => setSearch(e.target.value)} 
