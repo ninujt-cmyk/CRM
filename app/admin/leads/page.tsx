@@ -82,7 +82,6 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   const rangeTo = rangeFrom + pageSize - 1
 
   // 3. BASE QUERIES 
-  // Using '*' is safe here because we are heavily paginating via .range()
   let query = supabase.from("leads")
     .select(`
       *,
@@ -121,7 +120,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     }
     if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
     
-    // Server-side text search (Phone ONLY)
+    // SERVER-SIDE SEARCH (Now restricted to Phone Number ONLY)
     if (searchParams.search) {
       const searchStr = searchParams.search.trim();
       q = q.ilike("phone", `%${searchStr}%`)
@@ -153,17 +152,14 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   query = applyFilters(query)
   countQuery = applyFilters(countQuery)
 
-  // Apply Sorting
   const sortField = searchParams.sort || 'created_at'
   const sortDir = searchParams.dir === 'asc'
   query = query.order(sortField, { ascending: sortDir })
-
-  // Apply Pagination
   query = query.range(rangeFrom, rangeTo)
 
   const todayDate = new Date().toISOString().split('T')[0]
 
-  // 6. PARALLEL FETCHING WITH ERROR LOGGING
+  // 6. PARALLEL FETCHING
   const [
     leadsResponse,
     countResponse,
@@ -189,9 +185,8 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
         .not("check_in", "is", null)
   ])
 
-  // Log exactly why a query fails so we aren't guessing
   if (leadsResponse.error) {
-    console.error("SUPABASE DATA FETCH ERROR:", leadsResponse.error.message, leadsResponse.error.details);
+    console.error("SUPABASE DATA FETCH ERROR:", leadsResponse.error.message);
   }
 
   const leads = leadsResponse.data || [];
