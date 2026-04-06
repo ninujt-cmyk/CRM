@@ -121,10 +121,10 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     }
     if (searchParams.source && searchParams.source !== 'all') q = q.ilike("source", `%${searchParams.source}%`)
     
-    // Server-side text search
+    // Server-side text search (Phone ONLY)
     if (searchParams.search) {
       const searchStr = searchParams.search.trim();
-      q = q.or(`name.ilike.%${searchStr}%,email.ilike.%${searchStr}%,phone.ilike.%${searchStr}%`)
+      q = q.ilike("phone", `%${searchStr}%`)
     }
 
     if (searchParams.date_range && searchParams.date_range !== 'all') {
