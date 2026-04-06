@@ -123,7 +123,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
     // SERVER-SIDE SEARCH (Now restricted to Phone Number ONLY)
     if (searchParams.search) {
       const searchStr = searchParams.search.trim();
-      q = q.ilike("phone", `%${searchStr}%`)
+      q = q.or(`name.ilike.%${searchStr}%,email.ilike.%${searchStr}%,phone.ilike.%${searchStr}%`)
     }
 
     if (searchParams.date_range && searchParams.date_range !== 'all') {
