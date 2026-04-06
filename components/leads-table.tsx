@@ -230,7 +230,6 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const searchParams = useSearchParams();
   const supabase = createClient()
   const [isPending, startTransition] = useTransition();
-  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
@@ -238,15 +237,12 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const [isCallInitiated, setIsCallInitiated] = useState(false)
 
   const [localSearchTerm, setLocalSearchTerm] = useState(searchParams.get("search") || "")
+  const isTyping = useRef(false)
   
-  // FIX: Sync URL -> Local State SAFELY. 
-  // Only overwrite the text box if the user is NOT actively typing in it.
+  // Sync from URL only if the user is NOT actively typing
   useEffect(() => {
-    const urlSearch = searchParams.get("search") || ""
-    if (urlSearch === "") {
-      setLocalSearchTerm("") 
-    } else if (document.activeElement !== searchInputRef.current) {
-      setLocalSearchTerm(urlSearch) 
+    if (!isTyping.current) {
+      setLocalSearchTerm(searchParams.get("search") || "")
     }
   }, [searchParams])
 
@@ -267,20 +263,22 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
     });
   }
 
+  // BULLETPROOF DEBOUNCE
   useEffect(() => {
+    if (!isTyping.current) return;
+
     const timer = setTimeout(() => {
+      isTyping.current = false;
       const activeUrlParams = new URLSearchParams(window.location.search)
-      const actualUrlSearch = activeUrlParams.get("search") || ""
 
-      if (localSearchTerm !== actualUrlSearch) {
-        startTransition(() => {
-          if (localSearchTerm) activeUrlParams.set("search", localSearchTerm)
-          else activeUrlParams.delete("search")
-
-          activeUrlParams.set("page", "1")
-          router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
-        })
-      }
+      if (localSearchTerm) activeUrlParams.set("search", localSearchTerm)
+      else activeUrlParams.delete("search")
+      
+      activeUrlParams.set("page", "1")
+      
+      startTransition(() => {
+        router.push(`${pathname}?${activeUrlParams.toString()}`, { scroll: false })
+      })
     }, 500);
     return () => clearTimeout(timer);
   }, [localSearchTerm, pathname, router]); 
@@ -1083,10 +1081,12 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             )}
             <Input
-              ref={searchInputRef}
-              placeholder="Search leads..."
+              placeholder="Search phone number..."
               value={localSearchTerm}
-              onChange={(e) => setLocalSearchTerm(e.target.value)}
+              onChange={(e) => {
+                isTyping.current = true
+                setLocalSearchTerm(e.target.value)
+              }}
               className="pl-8"
             />
           </div>
