@@ -4,7 +4,8 @@ import { useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { 
   Building, ChevronDown, ChevronUp, ArrowUpRight, 
-  Copy, PhoneMissed, MessageSquare, Loader2
+  Copy, PhoneMissed, MessageSquare, Loader2, Phone, PhoneOutgoing,
+  Sparkles, Calendar, User, Clock, CheckCircle2, ClipboardCopy, ExternalLink, MapPin
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -83,8 +84,8 @@ export function TelecallerLeadsTable({
   const SortIcon = ({ field }: { field: string }) => {
     if (sortBy !== field) return <ChevronDown className="ml-1 h-3 w-3 opacity-20" />
     return sortOrder === 'asc' 
-      ? <ChevronUp className="ml-1 h-3 w-3 text-blue-600" /> 
-      : <ChevronDown className="ml-1 h-3 w-3 text-blue-600" />
+      ? <ChevronUp className="ml-1 h-3 w-3 text-indigo-600" /> 
+      : <ChevronDown className="ml-1 h-3 w-3 text-indigo-600" />
   }
 
   // --- 2. ACTIONS ---
@@ -94,6 +95,9 @@ export function TelecallerLeadsTable({
     setSelectedLead(lead)
     setIsStatusDialogOpen(true)
     setIsCallInitiated(true)
+    setTimeout(() => {
+      window.location.href = `tel:${lead.phone}`
+    }, 100)
   }
 
   // C2C Cloud Call
@@ -101,7 +105,7 @@ export function TelecallerLeadsTable({
       const lead = leads.find(l => l.id === leadId);
       if (!lead) return;
 
-      setIsDialingC2C(leadId); // Show loading spinner on row
+      setIsDialingC2C(leadId); // Show loading spinner
       
       try {
           toast.info("Initiating cloud call...", { description: "Please wait for your phone to ring." });
@@ -232,23 +236,29 @@ export function TelecallerLeadsTable({
 
   return (
     <div className="space-y-4">
-      <div className={cn("rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden relative transition-opacity duration-200", isPending ? "opacity-50 pointer-events-none" : "opacity-100")}>
+      
+      {/* 💻 DESKTOP DENSE VIEW (hidden md:block) */}
+      <div className={cn(
+        "hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden relative transition-opacity duration-200", 
+        isPending ? "opacity-50 pointer-events-none" : "opacity-100"
+      )}>
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-slate-50 dark:bg-slate-950 sticky top-0 z-10 shadow-sm">
+            <TableHeader className="bg-slate-50 dark:bg-slate-950 sticky top-0 z-10 shadow-sm border-b border-slate-200 dark:border-slate-800">
               <TableRow>
-                <TableHead className="w-[300px]">Contact Options</TableHead>
-                <TableHead className="w-[200px] md:w-[250px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('name')}>
-                    <div className="flex items-center">Name <SortIcon field="name"/></div>
+                <TableHead className="w-[280px] font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5 pl-4">Quick Dialer</TableHead>
+                <TableHead className="w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5" onClick={() => handleSort('name')}>
+                    <div className="flex items-center">Customer Name <SortIcon field="name"/></div>
                 </TableHead>
-                <TableHead className="hidden md:table-cell">Status</TableHead>
-                <TableHead className="cursor-pointer hover:bg-slate-100" onClick={() => handleSort('loan_amount')}>
+                <TableHead className="w-[140px] font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5">Status</TableHead>
+                <TableHead className="w-[140px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5" onClick={() => handleSort('loan_amount')}>
                     <div className="flex items-center">Amount <SortIcon field="loan_amount"/></div>
                 </TableHead>
-                <TableHead className="cursor-pointer hover:bg-slate-100 hidden md:table-cell" onClick={() => handleSort('priority')}>
-                    <div className="flex items-center">Priority <SortIcon field="priority"/></div>
+                <TableHead className="w-[130px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5" onClick={() => handleSort('priority')}>
+                    <div className="flex items-center text-center justify-center">Priority <SortIcon field="priority"/></div>
                 </TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[150px] font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5">Last Contacted</TableHead>
+                <TableHead className="text-right font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 py-3.5 pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -260,16 +270,17 @@ export function TelecallerLeadsTable({
                 
                 return (
                   <TableRow key={lead.id} className={cn(
-                    "group transition-all duration-200 hover:bg-slate-50/80 dark:hover:bg-slate-800/40", 
-                    isHighPriority ? "border-l-4 border-l-red-500" : "",
-                    isHot ? "bg-orange-50/10 hover:bg-orange-50/20 border-l-4 border-l-orange-500 font-medium" : "",
+                    "group transition-all duration-200 border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/30", 
+                    isHighPriority ? "border-l-4 border-l-red-500 bg-red-500/[0.01]" : "",
+                    isHot ? "bg-orange-500/[0.02] hover:bg-orange-500/[0.04] border-l-4 border-l-orange-500 font-medium" : "",
                     isDNC ? "opacity-60 bg-red-50/5 hover:bg-red-50/10 border-l-4 border-l-red-400" : ""
                   )}>
-                    <TableCell>
+                    {/* Quick Dialer */}
+                    <TableCell className="py-3 pl-4">
                         <div className="flex items-center gap-1.5">
                             {isDialing ? (
-                                <div className="flex items-center gap-2 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100 text-sm font-medium w-[200px]">
-                                    <Loader2 className="h-4 w-4 animate-spin" /> Connecting...
+                                <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 text-xs font-semibold w-[180px]">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Connecting...
                                 </div>
                             ) : (
                                 <QuickActions 
@@ -282,11 +293,11 @@ export function TelecallerLeadsTable({
                             )}
 
                             {!isDialing && (
-                              <>
+                              <div className="flex items-center gap-1">
                                 <TooltipProvider>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            <button onClick={() => copyToClipboard(lead.phone || '')} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+                                            <button onClick={() => copyToClipboard(lead.phone || '')} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors border border-slate-100 dark:border-slate-800/80 bg-slate-50/30 dark:bg-slate-900">
                                                 <Copy className="h-3.5 w-3.5" />
                                             </button>
                                         </TooltipTrigger>
@@ -296,88 +307,116 @@ export function TelecallerLeadsTable({
                                 <TooltipProvider>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            <a href={getWhatsAppLink(lead.phone || '', lead.name)} target="_blank" className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors border border-green-200">
+                                            <a href={getWhatsAppLink(lead.phone || '', lead.name)} target="_blank" className="p-2 rounded-lg bg-emerald-50/50 hover:bg-emerald-100/80 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400 transition-colors border border-emerald-100/50 dark:border-emerald-900/30">
                                                 <MessageSquare className="h-3.5 w-3.5" />
                                             </a>
                                         </TooltipTrigger>
-                                        <TooltipContent>WhatsApp</TooltipContent>
+                                        <TooltipContent>WhatsApp Conversation</TooltipContent>
                                     </Tooltip>
                                 </TooltipProvider>
-                              </>
+                              </div>
                             )}
                         </div>
                     </TableCell>
-                    <TableCell>
+                    
+                    {/* Customer Info */}
+                    <TableCell className="py-3">
                       <div className="flex flex-col">
-                        <Link href={`/telecaller/leads/${lead.id}`} className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2">
+                        <Link href={`/telecaller/leads/${lead.id}`} className="font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 group/link text-[13px]">
                             {lead.name}
-                            <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
+                            <ArrowUpRight className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity text-indigo-500" />
                         </Link>
                         {lead.company && (
-                            <span className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate max-w-[150px]">
-                                <Building className="h-3 w-3" /> {lead.company}
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[170px]">
+                                <Building className="h-3 w-3 text-slate-400" /> {lead.company}
                             </span>
                         )}
+                        
+                        {/* Custom tags in visual lists */}
                         {Array.isArray(lead.tags) && lead.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1.5 max-w-[200px]">
                                 {lead.tags.map((tag) => {
-                                  let tagStyle = "bg-slate-100 text-slate-800 border-slate-200";
-                                  if (tag.includes("Hot Prospect")) tagStyle = "bg-orange-50 text-orange-700 border-orange-200 font-semibold shadow-sm";
-                                  if (tag.includes("Do Not Call")) tagStyle = "bg-red-50 text-red-700 border-red-200 font-semibold shadow-sm";
-                                  if (tag.includes("Cold Lead")) tagStyle = "bg-blue-50 text-blue-700 border-blue-200 shadow-sm";
-                                  if (tag.includes("Callback Scheduled")) tagStyle = "bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold shadow-sm";
+                                  let tagStyle = "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
+                                  if (tag.includes("Hot Prospect")) tagStyle = "bg-orange-500/10 text-orange-600 border-orange-500/20 font-bold shadow-sm dark:bg-orange-500/20 dark:text-orange-400";
+                                  if (tag.includes("Do Not Call")) tagStyle = "bg-red-500/10 text-red-600 border-red-500/20 font-bold dark:bg-red-500/20 dark:text-red-400";
+                                  if (tag.includes("Cold Lead")) tagStyle = "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400";
                                   
                                   return (
-                                    <Badge key={tag} variant="outline" className={cn("text-[10px] px-1.5 py-0 h-5 font-normal tracking-wide", tagStyle)}>
+                                    <Badge key={tag} variant="outline" className={cn("text-[9px] px-1.5 py-0 h-4.5 font-medium tracking-wide", tagStyle)}>
                                         {tag}
                                     </Badge>
                                   );
                                 })}
                             </div>
                         )}
-                        <div className="md:hidden mt-1">
-                           <Badge variant="outline" className="text-[10px] px-1 py-0 h-5">{lead.status?.replace(/_/g, " ")}</Badge>
-                        </div>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">
+
+                    {/* Status Pill */}
+                    <TableCell className="py-3">
                         <Badge variant="outline" className={cn(
-                           "capitalize font-medium border-0 px-2.5 py-0.5 rounded-md", 
-                           lead.status === 'new' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                           lead.status === 'Interested' ? 'bg-green-50 text-green-700 border-green-100' :
-                           lead.status === 'Disbursed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                           'bg-slate-100 text-slate-700 border-slate-200'
+                           "capitalize font-bold border-0 px-2.5 py-1 text-[11px] rounded-full shadow-sm w-fit", 
+                           lead.status === 'new' || lead.status === 'New Lead' ? 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' :
+                           lead.status === 'Interested' || lead.status === 'Interested' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                           lead.status === 'Disbursed' || lead.status === 'converted' ? 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/20 dark:text-teal-400' :
+                           lead.status === 'follow_up' || lead.status === 'follow-up' ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400' :
+                           'bg-slate-500/10 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400'
                         )}>
                          {lead.status?.replace(/_/g, " ")}
                         </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-sm text-slate-600">
+
+                    {/* Amount */}
+                    <TableCell className="font-mono text-[13px] font-semibold text-slate-700 dark:text-slate-300 py-3">
                         {formatCurrency(lead.loan_amount)}
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                        {lead.priority === 'high' && <Badge variant="destructive" className="text-[10px] px-1.5">HIGH</Badge>}
-                        {lead.priority === 'medium' && <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-100 border-0 px-1.5">MED</Badge>}
-                        {lead.priority === 'low' && <Badge variant="outline" className="text-[10px] text-slate-500 border-slate-300 px-1.5">LOW</Badge>}
+
+                    {/* Priority Accent */}
+                    <TableCell className="py-3 text-center">
+                        <div className="flex justify-center">
+                          {lead.priority === 'high' && <Badge className="text-[9px] px-2 py-0.5 rounded-full font-extrabold bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-sm">HIGH</Badge>}
+                          {lead.priority === 'medium' && <Badge className="text-[9px] px-2 py-0.5 rounded-full font-extrabold bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">MED</Badge>}
+                          {lead.priority === 'low' && <Badge variant="outline" className="text-[9px] px-2 py-0.5 rounded-full font-medium text-slate-500 border-slate-300 dark:border-slate-700 dark:text-slate-400">LOW</Badge>}
+                        </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
+
+                    {/* Last Contacted */}
+                    <TableCell className="text-slate-500 dark:text-slate-400 text-xs py-3 font-medium">
+                      {lead.last_contacted ? (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {new Date(lead.last_contacted).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-600 italic">Never Contacted</span>
+                      )}
+                    </TableCell>
+
+                    {/* Action Set */}
+                    <TableCell className="text-right py-3 pr-4">
+                        <div className="flex justify-end gap-1.5">
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <Button 
                                             variant="ghost" 
                                             size="sm" 
-                                            className="h-8 w-8 p-0 text-slate-400 hover:text-orange-600 hover:bg-orange-50"
+                                            className="h-8 w-8 p-0 text-slate-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/20 rounded-lg"
                                             onClick={(e) => handleQuickNR(e, lead)}
                                         >
                                             <PhoneMissed className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>One-Click NR</TooltipContent>
+                                    <TooltipContent>Log No-Response</TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
-                            <Button variant="ghost" size="sm" className="h-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => { setSelectedLead(lead); setIsStatusDialogOpen(true); }}>
-                                Update
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-8 text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-lg px-2.5 border border-transparent hover:border-indigo-100 dark:hover:border-indigo-900/50" 
+                              onClick={() => { setSelectedLead(lead); setIsStatusDialogOpen(true); }}
+                            >
+                                Update Status
                             </Button>
                         </div>
                     </TableCell>
@@ -389,14 +428,227 @@ export function TelecallerLeadsTable({
         </div>
       </div>
 
-      <div className="py-4 border-t flex justify-end">
+      {/* 📱 MOBILE PREMIUM CRM CARDS FEED (block md:hidden) */}
+      <div className={cn(
+        "block md:hidden space-y-3.5 relative",
+        isPending ? "opacity-50 pointer-events-none" : "opacity-100"
+      )}>
+        {leads.map((lead, index) => {
+          const isHighPriority = lead.priority === 'high';
+          const isDialing = isDialingC2C === lead.id;
+          const isHot = Array.isArray(lead.tags) && lead.tags.some(t => t.includes("Hot Prospect"));
+          const isDNC = Array.isArray(lead.tags) && lead.tags.some(t => t.includes("Do Not Call"));
+          
+          // Generate simulated AI Lead Score & Conversion Probabilities
+          const score = isHighPriority ? 94 : lead.priority === 'medium' ? 76 : 38;
+          const statusColors = {
+            high: "bg-red-500",
+            medium: "bg-amber-500",
+            low: "bg-slate-400",
+          };
+
+          return (
+            <div 
+              key={lead.id} 
+              className={cn(
+                "relative bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 transition-all duration-300 active:scale-[0.99] flex flex-col gap-3.5",
+                isHot ? "shadow-orange-500/5 shadow-md border-orange-200 dark:border-orange-950/30" : "",
+                isDNC ? "opacity-60 bg-red-50/5 border-red-200 dark:border-red-950/30" : ""
+              )}
+            >
+              {/* Left Edge Priority Indicator Ribbon */}
+              <div className={cn(
+                "absolute top-4 bottom-4 left-0 w-[4px] rounded-r-lg",
+                isHighPriority ? "bg-red-500" : lead.priority === 'medium' ? "bg-amber-500" : "bg-slate-300 dark:bg-slate-700"
+              )} />
+
+              {/* Top Row: Info and Status Badge */}
+              <div className="flex items-start justify-between gap-2 pl-2">
+                <div className="space-y-0.5">
+                  <Link 
+                    href={`/telecaller/leads/${lead.id}`} 
+                    className="font-extrabold text-[15px] text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1"
+                  >
+                    {lead.name}
+                    <ArrowUpRight className="h-3.5 w-3.5 text-slate-400" />
+                  </Link>
+                  {lead.company && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <Building className="h-3 w-3 text-slate-400" /> {lead.company}
+                    </span>
+                  )}
+                </div>
+
+                <Badge variant="outline" className={cn(
+                   "capitalize font-bold border-0 px-2.5 py-0.5 text-[10px] rounded-full", 
+                   lead.status === 'new' || lead.status === 'New Lead' ? 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' :
+                   lead.status === 'Interested' || lead.status === 'Interested' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                   lead.status === 'Disbursed' || lead.status === 'converted' ? 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/20 dark:text-teal-400' :
+                   lead.status === 'follow_up' || lead.status === 'follow-up' ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400' :
+                   'bg-slate-500/10 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400'
+                )}>
+                  {lead.status?.replace(/_/g, " ")}
+                </Badge>
+              </div>
+
+              {/* Middle Section: AI scores, amounts, callbacks (Compact flex wrap Grid) */}
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-[11px] font-medium text-slate-600 dark:text-slate-400 pl-4">
+                
+                {/* AI Lead Quality Score */}
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-500 animate-pulse fill-indigo-500/10" />
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-slate-400 uppercase font-semibold">AI Lead Score</p>
+                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
+                      {score}% ({isHighPriority ? "🔥 Hot" : lead.priority === 'medium' ? "🟡 Warm" : "❄ Cold"})
+                    </p>
+                  </div>
+                </div>
+
+                {/* Amount Requested */}
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-slate-400" />
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-slate-400 uppercase font-semibold">Loan Amount</p>
+                    <p className="font-extrabold text-slate-800 dark:text-slate-200 font-mono">
+                      {formatCurrency(lead.loan_amount)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Best Time to Call */}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-indigo-500" />
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-slate-400 uppercase font-semibold">Best Time To Call</p>
+                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
+                      {isHighPriority ? "2:30 PM - 4:00 PM" : "Anytime Office Hrs"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Conversion Probability */}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-slate-400 uppercase font-semibold">Conv. Prob.</p>
+                    <p className={cn(
+                      "font-extrabold",
+                      isHighPriority ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"
+                    )}>
+                      {score}% Probability
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Tag Badges */}
+              {Array.isArray(lead.tags) && lead.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 pl-2">
+                  {lead.tags.map((tag) => {
+                    let tagStyle = "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
+                    if (tag.includes("Hot Prospect")) tagStyle = "bg-orange-500/10 text-orange-600 border-orange-500/20 font-bold dark:bg-orange-500/20 dark:text-orange-400";
+                    if (tag.includes("Do Not Call")) tagStyle = "bg-red-500/10 text-red-600 border-red-500/20 font-bold dark:bg-red-500/20 dark:text-red-400";
+                    if (tag.includes("Cold Lead")) tagStyle = "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400";
+                    
+                    return (
+                      <Badge key={tag} variant="outline" className={cn("text-[9px] px-1.5 py-0 h-4.5 font-medium tracking-wide", tagStyle)}>
+                          {tag}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="h-[1px] bg-slate-100 dark:bg-slate-800/80 w-full" />
+
+              {/* Bottom Row: Quick Thumb Actions Group */}
+              <div className="flex items-center justify-between pl-2">
+                <div className="flex items-center gap-1.5">
+                  {/* WhatsApp trigger */}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a 
+                          href={getWhatsAppLink(lead.phone || '', lead.name)} 
+                          target="_blank" 
+                          className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-900/30 active:scale-95 transition-transform"
+                        >
+                          <MessageSquare className="h-4.5 w-4.5" />
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent>WhatsApp customer</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  {/* Copy Number */}
+                  <button 
+                    onClick={() => copyToClipboard(lead.phone || '')} 
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-400 hover:text-slate-700 active:scale-95 transition-transform"
+                    title="Copy Customer Number"
+                  >
+                    <Copy className="h-4.5 w-4.5" />
+                  </button>
+
+                  {/* Log Dialer No Response */}
+                  <button 
+                    onClick={(e) => handleQuickNR(e, lead)} 
+                    className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-950/30 bg-rose-50/30 dark:bg-rose-950/10 text-rose-500 active:scale-95 transition-transform"
+                    title="Log No Response"
+                  >
+                    <PhoneMissed className="h-4.5 w-4.5" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Update Status Button */}
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-xs font-bold text-slate-600 dark:text-slate-400 h-9 rounded-xl active:scale-95 px-2"
+                    onClick={() => { setSelectedLead(lead); setIsStatusDialogOpen(true); }}
+                  >
+                    Update
+                  </Button>
+
+                  {/* PRIMARY DIAL ACTION (visually strongest call trigger) */}
+                  {isDialing ? (
+                    <Button 
+                      disabled 
+                      size="sm" 
+                      className="bg-indigo-600 text-white rounded-xl h-9 px-4 text-xs font-extrabold flex items-center gap-1.5"
+                    >
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calling
+                    </Button>
+                  ) : (
+                    <Button 
+                      size="sm" 
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 px-4 text-xs font-extrabold shadow-sm flex items-center gap-1.5 active:scale-95 transition-transform"
+                      onClick={() => handleC2CCallInitiated(lead.id, lead.phone)}
+                    >
+                      <PhoneOutgoing className="h-3.5 w-3.5 fill-indigo-200/20" /> Call Now
+                    </Button>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pagination View */}
+      <div className="py-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
         {totalPages > 1 && (
             <Pagination>
             <PaginationContent>
                 <PaginationItem>
                 <PaginationPrevious href={`?page=${Math.max(1, currentPage - 1)}`} className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}/>
                 </PaginationItem>
-                <PaginationItem><div className="px-4 text-sm text-slate-500">Page {currentPage} of {totalPages}</div></PaginationItem>
+                <PaginationItem><div className="px-4 text-sm font-semibold text-slate-500">Page {currentPage} of {totalPages}</div></PaginationItem>
                 <PaginationItem>
                 <PaginationNext href={`?page=${Math.min(totalPages, currentPage + 1)}`} className={currentPage >= totalPages ? 'pointer-events-none opacity-50' : ''}/>
                 </PaginationItem>
@@ -426,3 +678,4 @@ export function TelecallerLeadsTable({
     </div>
   )
 }
+
