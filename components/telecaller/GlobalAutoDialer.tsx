@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation"
 import { PhoneForwarded, Loader2, Timer, CheckCircle2, User, PauseCircle, X } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { initiateC2CCall } from "@/app/actions/c2c-dialer"
+import { cn } from "@/lib/utils"
+
 
 export function GlobalAutoDialer() {
     const [dialState, setDialState] = useState<'idle' | 'dialing' | 'on_call' | 'wrap_up' | 'empty' | 'offline' | 'paused'>('offline')
