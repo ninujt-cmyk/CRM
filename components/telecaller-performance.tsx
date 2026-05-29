@@ -175,81 +175,155 @@ export function TelecallerPerformance({ startDate, endDate, telecallerId }: Tele
 
   const getPerformanceBadge = (rate: number, type: "connect" | "conversion") => {
     const thresholds = type === "connect" ? [60, 40] : [15, 8]
-    if (rate >= thresholds[0]) return <Badge className="bg-green-100 text-green-800 flex items-center gap-1 hover:bg-green-100"><TrendingUp className="h-3 w-3" />Excellent</Badge>
-    else if (rate >= thresholds[1]) return <Badge className="bg-yellow-100 text-yellow-800 flex items-center gap-1 hover:bg-yellow-100"><Minus className="h-3 w-3" />Good</Badge>
-    else return <Badge className="bg-red-100 text-red-800 flex items-center gap-1 hover:bg-red-100"><TrendingDown className="h-3 w-3" />Improve</Badge>
+    if (rate >= thresholds[0]) {
+      return (
+        <Badge className="bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-900/30 font-bold text-[10px] py-0 px-2 rounded-full hover:bg-emerald-100/50 shadow-none">
+          Excellent
+        </Badge>
+      )
+    } else if (rate >= thresholds[1]) {
+      return (
+        <Badge className="bg-amber-50/80 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-250 dark:border-amber-900/30 font-bold text-[10px] py-0 px-2 rounded-full hover:bg-amber-100/50 shadow-none">
+          Good
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge className="bg-rose-50/80 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-250 dark:border-rose-900/30 font-bold text-[10px] py-0 px-2 rounded-full hover:bg-rose-100/50 shadow-none">
+          Needs Training
+        </Badge>
+      )
+    }
   }
 
-  if (isLoading) return <div className="text-center py-8 text-gray-500">Loading performance data...</div>
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 space-y-3">
+        <div className="h-6 w-6 border-2 border-blue-600 border-t-transparent animate-spin rounded-full" />
+        <span className="text-sm font-semibold text-slate-500 dark:text-slate-400 animate-pulse">Calculating workforce stats...</span>
+      </div>
+    )
+  }
 
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full border-collapse">
+    <div className="overflow-x-auto border border-slate-200/60 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 shadow-sm">
+      <table className="w-full border-collapse text-left">
         <thead>
-          <tr className="border-b bg-gray-50 text-xs text-gray-700 uppercase">
-            <th className="p-4 font-semibold text-left">Telecaller</th>
-            <th className="p-4 font-semibold text-left">Status</th>
-            <th className="p-4 font-semibold text-center">Leads</th>
-            <th className="p-4 font-semibold text-center">Calls</th>
-            <th className="p-4 font-semibold text-left">Duration</th>
-            <th className="p-4 font-semibold text-center">Last Call</th>
-            <th className="p-4 font-semibold text-center">Gap</th>
-            <th className="p-4 font-semibold text-center">Connected</th>
-            <th className="p-4 font-semibold text-center">Rate</th>
-            <th className="p-4 font-semibold text-center">Conv.</th>
-            <th className="p-4 font-semibold text-left">Breakdown</th>
+          <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 text-slate-500 dark:text-slate-400 text-[11px] font-extrabold uppercase tracking-wider">
+            <th className="py-3.5 px-4 font-bold text-left sticky left-0 bg-slate-50/70 dark:bg-slate-950/40 z-10">Telecaller</th>
+            <th className="py-3.5 px-4 font-bold text-left">Status</th>
+            <th className="py-3.5 px-4 font-bold text-center">Leads</th>
+            <th className="py-3.5 px-4 font-bold text-center">Calls</th>
+            <th className="py-3.5 px-4 font-bold text-left">Duration</th>
+            <th className="py-3.5 px-4 font-bold text-center">Last Call</th>
+            <th className="py-3.5 px-4 font-bold text-center">Gap</th>
+            <th className="py-3.5 px-4 font-bold text-center">Connected</th>
+            <th className="py-3.5 px-4 font-bold text-center">Connect Rate</th>
+            <th className="py-3.5 px-4 font-bold text-center">Conv. Rate</th>
+            <th className="py-3.5 px-4 font-bold text-left">Call Status Breakdown</th>
           </tr>
         </thead>
-        <tbody className="text-sm">
+        <tbody className="text-xs divide-y divide-slate-100 dark:divide-slate-800/80">
           {data.map((telecaller) => (
-            <tr key={telecaller.id} className="border-b hover:bg-gray-50 transition-colors">
-              <td className="p-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-xs">
+            <tr key={telecaller.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors group">
+              {/* Telecaller Avatar and Name */}
+              <td className="py-3 px-4 font-medium sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50/50 dark:group-hover:bg-slate-900/40 z-10 transition-colors border-r border-slate-100 dark:border-slate-800/60">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-[11px] relative shadow-sm ring-2 ${
+                    telecaller.isCheckedIn 
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-blue-500/20" 
+                      : "bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-slate-200 dark:ring-slate-800"
+                  }`}>
                     {telecaller.name.charAt(0).toUpperCase()}
+                    {telecaller.isCheckedIn && (
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
+                    )}
                   </div>
-                  <span className="font-medium text-gray-900">{telecaller.name}</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-100 tracking-tight text-[13px]">{telecaller.name}</span>
                 </div>
               </td>
-              <td className="p-4">
-                 <Badge variant={telecaller.isCheckedIn ? "default" : "secondary"} className={telecaller.isCheckedIn ? "bg-green-500 hover:bg-green-600" : ""}>
+              
+              {/* Status Badge */}
+              <td className="py-3 px-4">
+                 <Badge className={
+                   telecaller.isCheckedIn 
+                     ? "bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-extrabold text-[10px]" 
+                     : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50 font-bold text-[10px]"
+                 }>
                     {telecaller.isCheckedIn ? "Online" : "Offline"}
                  </Badge>
               </td>
-              <td className="p-4 text-center font-medium">{telecaller.totalLeads}</td>
-              <td className="p-4 text-center font-medium">{telecaller.totalCalls}</td>
-              <td className="p-4">
+
+              {/* Leads Roster */}
+              <td className="py-3 px-4 text-center font-bold text-slate-700 dark:text-slate-300 text-[13px]">{telecaller.totalLeads}</td>
+              
+              {/* Calls Roster */}
+              <td className="py-3 px-4 text-center font-bold text-slate-700 dark:text-slate-300 text-[13px]">{telecaller.totalCalls}</td>
+              
+              {/* Durations */}
+              <td className="py-3 px-4">
                 <div className="flex flex-col gap-0.5">
-                   <span className="font-medium">{formatDuration(telecaller.totalCallDuration)}</span>
-                   <span className="text-xs text-gray-500">Avg: {formatDuration(telecaller.avgCallDuration)}</span>
+                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-[12px]">{formatDuration(telecaller.totalCallDuration)}</span>
+                   <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold uppercase">Avg: {formatDuration(telecaller.avgCallDuration)}</span>
                 </div>
               </td>
-              <td className="p-4 text-center font-mono text-xs">{formatTime(telecaller.lastCallTime)}</td>
-              <td className="p-4 text-center font-mono text-xs text-gray-500">{formatDuration(telecaller.avgTimeBetweenCalls)}</td>
-              <td className="p-4 text-center font-bold text-green-600">{telecaller.connectedCalls}</td>
-              <td className="p-4 text-center">
-                 <div className="flex flex-col items-center gap-1">
-                    <span className="font-bold">{telecaller.connectRate.toFixed(0)}%</span>
+
+              {/* Last Call */}
+              <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-700 dark:text-slate-300 font-medium">{formatTime(telecaller.lastCallTime)}</td>
+              
+              {/* Gap between Calls */}
+              <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-400 dark:text-slate-500 font-semibold">{formatDuration(telecaller.avgTimeBetweenCalls)}</td>
+              
+              {/* Connected Calls */}
+              <td className="py-3 px-4 text-center font-extrabold text-emerald-600 dark:text-emerald-400 text-[13px]">{telecaller.connectedCalls}</td>
+              
+              {/* Connect Rate with Progress Indicator */}
+              <td className="py-3 px-4">
+                 <div className="flex flex-col items-center gap-1.5 min-w-[80px]">
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[13px]">{telecaller.connectRate.toFixed(0)}%</span>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${telecaller.connectRate}%` }} />
+                    </div>
                     {getPerformanceBadge(telecaller.connectRate, "connect")}
                  </div>
               </td>
-              <td className="p-4 text-center">
-                 <div className="flex flex-col items-center gap-1">
-                    <span className="font-bold">{telecaller.conversionRate.toFixed(1)}%</span>
+
+              {/* Conversion Rate with Progress Indicator */}
+              <td className="py-3 px-4">
+                 <div className="flex flex-col items-center gap-1.5 min-w-[80px]">
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[13px]">{telecaller.conversionRate.toFixed(1)}%</span>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(telecaller.conversionRate * 4, 100)}%` }} />
+                    </div>
                     {getPerformanceBadge(telecaller.conversionRate, "conversion")}
                  </div>
               </td>
-              <td className="p-4">
-                <div className="flex gap-2 text-xs">
-                   <div className="flex items-center gap-1 text-green-600" title="Connected"><CheckCircle className="w-3 h-3"/> {telecaller.callStatusBreakdown.connected}</div>
-                   <div className="flex items-center gap-1 text-red-500" title="Not Connected"><Minus className="w-3 h-3"/> {telecaller.callStatusBreakdown.notConnected}</div>
-                   <div className="flex items-center gap-1 text-orange-500" title="Busy"><Clock className="w-3 h-3"/> {telecaller.callStatusBreakdown.busy}</div>
+
+              {/* Status Breakdown Pills */}
+              <td className="py-3 px-4">
+                <div className="flex gap-2">
+                   <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 font-bold" title="Connected">
+                     <CheckCircle className="w-3.5 h-3.5" /> 
+                     <span>{telecaller.callStatusBreakdown.connected}</span>
+                   </div>
+                   <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/10 font-bold" title="Not Connected">
+                     <Minus className="w-3.5 h-3.5" /> 
+                     <span>{telecaller.callStatusBreakdown.notConnected}</span>
+                   </div>
+                   <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/10 font-bold" title="Busy">
+                     <Clock className="w-3.5 h-3.5" /> 
+                     <span>{telecaller.callStatusBreakdown.busy}</span>
+                   </div>
                 </div>
               </td>
             </tr>
           ))}
           {data.length === 0 && (
-             <tr><td colSpan={11} className="p-8 text-center text-gray-500">No activity data found for this period.</td></tr>
+             <tr>
+               <td colSpan={11} className="py-12 text-center text-slate-500 dark:text-slate-400 font-semibold">
+                 No activity data found for this reporting period.
+               </td>
+             </tr>
           )}
         </tbody>
       </table>

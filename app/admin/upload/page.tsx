@@ -567,19 +567,52 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6 min-h-screen animate-in fade-in duration-300">
       
       {/* Header & Steps Indicator */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Import Leads</h1>
-          <p className="text-gray-600">Bulk upload wizard with duplicate checking and auto-assignment.</p>
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-2">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Import Leads Wizard</h1>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Bulk upload your spreadsheet, resolve duplicates, and auto-assign in seconds.</p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-            <span className={step >= 1 ? "text-blue-600 font-bold" : ""}>1. File</span> &rarr;
-            <span className={step >= 2 ? "text-blue-600 font-bold" : ""}>2. Map</span> &rarr;
-            <span className={step >= 3 ? "text-blue-600 font-bold" : ""}>3. Config</span> &rarr;
-            <span className={step >= 4 ? "text-blue-600 font-bold" : ""}>4. Finish</span>
+        
+        {/* Modern Progress Stepper */}
+        <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900/60 rounded-full border border-slate-200/50 dark:border-slate-800 shadow-2xs">
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+            step === 1 
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-2xs" 
+              : "text-slate-500 dark:text-slate-400"
+          }`}>
+            <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700/80 text-[10px] flex items-center justify-center font-extrabold">1</span>
+            <span>File</span>
+          </div>
+          <div className="h-1 w-3 bg-slate-200 dark:bg-slate-800 rounded" />
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+            step === 2 
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-2xs" 
+              : "text-slate-500 dark:text-slate-400"
+          }`}>
+            <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700/80 text-[10px] flex items-center justify-center font-extrabold">2</span>
+            <span>Map</span>
+          </div>
+          <div className="h-1 w-3 bg-slate-200 dark:bg-slate-800 rounded" />
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+            step === 3 
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-2xs" 
+              : "text-slate-500 dark:text-slate-400"
+          }`}>
+            <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700/80 text-[10px] flex items-center justify-center font-extrabold">3</span>
+            <span>Review</span>
+          </div>
+          <div className="h-1 w-3 bg-slate-200 dark:bg-slate-800 rounded" />
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+            step === 4 
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-2xs" 
+              : "text-slate-500 dark:text-slate-400"
+          }`}>
+            <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700/80 text-[10px] flex items-center justify-center font-extrabold">4</span>
+            <span>Finish</span>
+          </div>
         </div>
       </div>
 
@@ -587,355 +620,391 @@ export default function UploadPage() {
         
         {/* STEP 1: FILE UPLOAD */}
         {step === 1 && (
-            <Card>
-                <CardHeader>
-                    <CardTitle>Select Data File</CardTitle>
-                    <CardDescription>Upload a CSV file containing your lead data.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center hover:bg-slate-50 transition-colors">
-                        <Upload className="h-10 w-10 text-gray-400 mx-auto mb-4" />
-                        <div className="space-y-2">
-                             <Label htmlFor="csv-file" className="cursor-pointer bg-blue-50 text-blue-700 px-4 py-2 rounded-md hover:bg-blue-100 transition">
-                                Choose CSV File
-                             </Label>
-                             <Input id="csv-file" type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
-                             <p className="text-sm text-gray-500">{file ? file.name : "No file selected"}</p>
-                        </div>
+          <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+              <CardTitle className="text-base font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Upload className="h-4.5 w-4.5 text-blue-500" /> Choose Lead Spreadsheet
+              </CardTitle>
+              <CardDescription className="text-xs">Select the CSV file that contains the target leads information.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6">
+              <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center hover:bg-slate-50/50 dark:hover:bg-slate-950/30 transition-all group relative overflow-hidden flex flex-col items-center justify-center">
+                <div className="mx-auto w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform duration-300 mb-4">
+                  <Upload className="h-6 w-6" />
+                </div>
+                <div className="space-y-3 z-10">
+                  <Label htmlFor="csv-file" className="cursor-pointer inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-600 dark:hover:bg-blue-700 font-bold text-xs py-2 px-5 rounded-xl shadow-sm hover:shadow-md transition-all">
+                    Browse CSV File
+                  </Label>
+                  <Input id="csv-file" type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
+                  <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">
+                    {file ? file.name : "Supported formats: CSV (Comma-separated Values)"}
+                  </p>
+                  {file && (
+                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] shadow-2xs animate-bounce mt-2">
+                      <CheckCircle className="w-3.5 h-3.5" /> File Selected Successfully
                     </div>
-                    <Button variant="outline" onClick={downloadTemplate} size="sm" className="w-full">
-                        <Download className="h-4 w-4 mr-2" /> Download Template
-                    </Button>
-                </CardContent>
-                <CardFooter className="flex justify-end">
-                    <Button onClick={goToStep2} disabled={!file}>
-                        Next: Map Columns <ArrowRight className="h-4 w-4 ml-2" />
-                    </Button>
-                </CardFooter>
-            </Card>
+                  )}
+                </div>
+              </div>
+              
+              <div className="pt-2">
+                <Button variant="outline" onClick={downloadTemplate} size="sm" className="w-full border-slate-200 dark:border-slate-800 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 font-bold text-xs tracking-tight shadow-2xs py-4.5 rounded-xl flex items-center gap-2">
+                  <Download className="h-4 w-4" /> Download Sample CSV Template
+                </Button>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end border-t border-slate-100 dark:border-slate-800 pt-4 bg-slate-50/50 dark:bg-slate-950/20">
+              <Button onClick={goToStep2} disabled={!file} className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm rounded-xl py-4.5 px-6 flex items-center gap-1.5">
+                Next: Map Columns <ArrowRight className="h-4 w-4" />
+              </Button>
+            </CardFooter>
+          </Card>
         )}
 
         {/* STEP 2: COLUMN MAPPING */}
         {step === 2 && (
-            <Card>
-                <CardHeader>
-                    <CardTitle>Map Columns</CardTitle>
-                    <CardDescription>Match your CSV headers to the database fields.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {DB_FIELDS.map((field) => (
-                            <div key={field.key} className="flex items-center justify-between p-3 border rounded-md bg-white">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-sm flex items-center gap-1">
-                                        {field.label}
-                                        {field.required && <span className="text-red-500 text-xs">*</span>}
-                                    </span>
-                                    <span className="text-xs text-gray-500">Database Field</span>
-                                </div>
-                                <ArrowRight className="h-4 w-4 text-gray-300" />
-                                <Select 
-                                    value={columnMapping[field.key] || "ignore"} 
-                                    onValueChange={(val) => setColumnMapping(prev => ({ ...prev, [field.key]: val === "ignore" ? "" : val }))}
-                                >
-                                    <SelectTrigger className={`w-[180px] ${!columnMapping[field.key] && field.required ? "border-red-300" : ""}`}>
-                                        <SelectValue placeholder="Ignore Column" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ignore" className="text-gray-400 italic">Ignore Column</SelectItem>
-                                        {csvHeaders.map(header => (
-                                            <SelectItem key={header} value={header}>{header}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        ))}
+          <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+              <CardTitle className="text-base font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                Map Fields to CRM Schema
+              </CardTitle>
+              <CardDescription className="text-xs">Connect the headers in your CSV file to Hanva CRM fields.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {DB_FIELDS.map((field) => (
+                  <div key={field.key} className="flex items-center justify-between p-3 border border-slate-200/60 dark:border-slate-800 rounded-xl bg-slate-50/20 dark:bg-slate-950/10 shadow-2xs hover:shadow-xs transition-shadow duration-300">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-bold text-slate-800 dark:text-slate-100 text-xs flex items-center gap-1">
+                        {field.label}
+                        {field.required && <span className="text-rose-500 font-extrabold text-xs">*</span>}
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Database field</span>
                     </div>
-                </CardContent>
-                <CardFooter className="flex justify-between">
-                    <Button variant="ghost" onClick={() => setStep(1)}>Back</Button>
-                    <Button onClick={goToStep3}>Next: Preview & Config <ArrowRight className="h-4 w-4 ml-2" /></Button>
-                </CardFooter>
-            </Card>
+                    
+                    <div className="flex items-center gap-2">
+                      <ArrowRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-700" />
+                      <Select 
+                        value={columnMapping[field.key] || "ignore"} 
+                        onValueChange={(val) => setColumnMapping(prev => ({ ...prev, [field.key]: val === "ignore" ? "" : val }))}
+                      >
+                        <SelectTrigger className={`w-[170px] font-semibold text-xs rounded-xl shadow-2xs ${!columnMapping[field.key] && field.required ? "border-rose-300 dark:border-rose-950 focus:ring-rose-500" : ""}`}>
+                          <SelectValue placeholder="Ignore field" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="ignore" className="text-slate-400 dark:text-slate-500 italic font-semibold">Ignore column</SelectItem>
+                          {csvHeaders.map(header => (
+                            <SelectItem key={header} value={header}>{header}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-4 bg-slate-50/50 dark:bg-slate-950/20">
+              <Button variant="ghost" onClick={() => setStep(1)} className="font-semibold shadow-none rounded-xl">Back</Button>
+              <Button onClick={goToStep3} className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm rounded-xl py-4.5 px-6 flex items-center gap-1.5">
+                Next: Review Data <ArrowRight className="h-4 w-4" />
+              </Button>
+            </CardFooter>
+          </Card>
         )}
 
         {/* STEP 3: PREVIEW & CONFIGURATION */}
         {step === 3 && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Data Preview</CardTitle>
-                        <CardDescription>Review the first 50 rows. You can edit cells here to fix typos.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <div className="border rounded-md overflow-x-auto max-h-[400px]">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        {DB_FIELDS.filter(f => columnMapping[f.key]).map(f => (
-                                            <TableHead key={f.key} className="whitespace-nowrap">{f.label}</TableHead>
-                                        ))}
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {previewData.map((row) => (
-                                        <TableRow key={row._id}>
-                                            {DB_FIELDS.filter(f => columnMapping[f.key]).map(f => (
-                                                <TableCell key={f.key} className="p-1">
-                                                    <input 
-                                                        className="w-full bg-transparent text-sm px-2 py-1 focus:outline-none focus:bg-blue-50 rounded"
-                                                        value={row[f.key] || ""}
-                                                        onChange={(e) => handleCellEdit(row._id, f.key, e.target.value)}
-                                                    />
-                                                </TableCell>
-                                            ))}
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </CardContent>
-                </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Table Preview */}
+            <Card className="lg:col-span-2 border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden flex flex-col">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+                <CardTitle className="text-base font-extrabold text-slate-800 dark:text-slate-200">Data Validation Preview</CardTitle>
+                <CardDescription className="text-xs">Review the first 50 rows. Click on any text box to fix typos instantly before upload.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0 flex-grow">
+                <div className="overflow-x-auto max-h-[460px] border-b border-slate-100 dark:border-slate-850">
+                  <Table className="border-collapse text-left min-w-[700px]">
+                    <TableHeader>
+                      <TableRow className="border-b border-slate-200 dark:border-slate-850 bg-slate-50/70 dark:bg-slate-950/40 text-slate-500 dark:text-slate-400 text-[11px] font-extrabold uppercase tracking-wider">
+                        {DB_FIELDS.filter(f => columnMapping[f.key]).map(f => (
+                          <TableHead key={f.key} className="py-3 px-4 font-bold whitespace-nowrap">{f.label}</TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="text-xs divide-y divide-slate-100 dark:divide-slate-800/80">
+                      {previewData.map((row) => (
+                        <TableRow key={row._id} className="hover:bg-slate-50/40 dark:hover:bg-slate-900/30 transition-colors">
+                          {DB_FIELDS.filter(f => columnMapping[f.key]).map(f => (
+                            <TableCell key={f.key} className="p-1 px-2 border-r border-slate-100 dark:border-slate-850/60 last:border-r-0">
+                              <input 
+                                className="w-full bg-transparent text-xs px-2.5 py-1.5 focus:outline-none focus:bg-blue-500/10 focus:ring-1 focus:ring-blue-500/30 font-semibold text-slate-800 dark:text-slate-200 dark:focus:bg-blue-500/5 rounded-lg transition-all"
+                                value={row[f.key] || ""}
+                                onChange={(e) => handleCellEdit(row._id, f.key, e.target.value)}
+                              />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
 
-                <Card className="h-fit">
-                    <CardHeader>
-                        <CardTitle>Import Settings</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        
-                        {/* Duplicate Handling */}
-                        <div className="space-y-2">
-                            <Label>Duplicate Handling</Label>
-                            <Select value={duplicateAction} onValueChange={(val: any) => setDuplicateAction(val)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="skip">Skip duplicates (Check Phone)</SelectItem>
-                                    <SelectItem value="allow">Allow duplicates</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <p className="text-[10px] text-gray-500 mt-1">
-                                * "Skip" will only block leads if existing status is: Interested, Follow Up, Login, Docs Sent, or Disbursed.
-                            </p>
-                        </div>
+            {/* Import Settings Panel */}
+            <Card className="h-fit border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+                <CardTitle className="text-base font-extrabold text-slate-800 dark:text-slate-200">Import Rules</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                
+                {/* Duplicate Handling */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Duplicate Prevention</Label>
+                  <Select value={duplicateAction} onValueChange={(val: any) => setDuplicateAction(val)}>
+                    <SelectTrigger className="font-semibold text-xs rounded-xl shadow-2xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="skip" className="font-semibold text-xs">Skip active matching duplicates</SelectItem>
+                      <SelectItem value="allow" className="font-semibold text-xs">Allow all duplicates</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold italic mt-1 leading-normal">
+                    * Skip blocks existing phone records flagged as: Interested, Follow Up, Login, Docs Sent, or Disbursed.
+                  </p>
+                </div>
 
-                        {/* Global Attributes */}
-                        <div className="space-y-3 pt-4 border-t">
-                            <Label>Global Attributes</Label>
-                            <div className="space-y-2">
-                                <Label className="text-xs text-gray-500">Lead Source</Label>
-                                <Select value={globalSource} onValueChange={setGlobalSource}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Source" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="website">Website</SelectItem>
-                                        <SelectItem value="referral">Referral</SelectItem>
-                                        <SelectItem value="campaign">Campaign</SelectItem>
-                                        <SelectItem value="cold_call">Cold Call</SelectItem>
-                                        <SelectItem value="other">Other</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs text-gray-500">Add Tags (comma separated)</Label>
-                                <Input value={globalTags} onChange={(e) => setGlobalTags(e.target.value)} placeholder="e.g. Diwali Promo, VIP" />
-                            </div>
-                        </div>
+                {/* Global Attributes */}
+                <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <Label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1"><Sparkles className="h-3.5 w-3.5 text-blue-500" /> Default Metadata</Label>
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-semibold text-slate-450">Lead Source</Label>
+                    <Select value={globalSource} onValueChange={setGlobalSource}>
+                      <SelectTrigger className="font-semibold text-xs rounded-xl shadow-2xs">
+                        <SelectValue placeholder="Select Source" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="website" className="font-semibold text-xs">Website</SelectItem>
+                        <SelectItem value="referral" className="font-semibold text-xs">Referral</SelectItem>
+                        <SelectItem value="campaign" className="font-semibold text-xs">Campaign</SelectItem>
+                        <SelectItem value="cold_call" className="font-semibold text-xs">Cold Call</SelectItem>
+                        <SelectItem value="other" className="font-semibold text-xs">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-semibold text-slate-450">Default Tags (comma separated)</Label>
+                    <Input value={globalTags} onChange={(e) => setGlobalTags(e.target.value)} placeholder="e.g. Diwali Promo, Prime" className="font-semibold text-xs rounded-xl shadow-2xs" />
+                  </div>
+                </div>
 
-                        {/* Assignment Logic */}
-                        <div className="space-y-3 pt-4 border-t">
-                            <Label>Assignment</Label>
-                            <div className="flex items-center justify-between bg-slate-50 p-3 rounded-md border">
-                                <div className="space-y-0.5">
-                                    <Label className="text-sm flex items-center gap-2">
-                                        <Zap className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                                        Auto-Distribute
-                                    </Label>
-                                    <p className="text-[10px] text-gray-500">{activeCount} agents online</p>
-                                </div>
-                                <Switch checked={autoDistribute} onCheckedChange={setAutoDistribute} />
-                            </div>
-                            
-                            {!autoDistribute && (
-                                <Select value={selectedTelecaller || ""} onValueChange={setSelectedTelecaller}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select specific user" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="unassigned">Unassigned</SelectItem>
-                                        {telecallers.map(tc => (
-                                            <SelectItem key={tc.id} value={tc.id}>{tc.full_name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        </div>
+                {/* Assignment Logic */}
+                <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <Label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Lead Allocation</Label>
+                  <div className="flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 shadow-2xs">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-350">
+                        <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500/10" />
+                        Auto-Distribute
+                      </Label>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">{activeCount} agents online today</p>
+                    </div>
+                    <Switch checked={autoDistribute} onCheckedChange={setAutoDistribute} />
+                  </div>
+                  
+                  {!autoDistribute && (
+                    <Select value={selectedTelecaller || ""} onValueChange={setSelectedTelecaller}>
+                      <SelectTrigger className="font-semibold text-xs rounded-xl shadow-2xs">
+                        <SelectValue placeholder="Select specific user" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="unassigned" className="font-semibold text-xs">Unassigned</SelectItem>
+                        {telecallers.map(tc => (
+                          <SelectItem key={tc.id} value={tc.id}>{tc.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
 
-                        {/* Intelligent Prioritization */}
-                        <div className="space-y-3 pt-4 border-t">
-                             <Label>Smart Automation</Label>
-                             <div className="flex items-center justify-between bg-slate-50 p-3 rounded-md border">
-                                 <div className="space-y-0.5">
-                                     <Label className="text-sm flex items-center gap-2">
-                                         <Zap className="h-3 w-3 text-indigo-500 fill-indigo-500" />
-                                         Intelligent Lead Scoring
-                                     </Label>
-                                     <p className="text-[10px] text-gray-500">Auto-assigns High/Low priority based on Loan Amount & Job Designation</p>
-                                 </div>
-                                 <Switch checked={autoPrioritize} onCheckedChange={setAutoPrioritize} />
-                             </div>
-                        </div>
+                {/* Intelligent Prioritization */}
+                <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 shadow-2xs">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-350">
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500 animate-pulse" />
+                        AI Intent Scoring
+                      </Label>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold leading-normal">Sets High/Low priority tags dynamically using Loan Volume & Job Roles.</p>
+                    </div>
+                    <Switch checked={autoPrioritize} onCheckedChange={setAutoPrioritize} />
+                  </div>
+                </div>
 
-                    </CardContent>
-                    <CardFooter className="flex flex-col gap-2">
-                        <Button className="w-full" onClick={processUpload} disabled={isUploading}>
-                            {isUploading ? "Uploading..." : "Start Import"}
-                        </Button>
-                        <Button variant="ghost" size="sm" className="w-full" onClick={() => setStep(2)} disabled={isUploading}>Back</Button>
-                    </CardFooter>
-                </Card>
-            </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-2 border-t border-slate-100 dark:border-slate-800 pt-4 bg-slate-50/50 dark:bg-slate-950/20">
+                <Button className="w-full bg-blue-600 hover:bg-blue-700 font-bold shadow-sm rounded-xl py-4.5 flex items-center justify-center gap-2" onClick={processUpload} disabled={isUploading}>
+                  <CheckCircle className="h-4 w-4" /> Start Bulk Import
+                </Button>
+                <Button variant="ghost" size="sm" className="w-full font-semibold rounded-xl" onClick={() => setStep(2)} disabled={isUploading}>Back</Button>
+              </CardFooter>
+            </Card>
+          </div>
         )}
 
         {/* STEP 3.5: UPLOADING PROGRESS OVERLAY */}
         {isUploading && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                <Card className="w-[400px]">
-                    <CardHeader>
-                        <CardTitle>Importing Leads...</CardTitle>
-                        <CardDescription>Please do not close this window.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <Progress value={progress} className="h-3" />
-                        <p className="text-center text-sm text-gray-500">{progress}% Complete</p>
-                    </CardContent>
-                </Card>
-            </div>
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center z-50 animate-in fade-in duration-300">
+            <Card className="w-[380px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl rounded-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <CardContent className="p-8 text-center space-y-5">
+                <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto border border-blue-500/20 animate-bounce">
+                  <Upload className="h-6 w-6 animate-pulse" />
+                </div>
+                <div className="space-y-1">
+                  <CardTitle className="text-lg font-extrabold text-slate-850 dark:text-slate-100">Processing CRM Import</CardTitle>
+                  <CardDescription className="text-xs">Injecting lead roster into databases. Do not reload.</CardDescription>
+                </div>
+                <div className="space-y-2">
+                  <Progress value={progress} className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full" />
+                  <p className="text-xs font-bold text-blue-600 dark:text-blue-400">{progress}% completed</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
-        {/* STEP 4: RESULTS */}
+        {/* STEP 4: RESULTS SUMMARY */}
         {step === 4 && (
-            <Card className="max-w-2xl mx-auto text-center">
-                <CardHeader>
-                    <div className="mx-auto bg-green-100 p-3 rounded-full w-fit mb-4">
-                        <CheckCircle className="h-8 w-8 text-green-600" />
+          <Card className="max-w-2xl mx-auto text-center border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <CardHeader className="pb-4 pt-8">
+              <div className="mx-auto bg-emerald-500/10 border border-emerald-500/20 p-3.5 rounded-2xl w-fit mb-4 text-emerald-600 dark:text-emerald-450 shadow-2xs">
+                <CheckCircle className="h-8 w-8" />
+              </div>
+              <CardTitle className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Lead Roster Import Successful</CardTitle>
+              <CardDescription className="text-xs">Database transactions committed and leads allocated successfully.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 px-6">
+              
+              {/* Core Analytics Cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-slate-50/50 dark:bg-slate-950/20 p-4.5 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 shadow-2xs flex flex-col justify-center">
+                  <div className="text-2xl font-extrabold text-slate-800 dark:text-slate-200">{uploadStats.total}</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 mt-1">Total Spreadsheet Rows</div>
+                </div>
+                <div className="bg-emerald-500/5 p-4.5 rounded-2xl border border-emerald-500/10 shadow-2xs flex flex-col justify-center">
+                  <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{uploadStats.success}</div>
+                  <div className="text-[10px] uppercase font-bold text-emerald-650/80 dark:text-emerald-500 mt-1">Uploaded to CRM</div>
+                </div>
+                <div className="bg-amber-500/5 p-4.5 rounded-2xl border border-amber-500/10 shadow-2xs flex flex-col justify-center">
+                  <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{uploadStats.skipped}</div>
+                  <div className="text-[10px] uppercase font-bold text-amber-650/80 dark:text-amber-500 mt-1">Skipped (Duplicate Check)</div>
+                </div>
+              </div>
+
+              {/* AI PRIORITIZATION METRICS */}
+              {autoPrioritize && uploadStats.success > 0 && (
+                <div className="bg-gradient-to-r from-blue-500/5 via-indigo-500/5 to-white dark:to-slate-900/5 p-5 rounded-2xl border border-indigo-200/40 dark:border-indigo-900/30 text-left space-y-4 shadow-2xs">
+                  <h3 className="text-xs font-bold text-indigo-950 dark:text-indigo-350 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Sparkles className="h-4 w-4 text-indigo-500 fill-indigo-500/10 animate-pulse" />
+                    AI scoring intent analysis
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/80 shadow-3xs">
+                      <div className="text-lg font-extrabold text-rose-600 dark:text-rose-400">{highPriorityCount}</div>
+                      <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider mt-0.5">High Priority</div>
                     </div>
-                    <CardTitle>Import Complete</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-slate-50 p-4 rounded-lg">
-                            <div className="text-2xl font-bold text-gray-900">{uploadStats.total}</div>
-                            <div className="text-sm text-gray-500">Total Rows</div>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-lg">
-                            <div className="text-2xl font-bold text-green-700">{uploadStats.success}</div>
-                            <div className="text-sm text-green-600">Imported</div>
-                        </div>
-                        <div className="bg-amber-50 p-4 rounded-lg">
-                            <div className="text-2xl font-bold text-amber-700">{uploadStats.skipped}</div>
-                            <div className="text-sm text-amber-600">Skipped (Active)</div>
-                        </div>
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/80 shadow-3xs">
+                      <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400">{mediumPriorityCount}</div>
+                      <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider mt-0.5">Medium Priority</div>
                     </div>
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/80 shadow-3xs">
+                      <div className="text-lg font-extrabold text-slate-650 dark:text-slate-455">{lowPriorityCount}</div>
+                      <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider mt-0.5">Low Priority</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                    {/* INTELLIGENT LEAD PRIORITIZATION DASHBOARD */}
-                    {autoPrioritize && uploadStats.success > 0 && (
-                        <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 p-5 rounded-lg border border-indigo-100/50 text-left space-y-3 shadow-sm">
-                            <h3 className="text-sm font-semibold text-indigo-950 flex items-center gap-1.5">
-                                <Zap className="h-4 w-4 text-indigo-600 fill-indigo-600/10 animate-pulse" />
-                                Intelligent Lead Scoring Insights
-                            </h3>
-                            <div className="grid grid-cols-3 gap-3 text-center">
-                                <div className="bg-white p-3 rounded border border-indigo-100/50 shadow-2xs">
-                                    <div className="text-lg font-bold text-red-600">{highPriorityCount}</div>
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">High Priority</div>
-                                </div>
-                                <div className="bg-white p-3 rounded border border-indigo-100/50 shadow-2xs">
-                                    <div className="text-lg font-bold text-blue-600">{mediumPriorityCount}</div>
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">Medium Priority</div>
-                                </div>
-                                <div className="bg-white p-3 rounded border border-indigo-100/50 shadow-2xs">
-                                    <div className="text-lg font-bold text-slate-600">{lowPriorityCount}</div>
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">Low Priority</div>
-                                </div>
+              {/* DISTRIBUTION SUMMARY BUTTON */}
+              {(Object.keys(assignmentSummary).length > 0) && (
+                <div className="flex justify-center pt-2">
+                  <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="gap-2 border-blue-200/60 dark:border-slate-800 bg-blue-500/5 text-blue-600 hover:bg-blue-500/10 font-bold text-xs py-5 px-6 rounded-xl hover:shadow-sm shadow-2xs">
+                        <PieChart className="h-4 w-4" />
+                        View Allocation Breakdown Report
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md overflow-hidden">
+                      <DialogHeader className="flex flex-row items-center justify-between pr-6 border-b border-slate-100 dark:border-slate-800 pb-3 bg-slate-50/50 dark:bg-slate-950/20">
+                        <div className="space-y-0.5">
+                          <DialogTitle className="text-base font-extrabold text-slate-850 dark:text-slate-100">Roster Distribution Report</DialogTitle>
+                          <DialogDescription className="text-xs">Agent allocation details for this batch.</DialogDescription>
+                        </div>
+                        <Button variant="secondary" size="sm" onClick={handleShareReport} className="gap-1.5 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:bg-blue-600 dark:hover:bg-blue-700 dark:text-white font-bold text-xs rounded-lg py-1 px-3 shadow-none border-0">
+                          <Share2 className="h-3.5 w-3.5" /> Share
+                        </Button>
+                      </DialogHeader>
+                      <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 px-2">
+                        {Object.entries(assignmentSummary).map(([id, count]) => {
+                          const agent = telecallers.find(t => t.id === id)
+                          return (
+                            <div key={id} className="flex items-center justify-between py-3 first:pt-0">
+                              <span className="font-bold text-slate-800 dark:text-slate-250 text-xs">{agent?.full_name || "Unknown Agent"}</span>
+                              <Badge className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-350 font-extrabold text-[11px] py-1 px-2.5 rounded-lg border-0 shadow-none">
+                                {count} leads
+                              </Badge>
                             </div>
-                        </div>
-                    )}
+                          )
+                        })}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              )}
 
-                    {/* ASSIGNMENT REPORT BUTTON */}
-                    {(Object.keys(assignmentSummary).length > 0) && (
-                        <div className="flex justify-center">
-                            <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
-                                <DialogTrigger asChild>
-                                    <Button variant="outline" className="gap-2 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
-                                        <PieChart className="h-4 w-4" />
-                                        View Assignment Report
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                    <DialogHeader className="flex flex-row items-start justify-between pr-6">
-                                        <div>
-                                            <DialogTitle>Lead Distribution Report</DialogTitle>
-                                            <DialogDescription>
-                                                Breakdown of leads assigned in this upload batch.
-                                            </DialogDescription>
-                                        </div>
-                                        <Button variant="secondary" size="sm" onClick={handleShareReport} className="gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100">
-                                            <Share2 className="h-4 w-4" /> Share
-                                        </Button>
-                                    </DialogHeader>
-                                    <div className="space-y-2 mt-2 max-h-[300px] overflow-y-auto">
-                                        {Object.entries(assignmentSummary).map(([id, count]) => {
-                                            const agent = telecallers.find(t => t.id === id)
-                                            return (
-                                                <div key={id} className="flex items-center justify-between p-2 border-b last:border-0">
-                                                    <span className="font-medium">{agent?.full_name || "Unknown Agent"}</span>
-                                                    <span className="bg-slate-100 px-2 py-1 rounded-full text-xs font-bold">{count} leads</span>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </DialogContent>
-                            </Dialog>
-                        </div>
-                    )}
-
-                    {uploadStats.failed > 0 && (
-                        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-red-700">
-                                <AlertCircle className="h-5 w-5" />
-                                <span className="font-medium">{uploadStats.failed} rows failed</span>
-                            </div>
-                            <Button variant="outline" size="sm" onClick={downloadErrorCSV} className="border-red-200 text-red-700 hover:bg-red-100">
-                                <Download className="h-4 w-4 mr-2" /> Download Error Log
-                            </Button>
-                        </div>
-                    )}
-                </CardContent>
-                <CardFooter className="flex justify-center gap-4">
-                    <Button variant="outline" onClick={() => window.location.reload()}>Upload Another File</Button>
-                    <Button onClick={() => router.push("/admin/leads")}>View Leads</Button>
-                </CardFooter>
-            </Card>
+              {/* Error Box */}
+              {uploadStats.failed > 0 && (
+                <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4.5 flex items-center justify-between text-left shadow-2xs">
+                  <div className="flex items-center gap-3 text-rose-700 dark:text-rose-400">
+                    <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-bold text-xs">{uploadStats.failed} records failed database validation</span>
+                      <span className="text-[10px] text-rose-550 dark:text-slate-500 font-semibold leading-normal">Errors are usually caused by malformed phone numbers or empty required columns.</span>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={downloadErrorCSV} className="border-rose-250 dark:border-rose-950 text-rose-750 dark:text-rose-400 hover:bg-rose-500/10 font-bold text-xs tracking-tight shadow-2xs rounded-lg py-1 px-2.5">
+                    <Download className="h-3.5 w-3.5 mr-1" /> Log
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+            
+            <CardFooter className="flex justify-center gap-3 border-t border-slate-100 dark:border-slate-800 pt-4 bg-slate-50/50 dark:bg-slate-950/20">
+              <Button variant="outline" onClick={() => window.location.reload()} className="font-bold border-slate-200 dark:border-slate-800 shadow-2xs rounded-xl py-4.5">Upload Another File</Button>
+              <Button onClick={() => router.push("/admin/leads")} className="bg-blue-600 hover:bg-blue-700 font-bold shadow-sm rounded-xl py-4.5 px-6">View Leads Directory</Button>
+            </CardFooter>
+          </Card>
         )}
       </div>
 
       {/* RECENT HISTORY SECTION */}
       {step === 1 && (
-         <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                    <History className="h-5 w-5 text-gray-500" /> Recent Activity
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="text-sm text-gray-500 italic">
-                    (Session history is cleared on refresh. To view permanent history, ensure 'upload_logs' table is configured in Supabase.)
-                </div>
-            </CardContent>
-         </Card>
+        <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+              <History className="h-4.5 w-4.5 text-slate-500" /> Recent Upload Activities
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 italic leading-relaxed">
+              (Session history is cleared on refresh. To configure permanent records, ensure 'upload_logs' table is created in Supabase.)
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )
