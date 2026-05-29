@@ -317,57 +317,72 @@ export default function AdminWhatsAppPanel() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] bg-white border rounded-xl shadow-lg overflow-hidden">
+    <div className="flex h-[calc(100vh-7.5rem)] bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
       
       {/* --- LEFT SIDEBAR: GOD MODE --- */}
-      <div className="w-1/3 border-r bg-slate-50 flex flex-col">
+      <div className="w-1/3 border-r border-slate-200/60 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex flex-col">
         {/* Header */}
-        <div className="p-4 bg-[#005c4b] text-white flex items-center justify-between">
-          <h2 className="font-bold flex items-center gap-2"><MessageSquare className="h-5 w-5" /> All Chats</h2>
-          <Badge variant="outline" className="bg-white/20 text-white border-none">{leads.length}</Badge>
+        <div className="p-4 bg-slate-900 dark:bg-slate-950 text-white flex items-center justify-between border-b border-slate-850">
+          <h2 className="font-extrabold text-sm tracking-tight flex items-center gap-2">
+            <MessageSquare className="h-4.5 w-4.5 text-blue-400" /> WhatsApp Inbox
+          </h2>
+          <Badge className="bg-blue-600 hover:bg-blue-700 text-white border-0 font-bold text-[10px] shadow-2xs rounded-lg px-2 py-0.5">
+            {leads.length} Active
+          </Badge>
         </div>
 
         {/* Search & Filter */}
-        <div className="p-3 border-b bg-white space-y-3">
+        <div className="p-3.5 border-b border-slate-200/60 dark:border-slate-850 bg-white dark:bg-slate-900 space-y-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
             <Input 
-              placeholder="Search..." 
-              className="pl-9 bg-slate-100 border-none"
+              placeholder="Search chats, phone or owners..." 
+              className="pl-9 bg-slate-50 dark:bg-slate-950 border-slate-200/60 dark:border-slate-800 rounded-xl font-medium text-xs focus-visible:ring-blue-500/25 h-9"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
           <button 
-              onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-2 ${
-                showUnreadOnly ? 'bg-green-100 border-green-500 text-green-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'
-              }`}
-            >
-              <Filter className="h-3 w-3" /> {showUnreadOnly ? "Filter: Unread Only" : "Show All Chats"}
-            </button>
+            onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+            className={`text-[11px] px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 font-bold shadow-3xs ${
+              showUnreadOnly 
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400' 
+                : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200/60 dark:border-slate-800 text-slate-650 dark:text-slate-400 hover:bg-slate-100'
+            }`}
+          >
+            <Filter className="h-3 w-3" /> {showUnreadOnly ? "Filter: Unread Only" : "Show All Conversations"}
+          </button>
         </div>
 
         {/* Lead List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
           {loadingLeads ? (
-            <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+            <div className="flex flex-col items-center justify-center p-12 space-y-2">
+              <Loader2 className="animate-spin text-blue-600 dark:text-blue-400 h-6 w-6" />
+              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Synchronizing chats...</span>
+            </div>
           ) : filteredLeads.length === 0 ? (
-            <div className="text-center p-10 text-slate-500 text-sm">No chats found.</div>
+            <div className="text-center py-16 px-4 space-y-2">
+              <MessageSquare className="h-10 w-10 text-slate-300 dark:text-slate-700 mx-auto mb-2 opacity-50" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-350">No chats matches</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-normal">Try adjusting your filters or search keywords.</p>
+            </div>
           ) : (
             filteredLeads.map(lead => (
               <div 
                 key={lead.id} 
                 onClick={() => setSelectedLead(lead)}
-                className={`p-3 border-b cursor-pointer transition-all hover:bg-slate-50 ${
-                  selectedLead?.id === lead.id ? 'bg-blue-50 border-l-4 border-l-[#005c4b]' : 'border-l-4 border-l-transparent'
+                className={`p-3.5 cursor-pointer transition-all flex flex-col gap-1.5 ${
+                  selectedLead?.id === lead.id 
+                    ? 'bg-blue-500/5 dark:bg-blue-500/5 border-l-4 border-l-blue-600' 
+                    : 'border-l-4 border-l-transparent hover:bg-slate-50/60 dark:hover:bg-slate-800/20'
                 }`}
               >
-                <div className="flex justify-between items-start mb-1">
-                  <h3 className={`font-semibold truncate pr-2 ${lead.unread_count > 0 ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                <div className="flex justify-between items-start">
+                  <h3 className={`text-xs font-extrabold truncate pr-2 tracking-tight ${lead.unread_count > 0 ? 'text-slate-900 dark:text-slate-50 font-extrabold' : 'text-slate-800 dark:text-slate-200'}`}>
                     {lead.name}
                   </h3>
-                  <span className={`text-[10px] whitespace-nowrap ${lead.unread_count > 0 ? 'text-green-600 font-bold' : 'text-slate-400'}`}>
+                  <span className={`text-[10px] font-bold whitespace-nowrap ${lead.unread_count > 0 ? 'text-blue-600 dark:text-blue-400 font-extrabold' : 'text-slate-400 dark:text-slate-500'}`}>
                     {lead.last_message_at 
                       ? new Date(lead.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })
                       : "New"
@@ -375,25 +390,25 @@ export default function AdminWhatsAppPanel() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1 mb-2">
+                <div className="flex items-center gap-1.5">
                     {lead.last_message_type === 'outbound' ? (
-                       <CheckCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                       <CheckCheck className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
                     ) : (
-                       <div className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse"></div>
+                       <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></div>
                     )}
-                    <p className={`text-xs truncate max-w-[180px] ${lead.unread_count > 0 ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
+                    <p className={`text-[11px] truncate max-w-[200px] font-medium leading-relaxed ${lead.unread_count > 0 ? 'text-slate-850 dark:text-slate-100 font-semibold' : 'text-slate-555 dark:text-slate-400'}`}>
                       {lead.last_message_content?.replace(/(https?:\/\/[^\s]+)/g, '📎 Attachment') || "Attachment"}
                     </p>
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-1">
-                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-white text-slate-500 border-slate-200">
-                        {lead.telecaller_name?.split(' ')[0]} 
-                    </Badge>
-                  </div>
+                <div className="flex justify-between items-center pt-0.5">
+                  <Badge className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-[9px] font-extrabold shadow-none border-0 rounded-md py-0 px-2 h-4.5">
+                    {lead.telecaller_name?.split(' ')[0]} 
+                  </Badge>
                   {lead.unread_count > 0 && (
-                    <div className="bg-[#25D366] text-white text-[10px] font-bold h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full shadow-sm">{lead.unread_count}</div>
+                    <div className="bg-blue-600 text-white text-[10px] font-extrabold h-4.5 min-w-[18px] px-1 flex items-center justify-center rounded-full shadow-sm animate-pulse">
+                      {lead.unread_count}
+                    </div>
                   )}
                 </div>
               </div>
@@ -403,40 +418,45 @@ export default function AdminWhatsAppPanel() {
       </div>
 
       {/* --- RIGHT SIDEBAR: CHAT WINDOW --- */}
-      <div className="w-2/3 flex flex-col bg-[#efeae2]">
+      <div className="w-2/3 flex flex-col bg-slate-50/40 dark:bg-slate-950/10">
         {selectedLead ? (
           <>
             {/* Rich Header */}
-            <div className="bg-white px-6 py-3 border-b flex items-center justify-between shadow-sm z-10">
-              <div className="flex items-center gap-4">
-                <div className="h-10 w-10 bg-[#005c4b] text-white rounded-full flex items-center justify-center font-bold text-lg">
-                  {selectedLead.name.charAt(0)}
+            <div className="bg-white dark:bg-slate-900 px-6 py-3.5 border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between shadow-xs z-10">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center font-extrabold text-base ring-2 ring-blue-500/20">
+                  {selectedLead.name.charAt(0).toUpperCase()}
                 </div>
-                <div>
-                  <h2 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                <div className="space-y-0.5">
+                  <h2 className="font-extrabold text-slate-900 dark:text-slate-50 text-base flex items-center gap-2 tracking-tight">
                     {selectedLead.name}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                        selectedLead.status === 'New' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider ${
+                        selectedLead.status === 'New' 
+                          ? 'bg-blue-500/10 text-blue-700 dark:text-blue-450 border border-blue-500/20' 
+                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-450 border border-amber-500/20'
                     }`}>{selectedLead.status}</span>
                   </h2>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>{selectedLead.phone}</span>
-                    <span className="h-3 w-[1px] bg-slate-300"></span>
-                    <span>Owner: <strong>{selectedLead.telecaller_name}</strong></span>
+                  <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    <span className="font-semibold">{selectedLead.phone}</span>
+                    <span className="h-3 w-[1px] bg-slate-200 dark:bg-slate-800"></span>
+                    <span>Assignee: <strong className="font-semibold text-slate-700 dark:text-slate-300">{selectedLead.telecaller_name}</strong></span>
                   </div>
                 </div>
               </div>
               <Link href={`/admin/leads/${selectedLead.id}`}>
-                <Button variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50 gap-2">
-                  <ExternalLink className="h-4 w-4" /> CRM Profile
+                <Button variant="outline" size="sm" className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl font-bold text-xs tracking-tight shadow-2xs gap-1.5 py-4.5 px-4 bg-white dark:bg-slate-900">
+                  <ExternalLink className="h-3.5 w-3.5 text-slate-500" /> CRM Profile
                 </Button>
               </Link>
             </div>
 
-            {/* Messages */}
+            {/* Messages Scroll Area */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {loadingMessages ? (
-                 <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-[#005c4b]" /></div>
+                 <div className="flex flex-col justify-center items-center h-full space-y-2">
+                   <Loader2 className="animate-spin text-blue-600 dark:text-blue-400 h-6 w-6" />
+                   <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Syncing logs...</span>
+                 </div>
               ) : (
                 messages.map((msg) => <div key={msg.id}>{renderMessageBubble(msg)}</div>)
               )}
@@ -444,49 +464,49 @@ export default function AdminWhatsAppPanel() {
             </div>
 
             {/* Input & Quick Reply Chips */}
-            <div className="flex flex-col bg-[#f0f2f5]">
-                 <div className="px-4 py-2 bg-gray-50 flex gap-2 overflow-x-auto border-t">
-                 {[
-                    "👋 Hi, I tried calling you.",
-                    "📄 Kindly share your Aadhar & PAN.",
-                    "📍 Can you send your current Address?",
-                    "✅ Application Approved!"
-                 ].map((text) => (
-                    <button
-                      key={text}
-                      onClick={() => setInputText(text)}
-                      className="text-xs bg-white border border-gray-300 rounded-full px-3 py-1 hover:bg-green-50 hover:border-green-500 hover:text-green-700 whitespace-nowrap transition-colors"
-                    >
-                      {text}
-                    </button>
-                 ))}
+            <div className="flex flex-col bg-white dark:bg-slate-900 border-t border-slate-200/60 dark:border-slate-800">
+                <div className="px-4 py-2.5 bg-slate-50/50 dark:bg-slate-950/20 flex gap-2 overflow-x-auto border-b border-slate-100 dark:border-slate-850 scrollbar-none">
+                  {[
+                     "👋 Hi, I tried calling you.",
+                     "📄 Kindly share your Aadhar & PAN.",
+                     "📍 Can you send your current Address?",
+                     "✅ Application Approved!"
+                  ].map((text) => (
+                     <button
+                       key={text}
+                       onClick={() => setInputText(text)}
+                       className="text-xs bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-full px-3 py-1.5 hover:bg-blue-500/10 hover:border-blue-500/30 hover:text-blue-600 dark:hover:text-blue-400 whitespace-nowrap transition-all shadow-3xs"
+                     >
+                       {text}
+                     </button>
+                  ))}
                 </div>
 
                 <div className="p-4 flex items-center gap-3">
-                  <div className="bg-slate-200 p-2 rounded text-slate-500" title="Admin Mode">
-                    <ShieldAlert className="h-5 w-5" />
+                  <div className="bg-slate-100 dark:bg-slate-850 p-2.5 rounded-xl text-slate-500 border border-slate-200/50 dark:border-slate-800/80 shadow-3xs" title="Secured System Tunnel">
+                    <ShieldAlert className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
                   </div>
                   <Input 
-                    className="flex-1 bg-white border-none shadow-sm h-12 text-base"
+                    className="flex-1 bg-slate-50/50 dark:bg-slate-950 border-slate-200/60 dark:border-slate-850 rounded-xl shadow-3xs h-12 text-sm font-semibold focus-visible:ring-blue-500/20"
                     placeholder="Type a message..."
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSend()}
                     disabled={sending}
                   />
-                  <Button onClick={handleSend} disabled={!inputText.trim() || sending} className="bg-[#005c4b] hover:bg-[#064e40] h-12 w-12 rounded-full p-0">
-                    {sending ? <Loader2 className="animate-spin h-5 w-5" /> : <Send className="h-5 w-5 ml-1" />}
+                  <Button onClick={handleSend} disabled={!inputText.trim() || sending} className="bg-blue-600 hover:bg-blue-700 h-11 w-11 rounded-full p-0 flex items-center justify-center shadow-sm">
+                    {sending ? <Loader2 className="animate-spin h-4 w-4" /> : <Send className="h-4 w-4 ml-0.5" />}
                   </Button>
                 </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-[#f8f9fa]">
-            <div className="h-24 w-24 bg-slate-200 rounded-full flex items-center justify-center mb-6">
-               <MessageSquare className="h-10 w-10 text-slate-400" />
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-slate-50/30 dark:bg-slate-950/10 p-6 text-center animate-in fade-in duration-300">
+            <div className="h-20 w-20 bg-blue-600/10 border border-blue-500/10 rounded-3xl flex items-center justify-center mb-5 shadow-sm">
+               <MessageSquare className="h-8 w-8 text-blue-600 dark:text-blue-400" />
             </div>
-            <h2 className="text-2xl font-light text-slate-600 mb-2">WhatsApp Inbox</h2>
-            <p>Select a chat to view history and status.</p>
+            <h2 className="text-xl font-extrabold text-slate-850 dark:text-slate-100 mb-1.5 tracking-tight">WhatsApp Administrator</h2>
+            <p className="text-xs font-semibold text-slate-450 dark:text-slate-500 max-w-[280px] leading-relaxed">Select a conversation thread from the sidebar to inspect activity logs and respond to client inquiries.</p>
           </div>
         )}
       </div>
