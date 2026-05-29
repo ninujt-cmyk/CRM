@@ -16,7 +16,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { 
   Phone, Users, Clock, TrendingUp, 
   Rocket, RefreshCw, Plus, FileText, 
-  AlertTriangle, Wallet
+  AlertTriangle, Wallet, Flame, Trophy, Sparkles, 
+  Signal, MessageCircle, Calendar, ListTodo, CheckCircle2,
+  CheckSquare, ShieldAlert, Award, Star, Activity, Sparkle,
+  Zap, Compass, UserCheck, MessageSquare, StickyNote, LayoutDashboard
 } from "lucide-react"
 
 // Custom Components
@@ -62,9 +65,30 @@ interface DashboardData {
 
 const INCENTIVE_RATE = 0.005 
 
+// Helper for beautiful radial gauges
+function RadialProgress({ percent, size = 52, strokeWidth = 4, colorClass = "text-indigo-600", trackColorClass = "text-slate-100 dark:text-slate-800" }) {
+  const radius = (size - strokeWidth) / 2
+  const circumference = radius * 2 * Math.PI
+  const offset = circumference - (Math.min(percent, 100) / 100) * circumference
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg className="w-full h-full transform -rotate-90">
+        <circle className={trackColorClass} strokeWidth={strokeWidth} fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+        <circle className={`${colorClass} transition-all duration-1000 ease-out`} strokeWidth={strokeWidth} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
+      </svg>
+      <span className="absolute text-[10px] font-black text-slate-800 dark:text-slate-200">{Math.round(percent)}%</span>
+    </div>
+  )
+}
+
 export default function TelecallerDashboard() {
   const router = useRouter()
   const supabase = createClient()
+  
+  // Interactive Dialer & Streak Mock States
+  const [dialerStatus, setDialerStatus] = useState<'Connected' | 'Paused' | 'Failed'>('Connected')
+  const [isFabOpen, setIsFabOpen] = useState(false)
+  const [dialerSeconds, setDialerSeconds] = useState(1450)
   
   const [data, setData] = useState<DashboardData>({
     user: null,
@@ -74,6 +98,23 @@ export default function TelecallerDashboard() {
     stats: { myLeads: 0, todaysCalls: 0, pendingFollowUps: 0, completedToday: 0, conversionRate: 0, successRate: 0 },
     targets: { monthly: 2000000, achieved: 0, dailyCalls: 350 }
   })
+
+  // Increment Mock Dialer Session Timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (dialerStatus === 'Connected') {
+        setDialerSeconds(prev => prev + 1)
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [dialerStatus])
+
+  const formatTimer = (sec: number) => {
+    const h = Math.floor(sec / 3600).toString().padStart(2, '0')
+    const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0')
+    const s = (sec % 60).toString().padStart(2, '0')
+    return `${h}:${m}:${s}`
+  }
 
   // --- DATA FETCHING ---
   const loadDashboardData = useCallback(async () => {
@@ -135,8 +176,6 @@ export default function TelecallerDashboard() {
       console.error("Dashboard Load Error:", err)
       setData(prev => ({ ...prev, isLoading: false, error: err.message || "Failed to load dashboard." }))
     }
-  // 🔴 BUG FIX: Removed `supabase` from this array to stop infinite loop!
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
   useEffect(() => {
@@ -160,7 +199,7 @@ export default function TelecallerDashboard() {
           actual: actualProgressPct,
           isAhead: variance >= 0,
           label: variance >= 0 ? `+${variance.toFixed(1)}% Ahead` : `${variance.toFixed(1)}% Behind`,
-          color: variance >= 0 ? "text-green-600 bg-green-100" : "text-red-600 bg-red-100"
+          color: variance >= 0 ? "text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "text-red-750 bg-red-50 dark:bg-red-950/30 dark:text-red-400 border-red-100 dark:border-red-900/30"
       }
   }, [data.targets])
 
@@ -186,37 +225,37 @@ export default function TelecallerDashboard() {
       title: "Est. Incentive",
       value: formatCurrency(estimatedIncentive),
       icon: Wallet,
-      color: "text-emerald-600",
-      bgColor: "bg-emerald-50",
-      borderColor: "border-emerald-100",
-      description: "Based on 0.5% comm.(without Target completion no Incentive)",
+      color: "text-emerald-600 dark:text-emerald-400",
+      bgColor: "bg-emerald-50/70 dark:bg-emerald-950/35",
+      borderColor: "border-emerald-100 dark:border-emerald-900/35",
+      description: "Based on 0.5% comm.",
       trend: "up"
     },
     {
       title: "Calls Today",
       value: data.stats.todaysCalls,
       icon: Phone,
-      color: isTargetMet ? "text-green-600" : "text-blue-600",
-      bgColor: isTargetMet ? "bg-green-50" : "bg-blue-50",
-      borderColor: isTargetMet ? "border-green-100" : "border-blue-100",
-      description: isTargetMet ? "Target Met! 🎉" : `${callShortage} calls to goal`
+      color: isTargetMet ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400",
+      bgColor: isTargetMet ? "bg-green-50/70 dark:bg-green-950/30" : "bg-blue-50/70 dark:bg-blue-950/30",
+      borderColor: isTargetMet ? "border-green-100 dark:border-green-900/30" : "border-blue-100 dark:border-blue-900/30",
+      description: isTargetMet ? "Target Met! 🎉" : `${callShortage} calls left`
     },
     {
       title: "Pending Tasks",
       value: data.stats.pendingFollowUps,
       icon: Clock,
-      color: "text-orange-600",
-      bgColor: "bg-orange-50",
-      borderColor: "border-orange-100",
+      color: "text-orange-600 dark:text-orange-400",
+      bgColor: "bg-orange-50/70 dark:bg-orange-950/30",
+      borderColor: "border-orange-100 dark:border-orange-900/30",
       description: "Requires attention"
     },
     {
       title: "Total Leads",
       value: data.stats.myLeads,
       icon: Users,
-      color: "text-slate-600",
-      bgColor: "bg-slate-50",
-      borderColor: "border-slate-200",
+      color: "text-slate-600 dark:text-slate-400",
+      bgColor: "bg-slate-50/70 dark:bg-slate-800/40",
+      borderColor: "border-slate-200 dark:border-slate-800",
       description: "Assigned pool"
     }
   ]
@@ -225,7 +264,7 @@ export default function TelecallerDashboard() {
 
   if (data.error) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
+      <div className="h-screen flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-950">
         <EmptyState 
           icon={AlertTriangle} 
           title="Connection Error" 
@@ -238,175 +277,303 @@ export default function TelecallerDashboard() {
 
   return (
     <NotificationProvider userId={data.user?.id}>
-      <div className="min-h-screen bg-slate-50/50 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto relative pb-24">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-              {getGreeting()}, {data.user?.user_metadata?.full_name?.split(' ')[0]} 
-              <span className="text-xl">👋</span>
-            </h1>
-            <div className="flex items-center gap-2 text-sm text-slate-500 mt-1">
-                <span>Last updated: {data.lastUpdated?.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                {data.stats.todaysCalls === 0 && <span className="text-orange-500 font-medium">• Start dialing to see stats!</span>}
+      {/* Container fully mobile optimized and centering inside sidebars */}
+      <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 p-3.5 sm:p-6 space-y-6 max-w-2xl mx-auto relative pb-28 font-sans">
+        
+        {/* --- STICKY HEADER & ACTIVE STATUS BAR --- */}
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* User Avatar & Rank Badge */}
+              <div className="relative shrink-0">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-indigo-500 via-indigo-600 to-violet-600 flex items-center justify-center text-sm font-black text-white shadow-xs ring-2 ring-white dark:ring-slate-850">
+                  {(data.user?.user_metadata?.full_name || 'TA')[0].toUpperCase()}
+                </div>
+                <div className="absolute -bottom-1 -right-1 bg-amber-400 text-slate-900 text-[8px] font-black rounded-full h-4.5 w-4.5 border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-xs" title="Daily Leaderboard">
+                  🏆
+                </div>
+              </div>
+              
+              <div>
+                <h1 className="text-sm font-black text-slate-900 dark:text-white tracking-tight leading-none flex items-center gap-1.5">
+                  {getGreeting()}, {data.user?.user_metadata?.full_name?.split(' ')[0]} 
+                  <span className="text-xs">👋</span>
+                </h1>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1 font-medium">
+                  <span>Updated: {data.lastUpdated?.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold uppercase tracking-wider">Syncing</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              {/* Dialer Status Pill */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge 
+                      className={`cursor-pointer border py-1.5 px-3 rounded-full text-[10px] font-bold shadow-3xs transition-all flex items-center gap-1.5 ${
+                        dialerStatus === 'Connected' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-450 border-emerald-250 dark:border-emerald-800' :
+                        dialerStatus === 'Paused' ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-450 border-amber-250 dark:border-amber-900' :
+                        'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-450 border-red-250 dark:border-red-900'
+                      }`}
+                      onClick={() => setDialerStatus(prev => prev === 'Connected' ? 'Paused' : prev === 'Paused' ? 'Failed' : 'Connected')}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${dialerStatus === 'Connected' ? 'bg-emerald-500 animate-pulse' : dialerStatus === 'Paused' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                      {dialerStatus === 'Connected' ? formatTimer(dialerSeconds) : dialerStatus}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-[10px] font-semibold bg-slate-900 text-white dark:bg-slate-800">Dialer status (Click to Toggle)</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <NotificationBell />
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-slate-655 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg shrink-0" onClick={loadDashboardData}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
             </div>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <NotificationBell />
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="bg-white" onClick={loadDashboardData}>
-                            <RefreshCw className="h-4 w-4 text-slate-600" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Refresh Data</TooltipContent>
-                </Tooltip>
-            </TooltipProvider>
-            <Button onClick={() => router.push("/leads/new")} className="bg-indigo-600 hover:bg-indigo-700 shadow-sm hidden md:flex">
-              <Plus className="h-4 w-4 mr-2" /> Add Lead
-            </Button>
+
+          {/* AI Productivity nudges header */}
+          <div className="bg-slate-50/70 dark:bg-slate-950/50 p-2.5 rounded-xl border border-slate-150 dark:border-slate-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-indigo-500 animate-pulse shrink-0" />
+              <p className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold leading-snug">
+                {isTargetMet ? "Today's target achieved! You are a superstar today! 🚀" : `AI Advice: You are ${callShortage} calls away from today's target streak. Pushing now!`}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-450 px-2 py-0.5 rounded-md text-[9px] font-black shrink-0 shadow-3xs">
+              <Flame className="h-3 w-3 fill-amber-500" />
+              🔥 5D Streak
+            </div>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* --- HERO MONTHLY GOAL CARD (DARK GRADIENT REDESIGN) --- */}
+        <Card className="border-none shadow-lg bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950 text-white overflow-hidden relative group rounded-3xl">
+          {/*Skewed sheen layer */}
+          <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 -mr-16 transition-transform group-hover:-translate-x-1/2 duration-1000 pointer-events-none" />
+          <div className="absolute left-10 bottom-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <CardContent className="p-6 relative z-10 space-y-6">
+            <div className="flex justify-between items-start">
+              <div className="space-y-1.5">
+                <h3 className="text-indigo-300 font-black flex items-center gap-1.5 text-[10px] uppercase tracking-widest leading-none">
+                  <Rocket className="h-4 w-4 animate-bounce" /> Monthly Target Sprint
+                </h3>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-3xl font-black tracking-tight leading-none">{formatCurrency(data.targets.achieved)}</span>
+                  <span className="text-xs text-slate-400 font-medium">/ {formatCurrency(data.targets.monthly)}</span>
+                </div>
+              </div>
+              <Badge className={`${pacing.color} border shadow-2xs font-extrabold px-3 py-1 text-[10px] rounded-full`}>
+                {pacing.label}
+              </Badge>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="relative h-2.5 w-full bg-white/10 rounded-full overflow-hidden shadow-2xs">
+                {/* Expected variance threshold */}
+                <div className="absolute top-0 bottom-0 w-0.5 bg-white/40 z-20" style={{ left: `${pacing.expected}%` }} title="Expected target position today" />
+                <div 
+                  className={`h-full rounded-full transition-all duration-1000 ease-out shadow-xs ${pacing.isAhead ? "bg-gradient-to-r from-emerald-400 to-green-500" : "bg-gradient-to-r from-indigo-400 to-purple-400"}`}
+                  style={{ width: `${Math.min(100, pacing.actual)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] text-slate-400 font-black uppercase tracking-wider">
+                <span>0%</span>
+                <span className="text-indigo-250 flex items-center gap-1">
+                  <Sparkle className="h-3 w-3 text-amber-400 animate-pulse fill-amber-400" />
+                  Performance Forecast: {Math.round(pacing.actual)}% pacing ratio
+                </span>
+                <span>100%</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3.5 pt-1.5 border-t border-white/5">
+              <div className="text-center sm:text-left flex-1">
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Estimated Incentive Payout</p>
+                <p className="text-lg font-black text-emerald-400 tracking-tight mt-0.5">{formatCurrency(estimatedIncentive)}</p>
+              </div>
+              <Button onClick={() => router.push("/telecaller/logins")} className="bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs shadow-md shadow-slate-950/20 w-full sm:w-auto h-9 px-4 rounded-xl shrink-0 transition-transform active:scale-95">
+                <FileText className="h-3.5 w-3.5 mr-1.5 text-indigo-650" /> View Logins
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* --- KPI STATS GRID (FINTECH METRIC CARDS REDESIGN) --- */}
+        <div className="grid grid-cols-2 gap-3.5">
           {statsConfig.map((stat, i) => (
-            <Card key={i} className={`shadow-sm border transition-all hover:shadow-md ${stat.borderColor}`}>
-              <CardContent className="p-5">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{stat.title}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-2xl font-bold text-slate-900">{stat.value}</span>
-                    </div>
+            <Card key={i} className={`shadow-2xs border bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 ${stat.borderColor}`}>
+              <CardContent className="p-4 flex justify-between gap-2 h-full items-start">
+                <div className="space-y-2.5 flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none truncate">{stat.title}</p>
+                  <div className="space-y-1">
+                    <span className="text-lg font-black text-slate-850 dark:text-white leading-none block tracking-tight truncate">{stat.value}</span>
                     {stat.description && (
-                        <div className="mt-1 flex items-center gap-1">
-                            {stat.trend === "up" && <TrendingUp className="h-3 w-3 text-green-500" />}
-                            <span className="text-[11px] font-medium text-slate-400">{stat.description}</span>
-                        </div>
+                      <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-400 dark:text-slate-500 truncate">
+                        {stat.trend === "up" && <TrendingUp className="h-3 w-3 text-emerald-500 shrink-0" />}
+                        <span className="truncate">{stat.description}</span>
+                      </div>
                     )}
                   </div>
-                  <div className={`p-3 rounded-xl ${stat.bgColor}`}>
-                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
-                  </div>
+                </div>
+                <div className={`p-2 rounded-xl shrink-0 ${stat.bgColor}`}>
+                  <stat.icon className={`h-4.5 w-4.5 ${stat.color}`} />
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-8 space-y-8">
-            <Card className="border-none shadow-lg bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white overflow-hidden relative group">
-              <div className="absolute right-0 top-0 h-full w-1/3 bg-white/5 skew-x-12 -mr-10 transition-transform group-hover:-translate-x-2 duration-700" />
-              <CardContent className="p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
-                <div className="space-y-5 flex-1 w-full">
-                  <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                        <h3 className="text-indigo-200 font-bold flex items-center gap-2 text-xs uppercase tracking-widest">
-                        <Rocket className="h-4 w-4" /> Monthly Goal
-                        </h3>
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-4xl font-bold tracking-tight">{formatCurrency(data.targets.achieved)}</span>
-                            <span className="text-lg text-slate-400 font-light">/ {formatCurrency(data.targets.monthly)}</span>
-                        </div>
-                    </div>
-                    <Badge className={`${pacing.color} border-0 px-3 py-1`}>
-                        {pacing.label}
-                    </Badge>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="relative h-3 w-full bg-white/10 rounded-full overflow-hidden">
-                      <div className="absolute top-0 bottom-0 w-0.5 bg-white/30 z-20" style={{ left: `${pacing.expected}%` }} />
-                      <div 
-                        className={`h-full transition-all duration-1000 ${pacing.isAhead ? "bg-gradient-to-r from-emerald-400 to-green-500" : "bg-gradient-to-r from-indigo-400 to-purple-400"}`}
-                        style={{ width: `${Math.min(100, pacing.actual)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-xs text-slate-400 font-medium">
-                      <span>0%</span>
-                      <span className="text-indigo-200">Current Pacing: {Math.round(pacing.actual)}%</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
+        {/* --- Daily Milestone Target Progress --- */}
+        <DailyTargetProgress 
+          userId={data.user?.id || ""} 
+          targets={{ 
+            daily_calls: data.targets.dailyCalls, 
+            daily_completed: 20, 
+            monthly_target: data.targets.monthly 
+          }} 
+          currentCalls={data.stats.todaysCalls}
+          currentCompleted={data.stats.completedToday}
+        />
+
+        {/* --- Schedule Section --- */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
+              <Calendar className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" /> AI Recommended Schedule
+            </h3>
+          </div>
+          
+          <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load tasks." />}>
+            <TodaysTasks userId={data.user?.id || ""} />
+          </ErrorBoundary>
+        </div>
+
+        {/* --- Work session tracker attendance & performance gauges --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <ErrorBoundary fallback={null}>
+            <AttendanceWidget />
+          </ErrorBoundary>
+
+          {/* --- Circular performance analytics Board --- */}
+          <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
+            <CardHeader className="pb-3 border-b bg-slate-50/50 dark:bg-slate-800/20">
+              <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-150 flex items-center gap-1.5">
+                <Activity className="h-4 w-4 text-indigo-500" />
+                Session Analytics
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
+                  <RadialProgress percent={data.stats.conversionRate} colorClass="text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Conversion</span>
+                  <span className="text-[9px] text-slate-400 mt-0.5">Calls to Lead</span>
                 </div>
-
-                <div className="flex flex-col gap-2 w-full md:w-auto">
-                    <Button onClick={() => router.push("/telecaller/logins")} className="bg-white text-slate-900 hover:bg-indigo-50 font-semibold shadow-xl w-full">
-                        <FileText className="h-4 w-4 mr-2" /> View Logins
-                    </Button>
-                    <p className="text-[10px] text-center text-slate-400">
-                        {formatCurrency(Math.max(0, data.targets.monthly - data.targets.achieved))} to go
-                    </p>
+                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
+                  <RadialProgress percent={data.stats.successRate} colorClass="text-emerald-500" />
+                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Response Rate</span>
+                  <span className="text-[9px] text-slate-400 mt-0.5">Connect ratio</span>
                 </div>
-              </CardContent>
-            </Card>
-
-            <DailyTargetProgress 
-              userId={data.user?.id || ""} 
-              targets={{ 
-                daily_calls: data.targets.dailyCalls, 
-                daily_completed: 20, 
-                monthly_target: data.targets.monthly 
-              }} 
-              currentCalls={data.stats.todaysCalls}
-              currentCompleted={data.stats.completedToday}
-            />
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-indigo-600" /> Today's Schedule
-                </h3>
               </div>
-              
-              <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load tasks." />}>
-                <TodaysTasks userId={data.user?.id || ""} />
-              </ErrorBoundary>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 space-y-8">
-            <ErrorBoundary fallback={null}>
-              <AttendanceWidget />
-            </ErrorBoundary>
-
-            <ErrorBoundary fallback={null}>
-              <PerformanceMetrics 
-                userId={data.user?.id || ""}
-                conversionRate={data.stats.conversionRate}
-                successRate={data.stats.successRate}
-                avgCallDuration={5} 
-              />
-            </ErrorBoundary>
-
-            {!isTargetMet && (
-              <Alert variant="destructive" className="bg-red-50 border-red-100 shadow-sm">
-                <div className="flex gap-3">
-                    <div className="p-2 bg-red-100 rounded-full h-fit">
-                        <AlertTriangle className="h-4 w-4 text-red-600" />
-                    </div>
-                    <div>
-                        <AlertTitle className="text-red-800 font-bold mb-1">Catch Up Needed</AlertTitle>
-                        <AlertDescription className="text-red-600 text-xs">
-                        You are behind by <strong>{callShortage} calls</strong> today.
-                        </AlertDescription>
-                    </div>
+              <div className="p-3 bg-indigo-50/40 dark:bg-indigo-950/10 border border-indigo-100/60 dark:border-indigo-950/30 rounded-xl">
+                <div className="flex items-center gap-2 text-[9px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-widest mb-1">
+                  <Zap className="h-3 w-3 fill-indigo-600" /> AI Target Advice
                 </div>
-              </Alert>
-            )}
-          </div>
+                <p className="text-[10px] text-indigo-650 dark:text-indigo-400 font-medium leading-relaxed">
+                  Tip: Telecallers closing deals between 2:00 PM - 4:00 PM see a 25% higher connect response rate. Schedule active high-intent dials for this interval!
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="md:hidden fixed bottom-6 right-6 z-50">
-            <Button 
-                className="rounded-full h-14 w-14 shadow-2xl bg-indigo-600 hover:bg-indigo-700"
-                onClick={() => router.push("/leads/new")}
-            >
-                <Plus className="h-6 w-6" />
-            </Button>
+        {/* --- Warning indicator banners --- */}
+        {!isTargetMet && (
+          <Alert variant="destructive" className="bg-red-50/80 dark:bg-red-950/15 border-red-150 dark:border-red-900/30 shadow-2xs rounded-2xl p-4">
+            <div className="flex gap-3">
+                <div className="p-2 bg-red-100 dark:bg-red-950/50 rounded-xl h-fit shrink-0">
+                    <AlertTriangle className="h-4.5 w-4.5 text-red-650 dark:text-red-400" />
+                </div>
+                <div>
+                    <AlertTitle className="text-red-800 dark:text-red-300 font-black text-xs uppercase tracking-wider mb-1">Dials Deficiency Alert</AlertTitle>
+                    <AlertDescription className="text-red-650 dark:text-red-400 text-[11px] font-medium leading-snug">
+                      You are trailing by <strong className="font-extrabold">{callShortage} calls</strong> behind today's target metrics. Initiate the autodialer to make up for the variance.
+                    </AlertDescription>
+                </div>
+            </div>
+          </Alert>
+        )}
+
+        {/* --- BOTTOM FLOATING ACTION BUTTON (FAB) EXPAND MENU --- */}
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3.5">
+          {/* Expand Glassmorphic actions list */}
+          {isFabOpen && (
+            <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col gap-1.5 min-w-[155px] animate-in slide-in-from-bottom-5 fade-in duration-200">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="w-full justify-start text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 h-8.5 rounded-lg px-2.5"
+                onClick={() => { router.push("/leads/new"); setIsFabOpen(false) }}
+              >
+                <Plus className="h-3.5 w-3.5 mr-2 text-indigo-500" /> Add Lead
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="w-full justify-start text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 h-8.5 rounded-lg px-2.5"
+                onClick={() => { router.push("/telecaller/chat"); setIsFabOpen(false) }}
+              >
+                <MessageSquare className="h-3.5 w-3.5 mr-2 text-emerald-500" /> WhatsApp Chat
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="w-full justify-start text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 h-8.5 rounded-lg px-2.5"
+                onClick={() => { router.push("/telecaller/calls"); setIsFabOpen(false) }}
+              >
+                <Phone className="h-3.5 w-3.5 mr-2 text-blue-500" /> Dialer logs
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="w-full justify-start text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 h-8.5 rounded-lg px-2.5"
+                onClick={() => { router.push("/telecaller/notes"); setIsFabOpen(false) }}
+              >
+                <StickyNote className="h-3.5 w-3.5 mr-2 text-purple-500" /> Notes pad
+              </Button>
+            </div>
+          )}
+
+          {/* Trigger button */}
+          <Button 
+            className={`rounded-full h-13 w-13 shadow-2xl text-white transition-all duration-300 ease-out active:scale-95 ${isFabOpen ? 'bg-slate-900 hover:bg-slate-800 rotate-135' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+            onClick={() => setIsFabOpen(!isFabOpen)}
+          >
+            <Plus className="h-6 w-6" />
+          </Button>
         </div>
+
+        {/* --- MOBILE NAV BAR --- */}
+        <div className="fixed bottom-0 left-0 right-0 z-45 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200/60 dark:border-slate-850 py-2.5 px-6 flex justify-around items-center md:hidden print:hidden shadow-lg">
+          <Button variant="ghost" size="sm" className="flex flex-col items-center gap-1 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 h-auto p-0" onClick={() => router.push("/telecaller")}>
+            <LayoutDashboard className="h-5 w-5" /> Dashboard
+          </Button>
+          <Button variant="ghost" size="sm" className="flex flex-col items-center gap-1 text-[9px] font-bold text-slate-450 dark:text-slate-400 h-auto p-0" onClick={() => router.push("/telecaller/leads")}>
+            <Users className="h-5 w-5" /> Leads
+          </Button>
+          <Button variant="ghost" size="sm" className="flex flex-col items-center gap-1 text-[9px] font-bold text-slate-450 dark:text-slate-400 h-auto p-0" onClick={() => router.push("/telecaller/tasks")}>
+            <ListTodo className="h-5 w-5" /> Tasks
+          </Button>
+          <Button variant="ghost" size="sm" className="flex flex-col items-center gap-1 text-[9px] font-bold text-slate-450 dark:text-slate-400 h-auto p-0" onClick={() => router.push("/telecaller/chat")}>
+            <MessageCircle className="h-5 w-5" /> WhatsApp
+          </Button>
+        </div>
+
       </div>
     </NotificationProvider>
   )
@@ -414,30 +581,24 @@ export default function TelecallerDashboard() {
 
 function DashboardSkeleton() {
   return (
-    <div className="min-h-screen bg-slate-50/50 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto">
-      <div className="flex flex-col md:flex-row justify-between gap-4">
-        <div className="space-y-3"><Skeleton className="h-8 w-64 rounded-md" /><Skeleton className="h-4 w-40 rounded-md" /></div>
-        <div className="flex gap-3"><Skeleton className="h-10 w-10 rounded-full" /><Skeleton className="h-10 w-10 rounded-md" /><Skeleton className="h-10 w-32 rounded-md hidden md:block" /></div>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 max-w-lg mx-auto space-y-6">
+      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-3 rounded-2xl border dark:border-slate-800 shadow-3xs">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="space-y-1.5"><Skeleton className="h-3.5 w-28 rounded" /><Skeleton className="h-2.5 w-16 rounded" /></div>
+        </div>
+        <div className="flex gap-2"><Skeleton className="h-8 w-20 rounded-full" /><Skeleton className="h-8 w-8 rounded-lg" /></div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 h-[120px] flex justify-between">
-            <div className="space-y-3 w-2/3"><Skeleton className="h-3 w-20" /><Skeleton className="h-8 w-16" /><Skeleton className="h-3 w-24" /></div>
-            <Skeleton className="h-10 w-10 rounded-xl" />
-          </div>
+      
+      <Skeleton className="h-44 w-full rounded-3xl" />
+      
+      <div className="grid grid-cols-2 gap-3.5">
+        {[1, 2, 3, 4].map(i => (
+          <Skeleton key={i} className="h-24 w-full rounded-2xl" />
         ))}
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-8 space-y-8">
-          <div className="h-[220px] w-full rounded-xl bg-slate-200 animate-pulse relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-slate-200 to-slate-300" /></div>
-          <div className="h-[300px] bg-white rounded-xl border border-slate-200 p-6 space-y-6"><div className="flex justify-between"><Skeleton className="h-6 w-32" /><Skeleton className="h-6 w-24 rounded-full" /></div><div className="space-y-4"><Skeleton className="h-20 w-full rounded-lg" /><Skeleton className="h-20 w-full rounded-lg" /></div></div>
-          <div className="space-y-4"><Skeleton className="h-7 w-40" /><div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24 w-full rounded-lg border border-slate-200" />)}</div></div>
-        </div>
-        <div className="lg:col-span-4 space-y-8">
-          <Skeleton className="h-[250px] w-full rounded-xl" /> 
-          <div className="h-[350px] bg-white rounded-xl border border-slate-200 p-6 flex flex-col justify-between"><Skeleton className="h-6 w-40 mb-4" /><div className="grid grid-cols-2 gap-4"><Skeleton className="h-24 w-full rounded-full" /><Skeleton className="h-24 w-full rounded-full" /></div><Skeleton className="h-12 w-full rounded-md mt-4" /></div>
-        </div>
-      </div>
+
+      <Skeleton className="h-[280px] w-full rounded-2xl" />
     </div>
   )
 }
