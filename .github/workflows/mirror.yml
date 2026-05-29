@@ -1,0 +1,21 @@
+name: Mirror Repo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Mirror Repository
+        run: |
+          git config --global user.name "gauravhotstar"
+          git config --global user.email "hotstaer5@gmail.com"
+
+          git remote add mirror https://${{ secrets.MIRROR_TOKEN }}@github.com/gauravhotstar/CRM.git
+          git push --force mirror main

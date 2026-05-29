@@ -1,0 +1,17 @@
+name: Smart Notification Trigger
+
+on:
+  schedule:
+    # Runs every hour at minute 30
+    # UTC Time: 4:30 AM to 11:30 AM (Matches IST 10:00 AM to 5:00 PM)
+    - cron: '30 4-12 * * *' 
+  workflow_dispatch: # Allows you to run it manually from GitHub for testing
+
+jobs:
+  ping-vercel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Smart Notification API
+        run: |
+          curl -X GET "${{ secrets.VERCEL_APP_URL }}/api/cron/smart-notifications" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
