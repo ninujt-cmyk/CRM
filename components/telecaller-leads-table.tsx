@@ -583,22 +583,26 @@ export function TelecallerLeadsTable({
                     </Tooltip>
                   </TooltipProvider>
 
-                  {/* Manual Phone Call (Dialer) */}
+                  {/* Cloud C2C Call (Icon Button next to WhatsApp) */}
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button 
-                          onClick={() => handleStandardCallInitiated(lead)} 
-                          className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/30 active:scale-95 transition-transform"
-                          title="Manual Phone Dialer Call"
+                          onClick={() => handleC2CCallInitiated(lead.id, lead.phone)} 
+                          className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 active:scale-95 transition-transform flex items-center justify-center"
+                          title="Cloud C2C Call"
+                          disabled={isDialingC2C !== null}
                         >
-                          <Phone className="h-4.5 w-4.5" />
+                          {isDialing ? (
+                            <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                          ) : (
+                            <PhoneOutgoing className="h-4.5 w-4.5" />
+                          )}
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Manual Phone Call (Dialer)</TooltipContent>
+                      <TooltipContent>Cloud C2C Call</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-
 
                   {/* Copy Number */}
                   <button 
@@ -630,25 +634,16 @@ export function TelecallerLeadsTable({
                     Update
                   </Button>
 
-                  {/* PRIMARY DIAL ACTION (visually strongest call trigger) */}
-                  {isDialing ? (
-                    <Button 
-                      disabled 
-                      size="sm" 
-                      className="bg-indigo-600 text-white rounded-xl h-9 px-4 text-xs font-extrabold flex items-center gap-1.5"
-                    >
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calling
-                    </Button>
-                  ) : (
-                    <Button 
-                      size="sm" 
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 px-4 text-xs font-extrabold shadow-sm flex items-center gap-1.5 active:scale-95 transition-transform"
-                      onClick={() => handleC2CCallInitiated(lead.id, lead.phone)}
-                    >
-                      <PhoneOutgoing className="h-3.5 w-3.5 fill-indigo-200/20" /> Call Now
-                    </Button>
-                  )}
+                  {/* PRIMARY DIAL ACTION - Manual Call (visually strongest) */}
+                  <Button 
+                    size="sm" 
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 px-4 text-xs font-extrabold shadow-sm flex items-center gap-1.5 active:scale-95 transition-transform"
+                    onClick={() => handleStandardCallInitiated(lead)}
+                  >
+                    <Phone className="h-3.5 w-3.5 fill-indigo-200/20" /> Call Now
+                  </Button>
                 </div>
+
 
               </div>
 
