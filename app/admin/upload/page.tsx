@@ -13,7 +13,7 @@ import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { 
   Upload, CheckCircle, AlertCircle, Download, 
-  Zap, ArrowRight, History, PieChart, Share2 
+  Zap, ArrowRight, History, PieChart, Share2, Sparkles 
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
