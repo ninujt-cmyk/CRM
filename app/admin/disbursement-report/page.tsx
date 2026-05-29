@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { 
   Loader2, IndianRupee, Search, RefreshCw, Trophy, Medal,
   Building2, Target, PieChart as PieIcon, ArrowUpRight, Wallet, Pencil, Zap, Printer,
-  Lightbulb, Crown, Trash2, Flame, Crosshair
+  Lightbulb, Crown, Trash2, Flame, Crosshair, CheckCircle2
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
