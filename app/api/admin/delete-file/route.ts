@@ -14,7 +14,7 @@ export async function POST(request: Request) {
 
     const { data: userCheck } = await supabase
       .from("users")
-      .select("role, tenant_id")
+      .select("role")
       .eq("id", currentUser.id)
       .single();
 
@@ -22,12 +22,6 @@ export async function POST(request: Request) {
     if (!userCheck?.role || !allowedRoles.includes(userCheck.role)) {
       return NextResponse.json({ error: "Forbidden: You do not have permission to execute this admin action." }, { status: 403 });
     }
-
-    const tenantId = userCheck?.tenant_id;
-    if (!tenantId) {
-      return NextResponse.json({ error: "Tenant ID not found" }, { status: 400 });
-    }
-
     const { fileName } = await request.json();
 
     if (!fileName) {
@@ -38,12 +32,13 @@ export async function POST(request: Request) {
     const index = client.index('companies');
 
     // 1. CRUCIAL: Meilisearch requires an attribute to be "filterable" before you can delete by it.
-    // Register both file_name and tenant_id as filterable.
-    await index.updateFilterableAttributes(['file_name', 'tenant_id']);
+    // We update the settings here to guarantee it works.
+    await index.updateFilterableAttributes(['file_name']);
 
-    // 2. Execute the deletion filter (Belongs ONLY to this tenant!)
+    // 2. Execute the deletion filter
+    // This tells Meilisearch: "Delete every document where file_name equals the requested name"
     const task = await index.deleteDocuments({
-      filter: `file_name = "${fileName}" AND tenant_id = "${tenantId}"`
+      filter: `file_name = "${fileName}"`
     });
 
     return NextResponse.json({ success: true, taskUid: task.taskUid });
