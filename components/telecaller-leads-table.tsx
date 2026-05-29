@@ -583,6 +583,23 @@ export function TelecallerLeadsTable({
                     </Tooltip>
                   </TooltipProvider>
 
+                  {/* Manual Phone Call (Dialer) */}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button 
+                          onClick={() => handleStandardCallInitiated(lead)} 
+                          className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/30 active:scale-95 transition-transform"
+                          title="Manual Phone Dialer Call"
+                        >
+                          <Phone className="h-4.5 w-4.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Manual Phone Call (Dialer)</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+
                   {/* Copy Number */}
                   <button 
                     onClick={() => copyToClipboard(lead.phone || '')} 
