@@ -1,18 +1,19 @@
 import { Suspense } from "react"
 import { createClient } from "@/lib/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { FileText, Users, Phone, Clock, Activity, PieChart } from "lucide-react"
+import { FileText, Users, Phone, Clock, Activity, PieChart, TrendingUp, TrendingDown, Sparkles } from "lucide-react"
 import { redirect } from "next/navigation"
+import { cn } from "@/lib/utils"
 
 export const dynamic = "force-dynamic" 
  
 export default function AdminDashboard() {
   return (
-    <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+    <div className="p-4 md:p-6 space-y-6 min-h-screen bg-slate-50/30 dark:bg-slate-950/10 animate-in fade-in duration-300">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">Workspace Dashboard</h1>
-        <p className="text-gray-500 mt-2">Real-time overview of your company's performance</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Workspace Dashboard</h1>
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-450 mt-1.5">Real-time overview of your company's performance</p>
       </div>
 
       <Suspense fallback={<DashboardSkeleton />}>
@@ -72,44 +73,96 @@ async function DashboardContent() {
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatsCard title="Total Leads" value={totalLeads} icon={<FileText className="h-5 w-5 text-white" />} description="In your workspace" bgClass="bg-slate-900 text-white" />
-        <StatsCard title="Active Telecallers" value={activeTelecallers || 0} icon={<Users className="h-5 w-5 text-white" />} description="In your workspace" bgClass="bg-indigo-600 text-white" />
-        <StatsCard title="Today's Calls" value={todaysCalls || 0} icon={<Phone className="h-5 w-5 text-white" />} description="Made by your team" bgClass="bg-emerald-700 text-white" />
-        <StatsCard title="Pending Follow-ups" value={pendingFollowUps} icon={<Clock className="h-5 w-5 text-white" />} description="Requiring attention" bgClass="bg-orange-500 text-white" />
+        <StatsCard 
+          title="Total Leads" 
+          value={totalLeads} 
+          icon={<FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />} 
+          trend="+18%"
+          trendUp={true}
+          comparison="vs last week"
+          sparklinePath="M 0 25 C 20 15, 30 18, 50 10 C 70 8, 80 5, 100 2"
+          sparklineColor="text-blue-500"
+          bgGradient="from-blue-500 to-indigo-500"
+        />
+        <StatsCard 
+          title="Active Telecallers" 
+          value={activeTelecallers || 0} 
+          icon={<Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />} 
+          trend="+8%"
+          trendUp={true}
+          comparison="active now"
+          sparklinePath="M 0 20 C 20 10, 40 25, 60 12 C 80 18, 90 8, 100 5"
+          sparklineColor="text-indigo-500"
+          bgGradient="from-indigo-500 to-purple-500"
+        />
+        <StatsCard 
+          title="Today's Calls" 
+          value={todaysCalls || 0} 
+          icon={<Phone className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />} 
+          trend="+14%"
+          trendUp={true}
+          comparison="vs yesterday"
+          sparklinePath="M 0 25 C 10 20, 30 10, 50 15 C 70 12, 90 4, 100 2"
+          sparklineColor="text-emerald-500"
+          bgGradient="from-emerald-500 to-teal-500"
+        />
+        <StatsCard 
+          title="Pending Follow-ups" 
+          value={pendingFollowUps} 
+          icon={<Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />} 
+          trend="-3%"
+          trendUp={false}
+          comparison="vs yesterday"
+          sparklinePath="M 0 5 C 20 8, 30 15, 50 12 C 70 10, 80 20, 100 22"
+          sparklineColor="text-amber-500"
+          bgGradient="from-amber-500 to-orange-500"
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4 shadow-sm border-slate-200">
-          <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Recent Activity</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+        {/* Recent Activity */}
+        <Card className="col-span-4 border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+              <Activity className="h-4.5 w-4.5 text-blue-500" /> Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="space-y-3.5">
               {recentLeads?.map((lead: any) => (
-                  <div key={lead.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                    <div className="flex flex-col">
-                      <span className="font-medium text-sm text-gray-900">{lead.name || "Unnamed Lead"}</span>
-                      <span className="text-xs text-gray-500">{new Date(lead.created_at).toLocaleDateString()}</span>
+                  <div key={lead.id} className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3 last:border-0 last:pb-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 px-2 py-1.5 rounded-xl transition-all duration-300">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-xs text-slate-900 dark:text-slate-100">{lead.name || "Unnamed Lead"}</span>
+                      <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{new Date(lead.created_at).toLocaleDateString()}</span>
                     </div>
-                    <div className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-700 rounded-full capitalize">{lead.status?.replace('_', ' ') || "New"}</div>
+                    <div className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full capitalize border shadow-none", getStatusPillClasses(lead.status))}>
+                      {lead.status?.replace('_', ' ') || "New"}
+                    </div>
                   </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="col-span-3 shadow-sm border-slate-200">
-          <CardHeader><CardTitle className="flex items-center gap-2"><PieChart className="h-5 w-5" /> Lead Status Overview</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-4 pt-2">
+        {/* Lead Status Overview */}
+        <Card className="col-span-3 border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+              <PieChart className="h-4.5 w-4.5 text-indigo-500" /> Lead Status Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="space-y-4 pt-1">
               {chartData.map((item) => {
                   const percentage = totalLeads > 0 ? Math.round((item.count / totalLeads) * 100) : 0;
                   return (
-                    <div key={item.status} className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-medium capitalize">{item.status.replace('_', ' ')}</span>
-                        <span className="text-gray-500">{item.count} ({percentage}%)</span>
+                    <div key={item.status} className="space-y-1.5">
+                      <div className="flex justify-between text-xs font-semibold">
+                        <span className="capitalize text-slate-700 dark:text-slate-300">{item.status.replace('_', ' ')}</span>
+                        <span className="text-slate-450 dark:text-slate-500">{item.count} ({percentage}%)</span>
                       </div>
-                      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }} />
+                      <div className="h-2 w-full bg-slate-105 dark:bg-slate-850 rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full transition-all duration-500", getStatusProgressColor(item.status))} style={{ width: `${percentage}%` }} />
                       </div>
                     </div>
                   )
@@ -122,19 +175,110 @@ async function DashboardContent() {
   )
 }
 
-function StatsCard({ title, value, icon, description, bgClass }: any) {
+function StatsCard({ title, value, icon, trend, trendUp, comparison, sparklinePath, sparklineColor, bgGradient }: any) {
+  const TrendingIcon = trendUp ? TrendingUp : TrendingDown
   return (
-    <Card className={`shadow-sm border-0 ${bgClass}`}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className="p-2 rounded-full bg-white/10">{icon}</div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs mt-1 opacity-80">{description}</p>
+    <Card className="relative overflow-hidden border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all duration-300 group rounded-2xl">
+      {/* Background Gradient Accent Line */}
+      <div className={`absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r ${bgGradient}`} />
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{title}</p>
+            <p className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-1">
+              {typeof value === 'number' ? value.toLocaleString() : value}
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 text-slate-700 dark:text-slate-350 shadow-sm group-hover:scale-105 transition-transform duration-300">
+            {icon}
+          </div>
+        </div>
+
+        {/* Sparkline & Trends */}
+        <div className="flex items-end justify-between mt-4">
+          <div className="flex flex-col gap-1">
+            {trend && (
+              <div className="flex items-center gap-1.5">
+                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold ${
+                  trendUp 
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30' 
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30'
+                }`}>
+                  <TrendingIcon className="h-3 w-3" />
+                  {trend}
+                </span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                  {comparison}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Mini Sparkline Chart */}
+          {sparklinePath && (
+            <div className="h-8 w-24 opacity-80 group-hover:opacity-100 transition-opacity">
+              <svg className={`h-full w-full ${sparklineColor}`} viewBox="0 0 100 30" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id={`gradient-${title.replace(/\s+/g, '-')}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="currentColor" stopOpacity="0.25"/>
+                    <stop offset="100%" stopColor="currentColor" stopOpacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path d={sparklinePath} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d={`${sparklinePath} L 100 30 L 0 30 Z`} fill={`url(#gradient-${title.replace(/\s+/g, '-')})`} />
+              </svg>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
+}
+
+const getStatusPillClasses = (status: string) => {
+  switch (status?.toLowerCase()) {
+    case 'new':
+      return 'bg-blue-50/80 text-blue-750 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200/80 dark:border-blue-900/50 hover:bg-blue-100/80 dark:hover:bg-blue-950/60 transition-all font-bold'
+    case 'interested':
+    case 'disbursed':
+      return 'bg-emerald-50/80 text-emerald-750 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-900/50 hover:bg-emerald-100/80 dark:hover:bg-emerald-950/60 transition-all font-bold'
+    case 'contacted':
+    case 'documents_sent':
+    case 'login':
+    case 'follow_up':
+      return 'bg-amber-50/80 text-amber-750 dark:bg-amber-950/40 dark:text-amber-300 border-amber-250 dark:border-amber-900/50 hover:bg-amber-100/80 dark:hover:bg-amber-950/60 transition-all font-bold'
+    case 'nr':
+    case 'recycle_pool':
+      return 'bg-slate-50/80 text-slate-600 dark:bg-slate-900/50 dark:text-slate-400 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-900/75 transition-all font-bold'
+    case 'not_interested':
+    case 'dead_bucket':
+    case 'not_eligible':
+      return 'bg-rose-50/80 text-rose-750 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200/80 dark:border-rose-900/50 hover:bg-rose-100/80 dark:hover:bg-rose-950/60 transition-all font-bold'
+    default:
+      return 'bg-slate-55 text-slate-700 dark:bg-slate-900 dark:text-slate-450 border-slate-200 hover:bg-slate-100 transition-all font-bold'
+  }
+}
+
+const getStatusProgressColor = (status: string) => {
+  switch (status?.toLowerCase()) {
+    case 'new': return 'bg-gradient-to-r from-blue-500 to-indigo-500'
+    case 'interested':
+    case 'disbursed':
+      return 'bg-gradient-to-r from-emerald-500 to-teal-500'
+    case 'contacted':
+    case 'documents_sent':
+    case 'login':
+    case 'follow_up':
+      return 'bg-gradient-to-r from-amber-500 to-orange-500'
+    case 'nr':
+    case 'recycle_pool':
+      return 'bg-gradient-to-r from-slate-400 to-slate-500'
+    case 'not_interested':
+    case 'dead_bucket':
+    case 'not_eligible':
+      return 'bg-gradient-to-r from-rose-500 to-red-500'
+    default: return 'bg-gradient-to-r from-slate-400 to-slate-500'
+  }
 }
 
 // 🔴 RESTORED SKELETON LOADER
