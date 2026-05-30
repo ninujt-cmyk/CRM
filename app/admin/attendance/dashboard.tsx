@@ -1353,27 +1353,144 @@ export function AdminAttendanceDashboard() {
 
       {/* Edit Individual Record Modal */}
       <Dialog open={!!editingRecord} onOpenChange={(o) => !o && setEditingRecord(null)}>
-         <DialogContent className="sm:max-w-[425px] rounded-2xl dark:bg-slate-900 dark:border-slate-800">
-            <DialogHeader>
-               <DialogTitle className="text-lg font-bold flex items-center gap-2"><Clock className="h-5 w-5 text-blue-600" /> Edit Log Entry</DialogTitle>
-               <DialogDescription className="text-xs">Correct check-in or checkout times for {editingRecord && format(parseISO(editingRecord.date), "MMM dd, yyyy")}.</DialogDescription>
+         <DialogContent className="max-w-3xl rounded-2xl dark:bg-slate-900 dark:border-slate-800 overflow-y-auto max-h-[90vh]">
+            <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3">
+               <DialogTitle className="text-lg font-bold flex items-center gap-2"><Clock className="h-5 w-5 text-blue-600" /> Biometric Attendance Audit</DialogTitle>
+               <DialogDescription className="text-xs">Verify biometric selfies, GPS locations, and devices for {editingRecord && format(parseISO(editingRecord.date), "MMM dd, yyyy")}.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-3">
-               <div className="grid grid-cols-4 items-center gap-3">
-                  <Label htmlFor="in" className="text-right text-xs font-semibold text-slate-500 uppercase">Check In</Label>
-                  <Input id="in" type="time" value={editCheckIn} onChange={e => setEditCheckIn(e.target.value)} className="col-span-3 h-9 bg-white dark:bg-slate-950" />
-               </div>
-               <div className="grid grid-cols-4 items-center gap-3">
-                  <Label htmlFor="out" className="text-right text-xs font-semibold text-slate-500 uppercase">Check Out</Label>
-                  <Input id="out" type="time" value={editCheckOut} onChange={e => setEditCheckOut(e.target.value)} className="col-span-3 h-9 bg-white dark:bg-slate-950" />
-               </div>
-               <div className="grid grid-cols-4 items-start gap-3">
-                  <Label htmlFor="note" className="text-right mt-2 text-xs font-semibold text-slate-500 uppercase">Reason</Label>
-                  <Textarea id="note" value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Provide correction notes (e.g. forgot ID card, client visit)..." className="col-span-3 min-h-[80px] bg-white dark:bg-slate-950 text-xs rounded-xl" />
-               </div>
-            </div>
+
+            {editingRecord && (() => {
+               // GPS Parser helper
+               const parseGpsData = (locationField: any) => {
+                 if (!locationField) return null;
+                 try {
+                   const loc = typeof locationField === "string" ? JSON.parse(locationField) : locationField;
+                   if (loc.latitude && loc.longitude) {
+                     return {
+                       lat: loc.latitude,
+                       lng: loc.longitude,
+                       accuracy: loc.accuracy || null
+                     };
+                   }
+                   if (loc.coordinates) {
+                     const parts = loc.coordinates.split(",");
+                     return {
+                       lat: parseFloat(parts[0]),
+                       lng: parseFloat(parts[1]),
+                       accuracy: null
+                     };
+                   }
+                 } catch (e) {
+                   console.warn("Could not parse location", e);
+                 }
+                 return null;
+               };
+
+               return (
+                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6 py-4">
+                   
+                   {/* LEFT COLUMN: AUDIT CARD (BIOMETRICS, GPS, DEVICE) */}
+                   <div className="md:col-span-5 space-y-4">
+                     <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b dark:border-slate-800 pb-1">Biometric Verification</h4>
+                     
+                     <div className="space-y-4">
+                       {/* CHECK IN SNAPSHOT */}
+                       <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-150 dark:border-slate-850">
+                          <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Check-In Selfie</div>
+                          {editingRecord.selfie_url_check_in ? (
+                            <div className="relative w-full h-36 rounded-lg overflow-hidden border dark:border-slate-800 bg-slate-900 shadow-2xs group">
+                              <img src={editingRecord.selfie_url_check_in} alt="Check In Selfie" className="w-full h-full object-cover scale-x-[-1]" />
+                            </div>
+                          ) : (
+                            <div className="w-full h-36 bg-slate-100/50 dark:bg-slate-900 rounded-lg flex items-center justify-center text-xs text-slate-450 font-semibold border border-dashed dark:border-slate-800">No Check-in Selfie</div>
+                          )}
+                          
+                          {/* GPS Info */}
+                          {(() => {
+                             const gps = parseGpsData(editingRecord.location_check_in);
+                             if (!gps) return <div className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold mt-2">GPS: Not recorded</div>;
+                             return (
+                               <div className="mt-2 text-[10px] text-slate-550 dark:text-slate-405 font-mono space-y-0.5">
+                                  <div className="font-semibold text-slate-650 dark:text-slate-400">Lat: {gps.lat.toFixed(5)}, Lng: {gps.lng.toFixed(5)}</div>
+                                  {gps.accuracy && <div>Accuracy: {gps.accuracy.toFixed(0)}m</div>}
+                                  <a href={`https://www.google.com/maps/search/?api=1&query=${gps.lat},${gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-450 hover:underline font-bold mt-1 inline-flex items-center gap-1">
+                                     View on Google Maps
+                                  </a>
+                               </div>
+                             );
+                          })()}
+                       </div>
+
+                       {/* CHECK OUT SNAPSHOT */}
+                       <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-150 dark:border-slate-850">
+                          <div className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">Check-Out Selfie</div>
+                          {editingRecord.selfie_url_check_out ? (
+                            <div className="relative w-full h-36 rounded-lg overflow-hidden border dark:border-slate-800 bg-slate-900 shadow-2xs group">
+                              <img src={editingRecord.selfie_url_check_out} alt="Check Out Selfie" className="w-full h-full object-cover scale-x-[-1]" />
+                            </div>
+                          ) : (
+                            <div className="w-full h-36 bg-slate-100/50 dark:bg-slate-900 rounded-lg flex items-center justify-center text-xs text-slate-450 font-semibold border border-dashed dark:border-slate-800">No Check-out Selfie</div>
+                          )}
+
+                          {/* GPS Info */}
+                          {(() => {
+                             const gps = parseGpsData(editingRecord.location_check_out);
+                             if (!gps) return <div className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold mt-2">GPS: Not recorded</div>;
+                             return (
+                               <div className="mt-2 text-[10px] text-slate-550 dark:text-slate-405 font-mono space-y-0.5">
+                                  <div className="font-semibold text-slate-650 dark:text-slate-400">Lat: {gps.lat.toFixed(5)}, Lng: {gps.lng.toFixed(5)}</div>
+                                  {gps.accuracy && <div>Accuracy: {gps.accuracy.toFixed(0)}m</div>}
+                                  <a href={`https://www.google.com/maps/search/?api=1&query=${gps.lat},${gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-450 hover:underline font-bold mt-1 inline-flex items-center gap-1">
+                                     View on Google Maps
+                                  </a>
+                               </div>
+                             );
+                          })()}
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* RIGHT COLUMN: CORRECTION FORM */}
+                   <div className="md:col-span-7 space-y-5 border-l border-slate-150 dark:border-slate-800 md:pl-6">
+                     <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b dark:border-slate-800 pb-1">Correction Panel</h4>
+                     
+                     <div className="space-y-4 py-1">
+                        <div className="grid grid-cols-4 items-center gap-3">
+                           <Label htmlFor="in" className="text-right text-xs font-semibold text-slate-500 uppercase">Check In</Label>
+                           <Input id="in" type="time" value={editCheckIn} onChange={e => setEditCheckIn(e.target.value)} className="col-span-3 h-9 bg-white dark:bg-slate-950 rounded-xl" />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-3">
+                           <Label htmlFor="out" className="text-right text-xs font-semibold text-slate-500 uppercase">Check Out</Label>
+                           <Input id="out" type="time" value={editCheckOut} onChange={e => setEditCheckOut(e.target.value)} className="col-span-3 h-9 bg-white dark:bg-slate-950 rounded-xl" />
+                        </div>
+                        <div className="grid grid-cols-4 items-start gap-3">
+                           <Label htmlFor="note" className="text-right mt-2 text-xs font-semibold text-slate-500 uppercase">Reason</Label>
+                           <Textarea id="note" value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Provide correction notes..." className="col-span-3 min-h-[80px] bg-white dark:bg-slate-950 text-xs rounded-xl" />
+                        </div>
+                     </div>
+
+                     {/* Device details summary */}
+                     <div className="bg-slate-50/50 dark:bg-slate-950/20 p-3.5 rounded-xl border border-slate-150 dark:border-slate-850 text-[10px] space-y-2.5">
+                        <div className="font-bold text-slate-450 uppercase tracking-wider">Device Metadata Logs</div>
+                        {editingRecord.device_info_check_in && (
+                          <div className="text-slate-500"><span className="font-bold text-slate-700 dark:text-slate-350">In Device:</span> {editingRecord.device_info_check_in} {editingRecord.ip_check_in && `(IP: ${editingRecord.ip_check_in})`}</div>
+                        )}
+                        {editingRecord.device_info_check_out && (
+                          <div className="text-slate-500"><span className="font-bold text-slate-700 dark:text-slate-350">Out Device:</span> {editingRecord.device_info_check_out} {editingRecord.ip_check_out && `(IP: ${editingRecord.ip_check_out})`}</div>
+                        )}
+                        {!editingRecord.device_info_check_in && !editingRecord.device_info_check_out && (
+                          <div className="text-slate-450 italic">No device metadata logs captured for this shift.</div>
+                        )}
+                     </div>
+                   </div>
+
+                 </div>
+               );
+            })()}
+
             <DialogFooter className="border-t border-slate-100 dark:border-slate-855 pt-4">
-               <Button type="submit" onClick={saveEdit} className="h-9 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-2xs">Save Corrections</Button>
+               <Button onClick={() => setEditingRecord(null)} variant="outline" className="h-9 text-xs font-semibold rounded-xl">Cancel</Button>
+               <Button type="submit" onClick={saveEdit} className="h-9 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-2xs">Save Corrections</Button>
             </DialogFooter>
          </DialogContent>
       </Dialog>

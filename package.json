@@ -42,6 +42,7 @@
     "@upstash/qstash": "^2.10.1",
     "@upstash/redis": "^1.37.0",
     "@vercel/analytics": "latest",
+    "@vladmandic/face-api": "^1.7.15",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

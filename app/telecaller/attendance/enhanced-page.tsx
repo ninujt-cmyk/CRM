@@ -43,6 +43,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import FaceRegistrationModal from "@/components/attendance/face-registration-modal";
+import FaceAuthModal from "@/components/attendance/face-auth-modal";
 
 // Import your specific service and types
 import { attendanceService, AttendanceRecord } from "@/lib/attendance-service";
@@ -66,6 +68,12 @@ export default function EnhancedTelecallerAttendancePage() {
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Biometric Face Auth States
+  const [faceRegistered, setFaceRegistered] = useState<boolean | null>(null);
+  const [registeredEmbeddings, setRegisteredEmbeddings] = useState<any | null>(null);
+  const [activeAuthAction, setActiveAuthAction] = useState<"check-in" | "check-out" | "break" | "resume" | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   const [notes, setNotes] = useState("");
   const [showCheckInDialog, setShowCheckInDialog] = useState(false);
@@ -117,6 +125,21 @@ export default function EnhancedTelecallerAttendancePage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setCurrentUserId(user.id);
+
+      // Query face registration
+      const { data: faceData } = await supabase
+        .from("employee_face_data")
+        .select("face_embeddings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (faceData) {
+        setFaceRegistered(true);
+        setRegisteredEmbeddings(faceData.face_embeddings);
+      } else {
+        setFaceRegistered(false);
+      }
 
       const startDateStr = format(dateRange.start, "yyyy-MM-dd");
       const endDateStr = format(dateRange.end, "yyyy-MM-dd");
@@ -416,7 +439,7 @@ export default function EnhancedTelecallerAttendancePage() {
                         ) : <div className="text-sm text-slate-400 italic">Not taken</div>}
                         
                         {isOnLunch && (
-                          <Button size="sm" variant="outline" onClick={handleEndLunch} className="w-full mt-2 h-7 text-xs text-red-600 border-red-200 hover:bg-red-50">
+                          <Button size="sm" variant="outline" onClick={() => setActiveAuthAction("resume")} className="w-full mt-2 h-7 text-xs text-red-600 border-red-200 hover:bg-red-50">
                             End Break
                           </Button>
                         )}
@@ -462,59 +485,23 @@ export default function EnhancedTelecallerAttendancePage() {
 
                   <div className="flex gap-2 flex-col sm:flex-row">
                     {!isCheckedIn ? (
-                      <Dialog open={showCheckInDialog} onOpenChange={setShowCheckInDialog}>
-                        <DialogTrigger asChild>
-                          <Button className="w-full h-12 text-lg font-medium shadow-md hover:shadow-lg transition-all" size="lg">
-                            <LogIn className="h-5 w-5 mr-2" /> Check In Now
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader><DialogTitle>Check In</DialogTitle><DialogDescription>Start your work day.</DialogDescription></DialogHeader>
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <Label>Notes (Optional)</Label>
-                              <Textarea placeholder="Any notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-                            </div>
-                            <Button onClick={handleCheckIn} className="w-full" size="lg">Confirm Check In</Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                      <Button onClick={() => setActiveAuthAction("check-in")} className="w-full h-12 text-lg font-medium shadow-md hover:shadow-lg transition-all animate-in fade-in duration-300" size="lg">
+                        <LogIn className="h-5 w-5 mr-2" /> Check In Now
+                      </Button>
                     ) : !isCheckedOut && !isOnLunch ? (
                       <>
                         {!todayAttendance?.lunch_start && (
-                          <Dialog open={showBreakDialog} onOpenChange={setShowBreakDialog}>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" className="flex-1 h-12 bg-white hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors">
-                                <Coffee className="h-5 w-5 mr-2" /> Lunch
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader><DialogTitle>Start Lunch</DialogTitle><DialogDescription>Your active timer will pause.</DialogDescription></DialogHeader>
-                              <Button onClick={handleStartLunch} className="w-full" size="lg">Start Break</Button>
-                            </DialogContent>
-                          </Dialog>
+                          <Button variant="outline" onClick={() => setActiveAuthAction("break")} className="flex-1 h-12 bg-white hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors animate-in fade-in duration-300">
+                            <Coffee className="h-5 w-5 mr-2" /> Lunch
+                          </Button>
                         )}
-                        <Dialog open={showCheckOutDialog} onOpenChange={setShowCheckOutDialog}>
-                          <DialogTrigger asChild>
-                            <Button className="flex-1 h-12 bg-slate-800 hover:bg-slate-900 shadow-md">
-                              <LogOut className="h-5 w-5 mr-2" /> Check Out
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader><DialogTitle>Check Out</DialogTitle><DialogDescription>End your work day.</DialogDescription></DialogHeader>
-                            <div className="space-y-4">
-                              <div className="space-y-2">
-                                <Label>Notes (Optional)</Label>
-                                <Textarea placeholder="How was your day?..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-                              </div>
-                              <Button onClick={handleCheckOut} className="w-full" size="lg">Confirm Check Out</Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
+                        <Button onClick={() => setActiveAuthAction("check-out")} className="flex-1 h-12 bg-slate-800 hover:bg-slate-900 shadow-md animate-in fade-in duration-300">
+                          <LogOut className="h-5 w-5 mr-2" /> Check Out
+                        </Button>
                       </>
                     ) : isCheckedIn && isOnLunch && (
-                        <Button disabled className="w-full h-12 bg-orange-100 text-orange-700 opacity-100">
-                            <Coffee className="h-5 w-5 mr-2 animate-pulse" /> On Lunch Break
+                        <Button onClick={() => setActiveAuthAction("resume")} className="w-full h-12 bg-orange-100 hover:bg-orange-200 text-orange-700 opacity-100 font-bold border border-orange-200 transition-all cursor-pointer animate-in fade-in duration-300">
+                            <Coffee className="h-5 w-5 mr-2 animate-pulse" /> On Lunch Break (End Break)
                         </Button>
                     )}
                   </div>
@@ -593,6 +580,31 @@ export default function EnhancedTelecallerAttendancePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Biometric Modals and Registration */}
+      {faceRegistered === false && currentUserId && (
+        <FaceRegistrationModal
+          userId={currentUserId}
+          onSuccess={() => {
+            setFaceRegistered(true);
+            loadAttendanceData();
+          }}
+        />
+      )}
+
+      {activeAuthAction && currentUserId && registeredEmbeddings && (
+        <FaceAuthModal
+          userId={currentUserId}
+          action={activeAuthAction}
+          registeredEmbeddings={registeredEmbeddings}
+          onSuccess={(record) => {
+            setTodayAttendance(record);
+            setActiveAuthAction(null);
+            loadAttendanceData();
+          }}
+          onClose={() => setActiveAuthAction(null)}
+        />
+      )}
     </div>
   );
 }

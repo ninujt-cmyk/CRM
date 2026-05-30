@@ -14,7 +14,13 @@ export interface AttendanceRecord {
   status: string
   notes: string | null
   location_check_in?: any 
+  location_check_out?: any 
   ip_check_in?: string | null 
+  ip_check_out?: string | null 
+  device_info_check_in?: string | null
+  device_info_check_out?: string | null
+  selfie_url_check_in?: string | null
+  selfie_url_check_out?: string | null
 }
 
 export class AttendanceService {
