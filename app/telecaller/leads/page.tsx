@@ -39,26 +39,33 @@ export default async function TelecallerLeadsPage({
   const sortBy = searchParams.sort_by || 'created_at'
   const sortOrder = searchParams.sort_order === 'asc'
 
-  // Parallel Stats Fetching
-  const [
-    totalRes,
-    newRes,
-    contactedRes,
-    loginRes,
-    disbursedRes
-  ] = await Promise.all([
-    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id),
-    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['new', 'New Lead']),
-    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['contacted', 'Interested']),
-    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['Login', 'Login Done']),
-    supabase.from("leads").select("*", { count: 'exact', head: true }).eq("assigned_to", user.id).in('status', ['Disbursed', 'converted'])
-  ])
+  // Fetch status column for all assigned leads in a single performant query
+  const { data: allUserLeads } = await supabase
+    .from("leads")
+    .select("status")
+    .eq("assigned_to", user.id)
 
-  const totalCount = totalRes.count || 0;
-  const newCount = newRes.count || 0;
-  const contactedCount = contactedRes.count || 0;
-  const loginCount = loginRes.count || 0;
-  const disbursedCount = disbursedRes.count || 0;
+  const totalCount = allUserLeads?.length || 0;
+  let newCount = 0;
+  let contactedCount = 0;
+  let loginCount = 0;
+  let disbursedCount = 0;
+
+  if (allUserLeads) {
+    for (const lead of allUserLeads) {
+      const s = lead.status?.toLowerCase();
+      if (!s) continue;
+      if (s === 'new' || s === 'new lead') {
+        newCount++;
+      } else if (s === 'contacted' || s === 'interested') {
+        contactedCount++;
+      } else if (s === 'login' || s === 'login done') {
+        loginCount++;
+      } else if (s === 'disbursed' || s === 'converted') {
+        disbursedCount++;
+      }
+    }
+  }
 
   const contactRate = totalCount ? Math.round((contactedCount / totalCount) * 100) : 0;
   
