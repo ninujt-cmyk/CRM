@@ -158,9 +158,9 @@ export function useFaceAuth() {
     if (!faceapiRef.current) return { matched: false, distance: 1.0 };
     
     const distance = faceapiRef.current.euclideanDistance(descriptor1, descriptor2);
-    // Strict threshold: 0.45 gives extremely high accuracy for mobile front camera verification
+    // Secure but robust threshold: 0.58 handles real-world room lighting and mobile camera angles instantly
     return {
-      matched: distance < 0.45,
+      matched: distance < 0.58,
       distance
     };
   };

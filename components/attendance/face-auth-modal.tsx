@@ -138,11 +138,16 @@ export default function FaceAuthModal({
 
     let isProcessing = false;
     let matchSuccessCount = 0;
-    
-    // Cast embeddings arrays to Float32Array
-    const regFront = new Float32Array(registeredEmbeddings.front);
-    const regLeft = new Float32Array(registeredEmbeddings.left);
-    const regRight = new Float32Array(registeredEmbeddings.right);
+    // Cast embeddings arrays to Float32Array defensively with fallbacks
+    const regFront = registeredEmbeddings?.front ? new Float32Array(registeredEmbeddings.front) : null;
+    const regLeft = registeredEmbeddings?.left ? new Float32Array(registeredEmbeddings.left) : null;
+    const regRight = registeredEmbeddings?.right ? new Float32Array(registeredEmbeddings.right) : null;
+
+    // Resilient fallback for raw array registration formats
+    let finalRegFront = regFront;
+    if (!finalRegFront && Array.isArray(registeredEmbeddings)) {
+      finalRegFront = new Float32Array(registeredEmbeddings);
+    }
 
     const runAuthLoop = async () => {
       if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
@@ -164,11 +169,12 @@ export default function FaceAuthModal({
           const currentDescriptor = detection.descriptor;
 
           // Compare against registered front, left, or right embeddings (highly resilient)
-          const matchFront = matchFace(currentDescriptor, regFront);
-          const matchLeft = matchFace(currentDescriptor, regLeft);
-          const matchRight = matchFace(currentDescriptor, regRight);
+          const matchFront = finalRegFront ? matchFace(currentDescriptor, finalRegFront) : { matched: false, distance: 1.0 };
+          const matchLeft = regLeft ? matchFace(currentDescriptor, regLeft) : { matched: false, distance: 1.0 };
+          const matchRight = regRight ? matchFace(currentDescriptor, regRight) : { matched: false, distance: 1.0 };
 
           const isMatched = matchFront.matched || matchLeft.matched || matchRight.matched;
+          const minDistance = Math.min(matchFront.distance, matchLeft.distance, matchRight.distance);
 
           if (isMatched) {
             matchSuccessCount++;
@@ -186,7 +192,11 @@ export default function FaceAuthModal({
           } else {
             // Decelerate match counter if no matches in current frame
             matchSuccessCount = Math.max(0, matchSuccessCount - 1);
-            setInstruction("Position your face inside the circle...");
+            if (minDistance < 0.68) {
+              setInstruction("Matching... please hold still and look straight");
+            } else {
+              setInstruction("Face detected. Move closer & align inside circle");
+            }
           }
         } else {
           matchSuccessCount = Math.max(0, matchSuccessCount - 1);
