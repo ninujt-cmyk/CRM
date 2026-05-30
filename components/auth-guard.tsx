@@ -77,9 +77,63 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   }, [router, requiredRole, supabase])
 
   if (isLoading) {
+    if (requiredRole === "telecaller") {
+      return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 max-w-lg mx-auto space-y-6 animate-pulse">
+          {/* Status Bar Header Skeleton */}
+          <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-3xs">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 bg-slate-200 dark:bg-slate-800 rounded-full" />
+              <div className="space-y-1.5">
+                <div className="h-3.5 w-28 bg-slate-200 dark:bg-slate-800 rounded" />
+                <div className="h-2.5 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="h-8 w-20 bg-slate-200 dark:bg-slate-800 rounded-full" />
+              <div className="h-8 w-8 bg-slate-200 dark:bg-slate-800 rounded-lg" />
+            </div>
+          </div>
+          
+          {/* Main Greeting Banner Skeleton */}
+          <div className="h-44 w-full bg-slate-200 dark:bg-slate-800 rounded-3xl" />
+          
+          {/* 2x2 Grid stats */}
+          <div className="grid grid-cols-2 gap-3.5">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-24 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+            ))}
+          </div>
+
+          {/* Large Performance/Task Skeleton */}
+          <div className="h-[280px] w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+        </div>
+      )
+    }
+
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 w-full space-y-6 animate-pulse">
+        {/* Top Header Row Skeleton */}
+        <div className="h-14 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm px-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 bg-slate-200 dark:bg-slate-800 rounded-full" />
+            <div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded-md" />
+          </div>
+          <div className="h-7 w-20 bg-slate-200 dark:bg-slate-800 rounded-full" />
+        </div>
+
+        {/* Content Workspace Grid Skeleton */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="md:col-span-2 space-y-4">
+            <div className="h-40 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="h-28 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+              <div className="h-28 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+            </div>
+            <div className="h-56 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+          </div>
+          <div className="h-96 w-full bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+        </div>
       </div>
     )
   }
