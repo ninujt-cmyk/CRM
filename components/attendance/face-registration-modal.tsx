@@ -113,85 +113,30 @@ export default function FaceRegistrationModal({ userId, onSuccess }: FaceRegistr
         const detection = await detectFaceInVideo(videoRef.current);
         
         if (detection) {
-          const landmarks = detection.landmarks;
           const descriptor = detection.descriptor;
 
-          // Stage Logic based on current Step
           if (step === "front") {
-            setInstruction("Look straight into the camera and hold still...");
-            stageProgress += 10;
+            setInstruction("Scanning face... please hold still");
+            stageProgress += 50; // 2 successful frames = 100% (under 100ms!)
             setScanProgress(Math.min(100, stageProgress));
 
             if (stageProgress >= 100) {
-              // Capture photo and save descriptor
+              // Capture photo and save descriptors
               captureSelfie();
               setFrontDescriptor(descriptor);
+              setLeftDescriptor(descriptor); // Copy front descriptor to satisfy DB schema
+              setRightDescriptor(descriptor); // Copy front descriptor to satisfy DB schema
               
-              // Proceed to next step
-              stopLoopAndTransition("left");
-              isProcessing = false;
-              return;
-            }
-          }
-          else if (step === "left") {
-            setInstruction("Now, turn your head slightly to the left...");
-            const { left, ratio } = detectHeadTurn(landmarks);
-            
-            if (left) {
-              stageProgress += 15;
-              setScanProgress(Math.min(100, stageProgress));
-              
-              if (stageProgress >= 100) {
-                setLeftDescriptor(descriptor);
-                stopLoopAndTransition("right");
-                isProcessing = false;
-                return;
-              }
-            } else {
-              // Decay progress slightly if they look back to center
-              stageProgress = Math.max(0, stageProgress - 2);
-              setScanProgress(stageProgress);
-            }
-          }
-          else if (step === "right") {
-            setInstruction("Excellent. Now, turn your head slightly to the right...");
-            const { right } = detectHeadTurn(landmarks);
-            
-            if (right) {
-              stageProgress += 15;
-              setScanProgress(Math.min(100, stageProgress));
-              
-              if (stageProgress >= 100) {
-                setRightDescriptor(descriptor);
-                stopLoopAndTransition("blink");
-                isProcessing = false;
-                return;
-              }
-            } else {
-              stageProgress = Math.max(0, stageProgress - 2);
-              setScanProgress(stageProgress);
-            }
-          }
-          else if (step === "blink") {
-            setInstruction("Almost done! Please blink your eyes now...");
-            
-            const prevEAR = prevEARRef.current;
-            const setPrevEAR = (val: number) => { prevEARRef.current = val; };
-            
-            const blink = detectBlink(landmarks, prevEAR, setPrevEAR);
-            
-            if (blink) {
-              setScanProgress(100);
+              // Proceed directly to saving
               stopLoopAndTransition("saving");
               isProcessing = false;
               return;
             }
           }
         } else {
-          // No face detected, reset stage progress slightly to enforce hold
-          stageProgress = Math.max(0, stageProgress - 3);
+          stageProgress = Math.max(0, stageProgress - 5);
           setScanProgress(stageProgress);
-          setInstruction("No face detected. Align your face inside the circle.");
+          setInstruction("Align your face inside the circle...");
         }
       } catch (err) {
         console.error("Tracking error:", err);
@@ -374,11 +319,10 @@ export default function FaceRegistrationModal({ userId, onSuccess }: FaceRegistr
               </div>
               <div className="space-y-3 text-left">
                 <h4 className="font-bold text-slate-200 text-sm text-center">How does it work?</h4>
-                <ul className="text-xs text-slate-450 space-y-2 max-w-xs mx-auto">
+                <ul className="text-xs text-slate-400 space-y-2.5 max-w-xs mx-auto">
                   <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">1.</span> We will open your front camera.</li>
-                  <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">2.</span> You will scan your face from three angles (Front, Left, Right).</li>
-                  <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">3.</span> We will run a 1-second blink detection to verify liveness.</li>
-                  <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">4.</span> Your secure biometric vector is stored privately.</li>
+                  <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">2.</span> Position your face inside the scan circle.</li>
+                  <li className="flex gap-2 items-start"><span className="text-blue-500 font-bold">3.</span> We will instantly register your secure face profile.</li>
                 </ul>
               </div>
               
@@ -446,23 +390,9 @@ export default function FaceRegistrationModal({ userId, onSuccess }: FaceRegistr
                   {instruction}
                 </div>
                 
-                <div className="flex items-center justify-center gap-1">
-                  {["front", "left", "right", "blink"].map((s, idx) => {
-                    const stepsArr = ["front", "left", "right", "blink"];
-                    const currentIdx = stepsArr.indexOf(step);
-                    const fileIdx = stepsArr.indexOf(s);
-                    
-                    let dotColor = "bg-slate-800";
-                    if (fileIdx === currentIdx) dotColor = "bg-blue-500 animate-pulse w-4";
-                    else if (fileIdx < currentIdx) dotColor = "bg-green-500";
-                    
-                    return (
-                      <div 
-                        key={s} 
-                        className={`h-1.5 rounded-full transition-all duration-300 ${dotColor} ${fileIdx === currentIdx ? "w-4" : "w-1.5"}`} 
-                      />
-                    );
-                  })}
+                <div className="flex items-center justify-center gap-1.5">
+                  <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-blue-400">Scanning Front Profile</span>
                 </div>
               </div>
 

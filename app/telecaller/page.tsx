@@ -65,8 +65,22 @@ interface DashboardData {
 
 const INCENTIVE_RATE = 0.005 
 
+interface RadialProgressProps {
+  percent: number;
+  size?: number;
+  strokeWidth?: number;
+  colorClass?: string;
+  trackColorClass?: string;
+}
+
 // Helper for beautiful radial gauges
-function RadialProgress({ percent, size = 52, strokeWidth = 4, colorClass = "text-indigo-600", trackColorClass = "text-slate-100 dark:text-slate-800" }) {
+function RadialProgress({ 
+  percent, 
+  size = 52, 
+  strokeWidth = 4, 
+  colorClass = "text-indigo-600", 
+  trackColorClass = "text-slate-100 dark:text-slate-800" 
+}: RadialProgressProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
   const offset = circumference - (Math.min(percent, 100) / 100) * circumference

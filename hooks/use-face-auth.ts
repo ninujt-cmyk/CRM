@@ -175,7 +175,7 @@ export function useFaceAuth() {
     
     // Detect single face with landmarks and descriptors using the optimized TinyFaceDetector
     const detection = await faceapi
-      .detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+      .detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 

@@ -22,7 +22,7 @@ interface FaceAuthModalProps {
   onClose: () => void;
 }
 
-type AuthStep = "loading" | "scanning" | "liveness-blink" | "liveness-smile" | "verifying" | "success" | "error";
+type AuthStep = "loading" | "scanning" | "verifying" | "success" | "error";
 
 export default function FaceAuthModal({
   userId,
@@ -37,10 +37,6 @@ export default function FaceAuthModal({
   const [authStep, setAuthStep] = useState<AuthStep>("loading");
   const [instruction, setInstruction] = useState("Initializing Front Camera...");
   const [attempts, setAttempts] = useState(0);
-  
-  // Liveness validation states
-  const [livenessBlink, setLivenessBlink] = useState(false);
-  const [livenessSmile, setLivenessSmile] = useState(false);
   
   // Camera references
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -130,9 +126,9 @@ export default function FaceAuthModal({
     }
   };
 
-  // Tracking loop for Facial recognition & Liveness
+  // Tracking loop for Facial recognition
   useEffect(() => {
-    if (authStep !== "scanning" && authStep !== "liveness-blink" && authStep !== "liveness-smile") {
+    if (authStep !== "scanning") {
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
         requestRef.current = null;
@@ -165,10 +161,8 @@ export default function FaceAuthModal({
         const detection = await detectFaceInVideo(videoRef.current);
 
         if (detection) {
-          const landmarks = detection.landmarks;
           const currentDescriptor = detection.descriptor;
 
-          // 1. BIOMETRIC MATCH CHECK
           // Compare against registered front, left, or right embeddings (highly resilient)
           const matchFront = matchFace(currentDescriptor, regFront);
           const matchLeft = matchFace(currentDescriptor, regLeft);
@@ -179,66 +173,24 @@ export default function FaceAuthModal({
           if (isMatched) {
             matchSuccessCount++;
             
-            // Wait for 3 consecutive matching frames to prevent noise
-            if (matchSuccessCount >= 3) {
-              
-              if (authStep === "scanning") {
-                // Biometrics verified! Capture attendance snapshot first
-                captureAttendanceSelfie();
-                
-                // Transition to Blink Liveness Check
-                setAuthStep("liveness-blink");
-                setInstruction("Biometrics verified! Now, please blink your eyes...");
-                matchSuccessCount = 0;
-                isProcessing = false;
-                return;
-              }
-              
-              if (authStep === "liveness-blink") {
-                // Track blinks
-                const prevEAR = prevEARRef.current;
-                const setPrevEAR = (val: number) => { prevEARRef.current = val; };
-                const blink = detectBlink(landmarks, prevEAR, setPrevEAR);
-                
-                if (blink || livenessBlink) {
-                  setLivenessBlink(true);
-                  // Transition to Smile Liveness Check
-                  setAuthStep("liveness-smile");
-                  setInstruction("Liveness 50% verified. Now, please smile!");
-                  matchSuccessCount = 0;
-                  isProcessing = false;
-                  return;
-                }
-              }
-              
-              if (authStep === "liveness-smile") {
-                // Track smile
-                const smile = detectSmile(landmarks);
-                
-                if (smile || livenessSmile) {
-                  setLivenessSmile(true);
-                  // Complete liveness
-                  setAuthStep("verifying");
-                  setInstruction("Liveness verified. Submitting attendance record...");
-                  stopCamera();
-                  isProcessing = false;
-                  // Trigger final submissions
-                  completeAttendanceTransaction();
-                  return;
-                }
-              }
-
+            // Wait for 2 consecutive matching frames to prevent noise (takes under 100ms!)
+            if (matchSuccessCount >= 2) {
+              captureAttendanceSelfie();
+              setAuthStep("verifying");
+              setInstruction("Face verified! Submitting attendance log...");
+              stopCamera();
+              isProcessing = false;
+              completeAttendanceTransaction();
+              return;
             }
           } else {
             // Decelerate match counter if no matches in current frame
             matchSuccessCount = Math.max(0, matchSuccessCount - 1);
-            if (authStep === "scanning") {
-              setInstruction("Position your face inside the circle...");
-            }
+            setInstruction("Position your face inside the circle...");
           }
         } else {
           matchSuccessCount = Math.max(0, matchSuccessCount - 1);
-          setInstruction("No face detected. Align your face inside the circle.");
+          setInstruction("Align your face inside the circle...");
         }
       } catch (err) {
         console.error("Auth Loop Error:", err);
@@ -451,8 +403,6 @@ export default function FaceAuthModal({
 
   const handleRetry = () => {
     setAttempts(a => a + 1);
-    setLivenessBlink(false);
-    setLivenessSmile(false);
     setAuthStep("loading");
     setInstruction("Re-initializing front camera...");
     startCamera();
@@ -462,8 +412,6 @@ export default function FaceAuthModal({
   const ringColorMap = {
     loading: "border-slate-800",
     scanning: "border-blue-500/50 animate-pulse",
-    "liveness-blink": "border-amber-400/80 animate-[ping_2s_infinite]",
-    "liveness-smile": "border-amber-400/80 animate-[ping_2s_infinite]",
     verifying: "border-blue-500/80 animate-pulse",
     success: "border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]",
     error: "border-rose-500"
@@ -490,7 +438,7 @@ export default function FaceAuthModal({
             <div className={`relative w-64 h-64 rounded-full overflow-hidden border-4 bg-slate-950 flex items-center justify-center shadow-2xl transition-all duration-500 ${ringColorMap[authStep]}`}>
               
               {/* VIDEO LAYER */}
-              {(authStep === "loading" || authStep === "scanning" || authStep === "liveness-blink" || authStep === "liveness-smile" || authStep === "verifying") && (
+              {(authStep === "loading" || authStep === "scanning" || authStep === "verifying") && (
                 <video
                   ref={videoRef}
                   autoPlay
@@ -539,18 +487,15 @@ export default function FaceAuthModal({
               )}
 
               {/* CIRCULAR GUIDES */}
-              {(authStep === "scanning" || authStep === "liveness-blink" || authStep === "liveness-smile") && (
+              {authStep === "scanning" && (
                 <>
                   <div className="absolute inset-0 rounded-full border-2 border-dashed border-blue-500/10 animate-[spin_40s_linear_infinite]" />
                   <div className="absolute inset-4 rounded-full border border-blue-500/10" />
                   
-                  {/* LIVENESS HUD PROGRESS BARS */}
-                  <div className="absolute top-4 inset-x-0 flex justify-center gap-1.5 z-25">
-                    <div className={`h-1.5 rounded-full transition-all duration-300 ${livenessBlink ? "w-10 bg-green-500" : "w-10 bg-slate-800 border border-slate-700"} flex items-center justify-center`}>
-                      <span className="text-[7px] font-black uppercase text-white scale-75">Blink</span>
-                    </div>
-                    <div className={`h-1.5 rounded-full transition-all duration-300 ${livenessSmile ? "w-10 bg-green-500" : "w-10 bg-slate-800 border border-slate-700"} flex items-center justify-center`}>
-                      <span className="text-[7px] font-black uppercase text-white scale-75">Smile</span>
+                  {/* SCANNING BADGE */}
+                  <div className="absolute top-4 inset-x-0 flex justify-center z-25">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                      <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-ping" /> Scanning Face
                     </div>
                   </div>
                 </>

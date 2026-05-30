@@ -45,7 +45,13 @@ type AttendanceRecord = {
   overtime_hours: number | null;
   status?: string; 
   location_check_in?: any;
+  location_check_out?: any;
   ip_check_in?: string;
+  ip_check_out?: string;
+  device_info_check_in?: string;
+  device_info_check_out?: string;
+  selfie_url_check_in?: string;
+  selfie_url_check_out?: string;
   on_break?: boolean;
   updated_at?: string;
   admin_note?: string; 
