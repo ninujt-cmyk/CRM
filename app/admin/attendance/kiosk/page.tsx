@@ -251,6 +251,32 @@ export default function AttendanceKioskPage() {
     }
   };
 
+  // --- TEXT-TO-SPEECH (TTS) SYNTHESIS ---
+  const speakKioskMessage = (text: string) => {
+    try {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      
+      // Cancel active queues to avoid delays
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95; // Crisp readability speed
+      utterance.pitch = 1.0;
+      
+      // Select preferred standard English speaker voice
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => 
+        v.lang.startsWith("en") && 
+        (v.name.includes("Google") || v.name.includes("Natural") || v.name.includes("Samantha"))
+      );
+      if (preferred) utterance.voice = preferred;
+      
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn("Speech Synthesis failed:", err);
+    }
+  };
+
   // --- SCREEN WAKE LOCK CONTROL ---
   const requestWakeLock = async () => {
     try {
@@ -434,6 +460,7 @@ export default function AttendanceKioskPage() {
       // Handle no-op cases
       if (transactionAction === "too-soon") {
         playKioskSound("neutral");
+        speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait 5 minutes to check out.`);
         setInstruction(`${emp.fullName} checked in. Please wait a few minutes before checking out.`);
         toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait 5 minutes to check out.`);
         return;
@@ -441,6 +468,7 @@ export default function AttendanceKioskPage() {
 
       if (transactionAction === "already-completed") {
         playKioskSound("neutral");
+        speakKioskMessage(`${emp.fullName} already completed shift today.`);
         setInstruction(`${emp.fullName} already completed shift today.`);
         toast.info(`${emp.fullName} already completed check-in & check-out today.`);
         return;
@@ -523,6 +551,13 @@ export default function AttendanceKioskPage() {
 
       // Successful matching chime sound!
       playKioskSound("success");
+      
+      // Voice welcome / exit greeting with employee name
+      if (transactionAction === "check-in") {
+        speakKioskMessage(`Welcome ${emp.fullName}. Checked in successfully.`);
+      } else {
+        speakKioskMessage(`Thank you ${emp.fullName}. Checked out successfully.`);
+      }
       
       const timeStr = new Date(nowIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
