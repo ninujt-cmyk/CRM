@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { 
   Camera, RefreshCw, Search, Users, CheckCircle2, 
   Lock, Unlock, Clock, ArrowLeft, History, Sparkles, 
-  ShieldAlert, Volume2, UserCheck, Play, Square, ChevronRight, X
+  ShieldAlert, Volume2, UserCheck, Play, Square, ChevronRight, X, Settings
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -61,6 +61,36 @@ export default function AttendanceKioskPage() {
   // Registration States
   const [isRegistering, setIsRegistering] = useState(false);
   const [registeringUserId, setRegisteringUserId] = useState<string | null>(null);
+
+  // White-label settings states
+  const [kioskName, setKioskName] = useState("Office Kiosk Gateway");
+  const [kioskLogo, setKioskLogo] = useState("");
+  const [kioskVoice, setKioskVoice] = useState("");
+  const [kioskTheme, setKioskTheme] = useState("obsidian");
+  const [checkoutWaitHours, setCheckoutWaitHours] = useState(1);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [broadcasts, setBroadcasts] = useState<{ [userId: string]: string }>({});
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Settings form temp states
+  const [settingsName, setSettingsName] = useState(kioskName);
+  const [settingsLogo, setSettingsLogo] = useState(kioskLogo);
+  const [settingsVoice, setSettingsVoice] = useState(kioskVoice);
+  const [settingsTheme, setSettingsTheme] = useState(kioskTheme);
+  const [settingsWait, setSettingsWait] = useState(checkoutWaitHours);
+
+  // Synchronize form when opened
+  useEffect(() => {
+    if (isSettingsOpen) {
+      setSettingsName(kioskName);
+      setSettingsLogo(kioskLogo);
+      setSettingsVoice(kioskVoice);
+      setSettingsTheme(kioskTheme);
+      setSettingsWait(checkoutWaitHours);
+    }
+  }, [isSettingsOpen]);
   
   // Scanned HUD display
   const [lastMatch, setLastMatch] = useState<{
@@ -86,7 +116,35 @@ export default function AttendanceKioskPage() {
   useEffect(() => {
     loadEmployees();
     loadLogsToday();
+    loadBroadcasts();
+    checkOfflineQueue();
     
+    // Load local storage configuration settings
+    if (typeof window !== "undefined") {
+      setKioskName(localStorage.getItem("kiosk_name") || "Office Kiosk Gateway");
+      setKioskLogo(localStorage.getItem("kiosk_logo") || "");
+      setKioskVoice(localStorage.getItem("kiosk_voice") || "");
+      setKioskTheme(localStorage.getItem("kiosk_theme") || "obsidian");
+      setCheckoutWaitHours(Number(localStorage.getItem("kiosk_checkout_wait") || "1"));
+
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        setSystemVoices(voices.filter(v => v.lang.startsWith("en")));
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+
+      // Register background sync hooks
+      window.addEventListener("online", triggerBackgroundSync);
+      const poller = setInterval(triggerBackgroundSync, 15000);
+      return () => {
+        window.removeEventListener("online", triggerBackgroundSync);
+        clearInterval(poller);
+        stopCamera();
+        releaseWakeLock();
+      };
+    }
+
     // Periodically clean up the cooldown queue
     const queueCleaner = setInterval(() => {
       cooldownQueueRef.current = cooldownQueueRef.current.filter(c => Date.now() - c.time < 5000);
@@ -98,6 +156,217 @@ export default function AttendanceKioskPage() {
       releaseWakeLock();
     };
   }, []);
+
+  // --- CLIENT-SIDE INDEXEDDB FOR RESILIENT OFFLINE QUEUEING ---
+  const openIndexedDB = (): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+      if (typeof window === "undefined" || !("indexedDB" in window)) {
+        reject(new Error("IndexedDB is not supported on this browser."));
+        return;
+      }
+      const request = window.indexedDB.open("biometric_kiosk_offline_db", 1);
+      
+      request.onupgradeneeded = (e: any) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("offline_transactions")) {
+          db.createObjectStore("offline_transactions", { keyPath: "id" });
+        }
+      };
+      
+      request.onsuccess = (e: any) => resolve(e.target.result);
+      request.onerror = (e: any) => reject(e.target.error);
+    });
+  };
+
+  const queueOfflineTransaction = async (tx: any) => {
+    try {
+      const db = await openIndexedDB();
+      const transaction = db.transaction("offline_transactions", "readwrite");
+      const store = transaction.objectStore("offline_transactions");
+      store.add({
+        id: crypto.randomUUID(),
+        ...tx,
+        timestamp: new Date().toISOString()
+      });
+      toast.warning("Offline mode: Attendance transaction queued locally!");
+    } catch (err) {
+      console.error("IndexedDB store failed:", err);
+    }
+  };
+
+  const getQueuedTransactions = async (): Promise<any[]> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const db = await openIndexedDB();
+        const transaction = db.transaction("offline_transactions", "readonly");
+        const store = transaction.objectStore("offline_transactions");
+        const request = store.getAll();
+        
+        request.onsuccess = (e: any) => resolve(e.target.result);
+        request.onerror = (e: any) => reject(e.target.error);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  const deleteQueuedTransaction = async (id: string): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const db = await openIndexedDB();
+        const transaction = db.transaction("offline_transactions", "readwrite");
+        const store = transaction.objectStore("offline_transactions");
+        const request = store.delete(id);
+        
+        request.onsuccess = () => resolve();
+        request.onerror = (e: any) => reject(e.target.error);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  const checkOfflineQueue = async () => {
+    try {
+      const queued = await getQueuedTransactions();
+      setOfflineQueueCount(queued.length);
+    } catch (e) {
+      console.warn("Queue check failed", e);
+    }
+  };
+
+  const triggerBackgroundSync = async () => {
+    if (isSyncing || typeof navigator === "undefined" || !navigator.onLine) return;
+    
+    try {
+      const queued = await getQueuedTransactions();
+      if (queued.length === 0) return;
+      
+      setIsSyncing(true);
+      setInstruction(`Syncing ${queued.length} offline transactions...`);
+      playKioskSound("click");
+      
+      for (const tx of queued) {
+        let selfieUrl = tx.selfieUrl || "";
+        if (tx.selfieBase64) {
+          try {
+            const res = await fetch(tx.selfieBase64);
+            const blob = await res.blob();
+            const path = `${tx.userId}/kiosk_${tx.action}_${Date.now()}.jpg`;
+            const { data: uploadData } = await supabase.storage
+              .from("attendance_selfies")
+              .upload(path, blob, {
+                contentType: "image/jpeg",
+                upsert: true
+              });
+            if (uploadData) {
+              const { data: { publicUrl } } = supabase.storage
+                .from("attendance_selfies")
+                .getPublicUrl(path);
+              selfieUrl = publicUrl;
+            }
+          } catch (uploadExc) {
+            console.warn("Offline selfie upload failed, keeping base64 URL:", uploadExc);
+            selfieUrl = tx.selfieBase64;
+          }
+        }
+
+        if (tx.action === "check-in") {
+          await supabase.from("attendance").upsert(
+            {
+              user_id: tx.userId,
+              date: tx.timestamp.split("T")[0],
+              check_in: tx.timestamp,
+              status: "present",
+              location_check_in: { latitude: 0, longitude: 0, accuracy: 9999, source: "offline-sync" },
+              ip_check_in: "0.0.0.0",
+              device_info_check_in: `${tx.kioskName} (Offline Sync)`,
+              selfie_url_check_in: selfieUrl,
+              updated_at: tx.timestamp
+            },
+            { onConflict: "user_id, date" }
+          );
+        } else {
+          const { data: record } = await supabase
+            .from("attendance")
+            .select("*")
+            .eq("user_id", tx.userId)
+            .eq("date", tx.timestamp.split("T")[0])
+            .maybeSingle();
+
+          if (record) {
+            const checkInTime = new Date(record.check_in);
+            const checkOutTime = new Date(tx.timestamp);
+            const mins = Math.floor((checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60));
+            const totalHours = `${Math.floor(mins / 60)}:${(mins % 60).toString().padStart(2, "0")}`;
+
+            await supabase
+              .from("attendance")
+              .update({
+                check_out: tx.timestamp,
+                total_hours: totalHours,
+                location_check_out: { latitude: 0, longitude: 0, accuracy: 9999, source: "offline-sync" },
+                ip_check_out: "0.0.0.0",
+                device_info_check_out: `${tx.kioskName} (Offline Sync)`,
+                selfie_url_check_out: selfieUrl,
+                updated_at: tx.timestamp
+              })
+              .eq("id", record.id);
+          }
+        }
+        
+        await deleteQueuedTransaction(tx.id);
+      }
+      
+      toast.success("All offline biometric logs synced successfully!");
+      playKioskSound("success");
+      loadLogsToday();
+      checkOfflineQueue();
+    } catch (err) {
+      console.error("Sync error:", err);
+    } finally {
+      setIsSyncing(false);
+      setInstruction("Kiosk Idle");
+    }
+  };
+
+  const loadBroadcasts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("employee_broadcasts")
+        .select("user_id, message")
+        .eq("is_active", true);
+
+      if (error) throw error;
+      if (data) {
+        const map: { [userId: string]: string } = {};
+        data.forEach((item: any) => {
+          map[item.user_id] = item.message;
+        });
+        setBroadcasts(map);
+      }
+    } catch (e) {
+      console.warn("Failed to load broadcasts:", e);
+    }
+  };
+
+  const saveSettings = (name: string, logo: string, voice: string, theme: string, wait: number) => {
+    localStorage.setItem("kiosk_name", name);
+    localStorage.setItem("kiosk_logo", logo);
+    localStorage.setItem("kiosk_voice", voice);
+    localStorage.setItem("kiosk_theme", theme);
+    localStorage.setItem("kiosk_checkout_wait", wait.toString());
+    
+    setKioskName(name);
+    setKioskLogo(logo);
+    setKioskVoice(voice);
+    setKioskTheme(theme);
+    setCheckoutWaitHours(wait);
+    
+    setIsSettingsOpen(false);
+    toast.success("Kiosk settings saved successfully!");
+    playKioskSound("success");
+  };
 
   const loadEmployees = async () => {
     try {
@@ -272,7 +541,7 @@ export default function AttendanceKioskPage() {
       
       // Select preferred standard English speaker voice
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => 
+      const preferred = voices.find(v => v.name === kioskVoice) || voices.find(v => 
         v.lang.startsWith("en") && 
         (v.name.includes("Google") || v.name.includes("Natural") || v.name.includes("Samantha"))
       );
@@ -452,6 +721,7 @@ export default function AttendanceKioskPage() {
       
       const todayDateStr = new Date().toISOString().split("T")[0];
       const nowIso = new Date().toISOString();
+      const timeStr = new Date(nowIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
       // Query checkin logs
       const { data: existingRecord } = await supabase
@@ -473,11 +743,11 @@ export default function AttendanceKioskPage() {
         if (!existingRecord) {
           transactionAction = "check-in";
         } else if (existingRecord.check_in && !existingRecord.check_out) {
-          // Prevent checkout within 1 hour of checkin to avoid immediate checkout if standing in front of camera
+          // Prevent checkout within custom cooldown hours of checkin
           const checkInTime = new Date(existingRecord.check_in).getTime();
           const timeSinceCheckIn = Date.now() - checkInTime;
           
-          if (timeSinceCheckIn < 60 * 60 * 1000) { // 1 hour buffer
+          if (timeSinceCheckIn < checkoutWaitHours * 60 * 60 * 1000) {
             transactionAction = "too-soon";
           } else {
             transactionAction = "check-out";
@@ -488,12 +758,67 @@ export default function AttendanceKioskPage() {
         }
       }
 
+      // ------------------------------------------------------------
+      // INTERCEPT OFFLINE MODES: QUEUE SCANS RESILIENTLY
+      // ------------------------------------------------------------
+      const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (isOffline) {
+        if (transactionAction === "too-soon") {
+          playKioskSound("neutral");
+          speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait ${checkoutWaitHours} ${checkoutWaitHours === 1 ? "hour" : "hours"} to check out.`);
+          setInstruction(`${emp.fullName} checked in. Please wait ${checkoutWaitHours} ${checkoutWaitHours === 1 ? "hour" : "hours"} before checking out.`);
+          return;
+        }
+        if (transactionAction === "already-completed") {
+          playKioskSound("neutral");
+          speakKioskMessage(`${emp.fullName} already completed shift today.`);
+          setInstruction(`${emp.fullName} already completed shift today.`);
+          return;
+        }
+
+        const capturedSelfie = captureKioskSelfie() || "";
+        await queueOfflineTransaction({
+          userId: emp.userId,
+          fullName: emp.fullName,
+          action: transactionAction,
+          selfieBase64: capturedSelfie,
+          kioskName: kioskName
+        });
+        
+        playKioskSound("success");
+        setOfflineQueueCount(prev => prev + 1);
+
+        // Fetch local broadcast notice if active
+        const broadcastNotice = broadcasts[emp.userId] || "";
+
+        if (transactionAction === "check-in") {
+          speakKioskMessage(`Welcome ${emp.fullName}. Queued locally offline. ${broadcastNotice ? `Notice: ${broadcastNotice}` : ""}`);
+          loopPausedUntilRef.current = Date.now() + 6000;
+          setInstruction(`Welcome ${emp.fullName}! Scanner paused for 6 seconds [Offline].`);
+        } else {
+          speakKioskMessage(`Thank you ${emp.fullName}. Queued locally offline. ${broadcastNotice ? `Notice: ${broadcastNotice}` : ""}`);
+          loopPausedUntilRef.current = Date.now() + 3000;
+          setInstruction(`Goodbye ${emp.fullName}! Scanner paused for 3 seconds [Offline].`);
+        }
+
+        if (broadcastNotice) {
+          toast.info(`Offline Notice for ${emp.fullName}: "${broadcastNotice}"`, { duration: 6000 });
+        }
+
+        setLastMatch({
+          fullName: emp.fullName,
+          time: timeStr,
+          action: transactionAction
+        });
+        return;
+      }
+
       // Handle no-op cases
       if (transactionAction === "too-soon") {
         playKioskSound("neutral");
-        speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait 1 hour to check out.`);
-        setInstruction(`${emp.fullName} checked in. Please wait 1 hour before checking out.`);
-        toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait 1 hour to check out.`);
+        speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait ${checkoutWaitHours} ${checkoutWaitHours === 1 ? "hour" : "hours"} to check out.`);
+        setInstruction(`${emp.fullName} checked in. Please wait ${checkoutWaitHours} ${checkoutWaitHours === 1 ? "hour" : "hours"} before checking out.`);
+        toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait ${checkoutWaitHours} ${checkoutWaitHours === 1 ? "hour" : "hours"} to check out.`);
         return;
       }
 
@@ -534,7 +859,7 @@ export default function AttendanceKioskPage() {
         }
       }
 
-      const deviceInfoString = `Shared Admin Kiosk (WakeLock: ${isLockActive ? "On" : "Off"})${isManual ? " [Manual]" : ""}`;
+      const deviceInfoString = `${kioskName} (WakeLock: ${isLockActive ? "On" : "Off"})${isManual ? " [Manual]" : ""}`;
       const ipAddress = "0.0.0.0";
       
       if (transactionAction === "check-in") {
@@ -583,16 +908,21 @@ export default function AttendanceKioskPage() {
       // Successful matching chime sound!
       playKioskSound("success");
       
+      // Look up active announcements
+      const broadcastNotice = broadcasts[emp.userId] || "";
+      
       // Voice welcome / exit greeting with employee name and dynamic pause buffer
       if (transactionAction === "check-in") {
-        speakKioskMessage(`Welcome ${emp.fullName}. Checked in successfully.`);
+        speakKioskMessage(`Welcome ${emp.fullName}. Checked in successfully. ${broadcastNotice ? `Reminder: ${broadcastNotice}` : ""}`);
         loopPausedUntilRef.current = Date.now() + 6000; // Pause scanner for 6 seconds
       } else {
-        speakKioskMessage(`Thank you ${emp.fullName}. Checked out successfully.`);
+        speakKioskMessage(`Thank you ${emp.fullName}. Checked out successfully. ${broadcastNotice ? `Reminder: ${broadcastNotice}` : ""}`);
         loopPausedUntilRef.current = Date.now() + 3000; // Pause scanner for 3 seconds
       }
-      
-      const timeStr = new Date(nowIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      if (broadcastNotice) {
+        toast.info(`Announcement for ${emp.fullName}: "${broadcastNotice}"`, { duration: 6000 });
+      }
       
       setLastMatch({
         fullName: emp.fullName,
@@ -739,11 +1069,41 @@ export default function AttendanceKioskPage() {
     );
   }, [employees, searchQuery]);
 
+  const themeClasses = {
+    obsidian: {
+      bg: "bg-slate-950 text-slate-100",
+      header: "bg-slate-900/60 border-slate-800/80 backdrop-blur-md",
+      sidebar: "bg-slate-900/20 border-slate-900",
+      card: "bg-slate-900/60 border-slate-850",
+      border: "border-slate-900"
+    },
+    indigo: {
+      bg: "bg-neutral-950 text-indigo-50",
+      header: "bg-indigo-950/20 border-indigo-900/40 backdrop-blur-md",
+      sidebar: "bg-indigo-950/5 border-indigo-950/20",
+      card: "bg-indigo-950/10 border-indigo-900/30",
+      border: "border-indigo-900/30"
+    },
+    slate: {
+      bg: "bg-zinc-950 text-zinc-100",
+      header: "bg-zinc-900/50 border-zinc-800 backdrop-blur-md",
+      sidebar: "bg-zinc-900/10 border-zinc-900",
+      card: "bg-zinc-900/40 border-zinc-850",
+      border: "border-zinc-800"
+    }
+  }[kioskTheme as "obsidian" | "indigo" | "slate"] || {
+    bg: "bg-slate-950 text-slate-100",
+    header: "bg-slate-900/60 border-slate-800",
+    sidebar: "bg-slate-900/20 border-slate-900",
+    card: "bg-slate-900/60 border-slate-850",
+    border: "border-slate-800"
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${themeClasses.bg}`}>
       
       {/* 1. TOP HEADER NAVIGATION */}
-      <header className="px-6 py-4 border-b border-slate-800 bg-slate-900/60 backdrop-blur-md flex items-center justify-between z-10">
+      <header className={`px-6 py-4 border-b flex items-center justify-between z-10 transition-colors duration-500 ${themeClasses.header}`}>
         <div className="flex items-center gap-3">
           <Link href="/admin/attendance">
             <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-400 hover:text-white rounded-full bg-slate-800/40 border border-slate-800">
@@ -751,14 +1111,27 @@ export default function AttendanceKioskPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-lg font-black tracking-tight flex items-center gap-1.5 leading-none">
-              <Sparkles className="h-4 w-4 text-indigo-500 animate-pulse" /> Biometric Kiosk Portal
+            <h1 className="text-lg font-black tracking-tight flex items-center gap-2 leading-none">
+              {kioskLogo ? (
+                <img src={kioskLogo} alt="Logo" className="h-5.5 w-auto object-contain max-w-[120px]" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-indigo-500 animate-pulse" />
+              )}
+              <span>{kioskName}</span>
             </h1>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1 block">Shared Office Entrance Terminal</span>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Offline Sync Ticker Badge */}
+          {offlineQueueCount > 0 && (
+            <Badge variant="outline" className="h-9 rounded-full px-3.5 border-amber-500/25 bg-amber-500/10 text-amber-400 text-xs font-semibold gap-1.5 animate-pulse">
+              <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span>{offlineQueueCount} Offline Logs Queued</span>
+            </Badge>
+          )}
+
           {/* Wake Lock Screen Mode Trigger */}
           <Button 
             variant="outline" 
@@ -789,6 +1162,16 @@ export default function AttendanceKioskPage() {
           >
             <Users className="h-3.5 w-3.5 text-indigo-400" /> Manual Override
           </Button>
+
+          {/* Settings Cog Button */}
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => { playKioskSound("click"); setIsSettingsOpen(true); }}
+            className="h-9 w-9 text-slate-400 hover:text-white rounded-full bg-slate-800/40 border border-slate-800"
+          >
+            <Settings className="h-4.5 w-4.5 text-indigo-400" />
+          </Button>
         </div>
       </header>
 
@@ -796,7 +1179,7 @@ export default function AttendanceKioskPage() {
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden h-[calc(100vh-69px)]">
         
         {/* LEFT COLUMN: ACTIVE VIDEO FEED scanner */}
-        <div className="lg:col-span-8 p-6 flex flex-col items-center justify-between bg-slate-950/20 border-r border-slate-900 overflow-y-auto">
+        <div className={`lg:col-span-8 p-6 flex flex-col items-center justify-between border-r overflow-y-auto transition-colors duration-500 ${themeClasses.sidebar} ${themeClasses.border}`}>
           
           {/* CONTROL OPTIONS TOP */}
           <div className="w-full max-w-md flex items-center justify-between gap-4">
@@ -916,7 +1299,7 @@ export default function AttendanceKioskPage() {
         </div>
 
         {/* RIGHT COLUMN: REAL-TIME LOGS TIMELINE */}
-        <div className="lg:col-span-4 bg-slate-900/20 flex flex-col overflow-hidden h-full">
+        <div className={`lg:col-span-4 flex flex-col overflow-hidden h-full border-l transition-colors duration-500 ${themeClasses.sidebar} ${themeClasses.border}`}>
           
           <div className="p-5 border-b border-slate-900 bg-slate-900/40">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5 leading-none">
@@ -931,7 +1314,7 @@ export default function AttendanceKioskPage() {
               return (
                 <div 
                   key={log.id} 
-                  className="bg-slate-900/60 border border-slate-850 p-3 rounded-2xl flex items-center justify-between gap-3 shadow-xs animate-in slide-in-from-right-4 duration-300"
+                  className={`p-3 rounded-2xl flex items-center justify-between gap-3 border transition-colors duration-500 ${themeClasses.card} shadow-xs animate-in slide-in-from-right-4 duration-300`}
                 >
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8.5 w-8.5 border border-slate-800">
@@ -1017,7 +1400,7 @@ export default function AttendanceKioskPage() {
                 >
                   <div className="flex items-center gap-3">
                     <Avatar className="h-8.5 w-8.5 border border-slate-800">
-                      <AvatarFallback className="bg-slate-850 text-slate-450 text-xs font-bold uppercase">
+                      <AvatarFallback className="bg-slate-855 text-slate-400 text-xs font-bold uppercase">
                         {emp.fullName.slice(0, 2)}
                       </AvatarFallback>
                     </Avatar>
@@ -1069,6 +1452,135 @@ export default function AttendanceKioskPage() {
         </div>
       )}
 
+      {/* 4. SLIDE-OUT DRAWER FOR WHITE-LABEL SETTINGS */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[999] flex justify-end animate-in fade-in duration-300">
+          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl relative animate-in slide-in-from-right-12 duration-300">
+            
+            {/* Drawer Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="font-black text-slate-100 flex items-center gap-1.5">
+                  <Settings className="h-4.5 w-4.5 text-indigo-400" /> Kiosk Accent & Branding
+                </h4>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Configure kiosk styles, logos, and TTS voices</p>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => { playKioskSound("click"); setIsSettingsOpen(false); }}
+                className="h-8 w-8 text-slate-400 hover:text-white rounded-full bg-slate-800/40 hover:bg-slate-800"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Drawer Body - Settings Form */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              
+              {/* Kiosk Name */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Kiosk Instance Name</label>
+                <Input
+                  value={settingsName}
+                  onChange={(e) => setSettingsName(e.target.value)}
+                  placeholder="e.g. Main Lobby Gate"
+                  className="bg-slate-950 border-slate-800 text-xs text-slate-200 focus-visible:ring-indigo-500 rounded-xl"
+                />
+                <span className="text-[9px] text-slate-500 block">Identifies this terminal in database logs.</span>
+              </div>
+
+              {/* Logo URL */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-455 tracking-wider">Custom Brand Logo URL</label>
+                <Input
+                  value={settingsLogo}
+                  onChange={(e) => setSettingsLogo(e.target.value)}
+                  placeholder="https://example.com/logo.png"
+                  className="bg-slate-950 border-slate-800 text-xs text-slate-200 focus-visible:ring-indigo-500 rounded-xl"
+                />
+                <span className="text-[9px] text-slate-550 block">Displays on the kiosk header. Leave blank for fallback.</span>
+              </div>
+
+              {/* Accent Color / Theme */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Color Theme Accent</label>
+                <Select value={settingsTheme} onValueChange={(val: any) => setSettingsTheme(val)}>
+                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350">
+                    <SelectItem value="obsidian">Obsidian Deep (High Contrast Dark)</SelectItem>
+                    <SelectItem value="indigo">Midnight Indigo (Premium Purples)</SelectItem>
+                    <SelectItem value="slate">Steel Grey (Industrial Minimalist)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-[9px] text-slate-500 block">Switches the overall glassmorphic accent coloring across the kiosk.</span>
+              </div>
+
+              {/* Text-To-Speech Voice Select */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Speech Accent Voice</label>
+                <Select value={settingsVoice} onValueChange={(val: any) => setSettingsVoice(val)}>
+                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350 truncate">
+                    <SelectValue placeholder="System Voice Default" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350 max-h-56">
+                    {systemVoices.map(voice => (
+                      <SelectItem key={voice.name} value={voice.name} className="text-xs">
+                        {voice.name} ({voice.lang})
+                      </SelectItem>
+                    ))}
+                    {systemVoices.length === 0 && (
+                      <SelectItem value="default" disabled className="text-xs">No English voices found in browser</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <span className="text-[9px] text-slate-550 block">Select the voice model synthesizer for announcements.</span>
+              </div>
+
+              {/* Minimum checkout wait duration in hours */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Checkout Lock Cooldown Buffer</label>
+                <Select value={settingsWait.toString()} onValueChange={(val) => setSettingsWait(Number(val))}>
+                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350">
+                    <SelectItem value="0.01">No wait delay (Instant toggle)</SelectItem>
+                    <SelectItem value="0.5">30 Minutes Wait</SelectItem>
+                    <SelectItem value="1">1 Hour Wait (Default standard shift)</SelectItem>
+                    <SelectItem value="2">2 Hours Wait</SelectItem>
+                    <SelectItem value="4">4 Hours Wait</SelectItem>
+                    <SelectItem value="8">8 Hours Wait (Full Shift)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-[9px] text-slate-500 block">Restricts immediate checkout toggling when employees pass by the sensor camera.</span>
+              </div>
+
+            </div>
+
+            {/* Drawer Footer Actions */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => { playKioskSound("click"); setIsSettingsOpen(false); }}
+                className="flex-1 h-10 border-slate-800 text-slate-350 hover:bg-slate-850 text-xs font-bold rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => saveSettings(settingsName, settingsLogo, settingsVoice, settingsTheme, settingsWait)}
+                className="flex-1 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-900/10"
+              >
+                Save branding
+              </Button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {isRegistering && registeringUserId && (
         <div className="relative">
           <FaceRegistrationModal
@@ -1080,7 +1592,7 @@ export default function AttendanceKioskPage() {
               variant="ghost"
               size="icon"
               onClick={handleRegistrationCancel}
-              className="h-10 w-10 text-white rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 shadow-2xl"
+              className="h-10 w-10 text-white rounded-full bg-slate-950/80 hover:bg-slate-800 border border-slate-700 shadow-2xl"
             >
               <X className="h-5 w-5" />
             </Button>
