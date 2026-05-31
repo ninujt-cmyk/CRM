@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { 
   Camera, RefreshCw, Search, Users, CheckCircle2, 
   Lock, Unlock, Clock, ArrowLeft, History, Sparkles, 
-  ShieldAlert, Volume2, UserCheck, Play, Square, ChevronRight, X, Settings
+  ShieldAlert, Volume2, UserCheck, Play, Square, ChevronRight, X, Settings, AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -73,6 +73,9 @@ export default function AttendanceKioskPage() {
   const [broadcasts, setBroadcasts] = useState<{ [userId: string]: string }>({});
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [ambientFlashMode, setAmbientFlashMode] = useState("auto");
+  const [brightnessLevel, setBrightnessLevel] = useState(100);
+  const [isLowLight, setIsLowLight] = useState(false);
 
   // Settings form temp states
   const [settingsName, setSettingsName] = useState(kioskName);
@@ -80,6 +83,7 @@ export default function AttendanceKioskPage() {
   const [settingsVoice, setSettingsVoice] = useState(kioskVoice);
   const [settingsTheme, setSettingsTheme] = useState(kioskTheme);
   const [settingsWait, setSettingsWait] = useState(checkoutWaitHours);
+  const [settingsFlashMode, setSettingsFlashMode] = useState(ambientFlashMode);
 
   // Synchronize form when opened
   useEffect(() => {
@@ -89,6 +93,7 @@ export default function AttendanceKioskPage() {
       setSettingsVoice(kioskVoice);
       setSettingsTheme(kioskTheme);
       setSettingsWait(checkoutWaitHours);
+      setSettingsFlashMode(ambientFlashMode);
     }
   }, [isSettingsOpen]);
   
@@ -109,6 +114,8 @@ export default function AttendanceKioskPage() {
   const loopActiveRef = useRef(false);
   const loopPausedUntilRef = useRef<number>(0);
   const lastUnregisteredSpeakRef = useRef<number>(0);
+  const analyzerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameCounterRef = useRef<number>(0);
   
   const supabase = createClient();
 
@@ -126,6 +133,7 @@ export default function AttendanceKioskPage() {
       setKioskVoice(localStorage.getItem("kiosk_voice") || "");
       setKioskTheme(localStorage.getItem("kiosk_theme") || "obsidian");
       setCheckoutWaitHours(Number(localStorage.getItem("kiosk_checkout_wait") || "1"));
+      setAmbientFlashMode(localStorage.getItem("kiosk_light_assist") || "auto");
 
       const loadVoices = () => {
         const voices = window.speechSynthesis.getVoices();
@@ -350,18 +358,20 @@ export default function AttendanceKioskPage() {
     }
   };
 
-  const saveSettings = (name: string, logo: string, voice: string, theme: string, wait: number) => {
+  const saveSettings = (name: string, logo: string, voice: string, theme: string, wait: number, flashMode: string) => {
     localStorage.setItem("kiosk_name", name);
     localStorage.setItem("kiosk_logo", logo);
     localStorage.setItem("kiosk_voice", voice);
     localStorage.setItem("kiosk_theme", theme);
     localStorage.setItem("kiosk_checkout_wait", wait.toString());
+    localStorage.setItem("kiosk_light_assist", flashMode);
     
     setKioskName(name);
     setKioskLogo(logo);
     setKioskVoice(voice);
     setKioskTheme(theme);
     setCheckoutWaitHours(wait);
+    setAmbientFlashMode(flashMode);
     
     setIsSettingsOpen(false);
     toast.success("Kiosk settings saved successfully!");
@@ -979,6 +989,40 @@ export default function AttendanceKioskPage() {
 
       isProcessing = true;
 
+      // Ambient Lighting Calibrator (Analyzes pixels once every 40 frames to avoid CPU overhead)
+      if (videoRef.current) {
+        frameCounterRef.current = (frameCounterRef.current + 1) % 40;
+        if (frameCounterRef.current === 0) {
+          try {
+            if (!analyzerCanvasRef.current) {
+              analyzerCanvasRef.current = document.createElement("canvas");
+              analyzerCanvasRef.current.width = 40;
+              analyzerCanvasRef.current.height = 40;
+            }
+            const ctx = analyzerCanvasRef.current.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(videoRef.current, 0, 0, 40, 40);
+              const imgData = ctx.getImageData(0, 0, 40, 40);
+              const data = imgData.data;
+              let totalLuminance = 0;
+              for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                totalLuminance += luminance;
+              }
+              const avgLuminance = totalLuminance / (data.length / 4);
+              const normalizedBrightness = Math.round((avgLuminance / 255) * 100);
+              setBrightnessLevel(normalizedBrightness);
+              setIsLowLight(normalizedBrightness < 35);
+            }
+          } catch (err) {
+            console.warn("Luminance analyzer failed:", err);
+          }
+        }
+      }
+
       try {
         const detection = await detectFaceInVideo(videoRef.current);
 
@@ -1099,6 +1143,8 @@ export default function AttendanceKioskPage() {
     border: "border-slate-800"
   };
 
+  const isFlashActive = cameraActive && (ambientFlashMode === "always-on" || (ambientFlashMode === "auto" && isLowLight));
+
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${themeClasses.bg}`}>
       
@@ -1207,8 +1253,12 @@ export default function AttendanceKioskPage() {
           <div className="relative my-8 flex items-center justify-center">
             
             {/* Viewport Circle */}
-            <div className={`relative w-80 h-80 rounded-full overflow-hidden border-4 bg-slate-900 flex items-center justify-center shadow-2xl transition-all duration-500 ${
-              cameraActive ? "border-indigo-500/50 shadow-indigo-500/5 animate-[pulse_3s_infinite]" : "border-slate-800"
+            <div className={`relative w-80 h-80 rounded-full overflow-hidden border-4 bg-slate-900 flex items-center justify-center transition-all duration-500 ${
+              isFlashActive 
+                ? "border-white shadow-[0_0_60px_15px_rgba(255,255,255,0.85),inset_0_0_30px_10px_rgba(255,255,255,0.6)]" 
+                : cameraActive
+                  ? "border-indigo-500/50 shadow-indigo-500/5 shadow-2xl animate-[pulse_3s_infinite]" 
+                  : "border-slate-800 shadow-2xl"
             }`}>
               <video
                 ref={videoRef}
@@ -1232,7 +1282,12 @@ export default function AttendanceKioskPage() {
                 <>
                   <div className="absolute inset-0 rounded-full border-2 border-dashed border-indigo-500/10 animate-[spin_60s_linear_infinite]" />
                   <div className="absolute inset-4 rounded-full border border-indigo-500/10" />
-                  <div className="absolute top-4 inset-x-0 flex justify-center z-20">
+                  <div className="absolute top-4 inset-x-0 flex flex-col items-center gap-1.5 z-20">
+                    {isFlashActive && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 border border-amber-500/35 text-amber-400 rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse shadow-md">
+                        <AlertTriangle className="h-3 w-3 text-amber-400 animate-[bounce_1s_infinite]" /> Light Assist Active
+                      </div>
+                    )}
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse">
                       <div className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-ping" /> Scanning active
                     </div>
@@ -1556,6 +1611,21 @@ export default function AttendanceKioskPage() {
                 <span className="text-[9px] text-slate-500 block">Restricts immediate checkout toggling when employees pass by the sensor camera.</span>
               </div>
 
+              {/* Ambient Lighting Assist select input */}
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Ambient Lighting Assist</label>
+                <select 
+                  value={settingsFlashMode} 
+                  onChange={(e) => setSettingsFlashMode(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="auto" className="bg-slate-900 text-slate-250">Auto-Detect (Screen Flash on Dim Lobby)</option>
+                  <option value="always-on" className="bg-slate-900 text-slate-250">Always Active (Continuous Entrance Lighting)</option>
+                  <option value="always-off" className="bg-slate-900 text-slate-250">Disabled (Always Off)</option>
+                </select>
+                <span className="text-[9px] text-slate-500 block">Triggers a virtual ring-light halo around viewport in low-light environments to boost face-auth speed.</span>
+              </div>
+
             </div>
 
             {/* Drawer Footer Actions */}
@@ -1568,7 +1638,7 @@ export default function AttendanceKioskPage() {
                 Cancel
               </Button>
               <Button 
-                onClick={() => saveSettings(settingsName, settingsLogo, settingsVoice, settingsTheme, settingsWait)}
+                onClick={() => saveSettings(settingsName, settingsLogo, settingsVoice, settingsTheme, settingsWait, settingsFlashMode)}
                 className="flex-1 h-10 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-900/10"
               >
                 Save branding
