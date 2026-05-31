@@ -9,7 +9,7 @@ import {
   Calendar as CalendarIcon, Users, Clock, CheckCircle, XCircle, AlertCircle, 
   Coffee, UserCheck, Search, Settings, ChevronRight, BarChart3, List, MessageSquare, 
   Printer, Building2, Globe, Plus, Trash2, ChevronLeft, Activity,
-  FileText, LineChart // 🔴 ADDED NEW ICONS
+  FileText, LineChart, Camera // 🔴 ADDED CAMERA ICON
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -742,6 +742,12 @@ export function AdminAttendanceDashboard() {
           <Link href="/admin/attendance/analytics">
             <Button variant="outline" className="h-9 bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-305 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-2xs font-semibold text-xs px-3 rounded-xl transition-all">
               <LineChart className="mr-2 h-4 w-4 text-slate-500" /> Analytics
+            </Button>
+          </Link>
+
+          <Link href="/admin/attendance/kiosk">
+            <Button className="h-9 bg-indigo-600 hover:bg-indigo-755 text-white shadow-2xs font-semibold text-xs px-3 rounded-xl transition-all flex items-center gap-1.5 border border-indigo-650">
+              <Camera className="h-3.5 w-3.5 text-white animate-pulse" /> Launch Kiosk
             </Button>
           </Link>
 
