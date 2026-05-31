@@ -314,6 +314,11 @@ export default function AttendanceKioskPage() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn("Failed to play video stream:", playErr);
+        }
       }
       
       setCameraActive(true);
@@ -703,15 +708,14 @@ export default function AttendanceKioskPage() {
             <div className={`relative w-80 h-80 rounded-full overflow-hidden border-4 bg-slate-900 flex items-center justify-center shadow-2xl transition-all duration-500 ${
               cameraActive ? "border-indigo-500/50 shadow-indigo-500/5 animate-[pulse_3s_infinite]" : "border-slate-800"
             }`}>
-              {cameraActive ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover scale-x-[-1]"
-                />
-              ) : (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover scale-x-[-1] ${cameraActive ? "block" : "hidden"}`}
+              />
+              {!cameraActive && (
                 <div className="flex flex-col items-center gap-3 p-6 text-center">
                   <div className="h-16 w-16 bg-slate-800/80 rounded-2xl border border-slate-700/30 text-slate-400 flex items-center justify-center shadow-inner">
                     <Camera className="h-8 w-8" />
