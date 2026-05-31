@@ -385,7 +385,11 @@ export default function AttendanceKioskPage() {
   };
 
   // --- DYNAMIC ATTENDANCE PROCESSOR ---
-  const handleAttendanceTransaction = async (emp: EmployeeEmbedding, isManual = false) => {
+  const handleAttendanceTransaction = async (
+    emp: EmployeeEmbedding, 
+    isManual = false,
+    manualActionOverride?: "check-in" | "check-out"
+  ) => {
     try {
       setInstruction(`${isManual ? "Manual override: " : "Face identified: "} ${emp.fullName}...`);
       
@@ -400,23 +404,46 @@ export default function AttendanceKioskPage() {
         .eq("date", todayDateStr)
         .maybeSingle();
 
-      let transactionAction: "check-in" | "check-out" = "check-in";
+      let transactionAction: "check-in" | "check-out" | "too-soon" | "already-completed" = "check-in";
+      const resolvedMode = manualActionOverride || kioskMode;
       
-      if (kioskMode === "check-in") {
+      if (resolvedMode === "check-in") {
         transactionAction = "check-in";
-      } else if (kioskMode === "check-out") {
+      } else if (resolvedMode === "check-out") {
         transactionAction = "check-out";
       } else {
-        // Auto mode
-        if (existingRecord) {
-          if (existingRecord.check_in && !existingRecord.check_out) {
-            transactionAction = "check-out";
+        // Auto mode logic with guard against immediate toggling
+        if (!existingRecord) {
+          transactionAction = "check-in";
+        } else if (existingRecord.check_in && !existingRecord.check_out) {
+          // Prevent checkout within 5 minutes of checkin to avoid immediate checkout if standing in front of camera
+          const checkInTime = new Date(existingRecord.check_in).getTime();
+          const timeSinceCheckIn = Date.now() - checkInTime;
+          
+          if (timeSinceCheckIn < 5 * 60 * 1000) { // 5 minutes buffer
+            transactionAction = "too-soon";
           } else {
-            transactionAction = "check-out"; 
+            transactionAction = "check-out";
           }
         } else {
-          transactionAction = "check-in";
+          // Already has both check-in and check-out today
+          transactionAction = "already-completed";
         }
+      }
+
+      // Handle no-op cases
+      if (transactionAction === "too-soon") {
+        playKioskSound("neutral");
+        setInstruction(`${emp.fullName} checked in. Please wait a few minutes before checking out.`);
+        toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait 5 minutes to check out.`);
+        return;
+      }
+
+      if (transactionAction === "already-completed") {
+        playKioskSound("neutral");
+        setInstruction(`${emp.fullName} already completed shift today.`);
+        toast.info(`${emp.fullName} already completed check-in & check-out today.`);
+        return;
       }
 
       // Capture selfie (camera screenshot) if streaming, else fallback
@@ -911,7 +938,7 @@ export default function AttendanceKioskPage() {
                   <div className="flex gap-2">
                     <Button 
                       size="sm" 
-                      onClick={() => handleAttendanceTransaction(emp, true)}
+                      onClick={() => handleAttendanceTransaction(emp, true, "check-in")}
                       className="flex-1 h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg gap-1"
                     >
                       <UserCheck className="h-3 w-3" /> Force Check-In
@@ -919,7 +946,7 @@ export default function AttendanceKioskPage() {
                     <Button 
                       size="sm" 
                       variant="outline"
-                      onClick={() => handleAttendanceTransaction(emp, true)}
+                      onClick={() => handleAttendanceTransaction(emp, true, "check-out")}
                       className="flex-1 h-8 border-slate-800 hover:bg-slate-850 text-slate-350 text-[10px] font-bold rounded-lg gap-1"
                     >
                       Force Check-Out
