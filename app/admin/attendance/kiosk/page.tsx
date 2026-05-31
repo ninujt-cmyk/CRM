@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import FaceRegistrationModal from "@/components/attendance/face-registration-modal";
 
 interface EmployeeEmbedding {
   userId: string;
@@ -57,6 +58,10 @@ export default function AttendanceKioskPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isLockActive, setIsLockActive] = useState(false);
   
+  // Registration States
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registeringUserId, setRegisteringUserId] = useState<string | null>(null);
+  
   // Scanned HUD display
   const [lastMatch, setLastMatch] = useState<{
     fullName: string;
@@ -72,6 +77,8 @@ export default function AttendanceKioskPage() {
   const wakeLockRef = useRef<any>(null);
   const cooldownQueueRef = useRef<{ userId: string; time: number }[]>([]);
   const loopActiveRef = useRef(false);
+  const loopPausedUntilRef = useRef<number>(0);
+  const lastUnregisteredSpeakRef = useRef<number>(0);
   
   const supabase = createClient();
 
@@ -322,6 +329,30 @@ export default function AttendanceKioskPage() {
     };
   }, []);
 
+  // --- BIOMETRIC REGISTRATION FLOWS ---
+  const startRegistration = (userId: string) => {
+    playKioskSound("click");
+    stopCamera();
+    setRegisteringUserId(userId);
+    setIsRegistering(true);
+    setIsDrawerOpen(false);
+  };
+
+  const handleRegistrationSuccess = async () => {
+    setIsRegistering(false);
+    setRegisteringUserId(null);
+    toast.success("Biometric enrollment completed successfully!");
+    await loadEmployees();
+    await startCamera();
+  };
+
+  const handleRegistrationCancel = async () => {
+    setIsRegistering(false);
+    setRegisteringUserId(null);
+    toast.info("Biometric enrollment cancelled.");
+    await startCamera();
+  };
+
   // --- CAMERA ACCESS & STREAM CONTROLS ---
   const startCamera = async () => {
     try {
@@ -442,11 +473,11 @@ export default function AttendanceKioskPage() {
         if (!existingRecord) {
           transactionAction = "check-in";
         } else if (existingRecord.check_in && !existingRecord.check_out) {
-          // Prevent checkout within 5 minutes of checkin to avoid immediate checkout if standing in front of camera
+          // Prevent checkout within 1 hour of checkin to avoid immediate checkout if standing in front of camera
           const checkInTime = new Date(existingRecord.check_in).getTime();
           const timeSinceCheckIn = Date.now() - checkInTime;
           
-          if (timeSinceCheckIn < 5 * 60 * 1000) { // 5 minutes buffer
+          if (timeSinceCheckIn < 60 * 60 * 1000) { // 1 hour buffer
             transactionAction = "too-soon";
           } else {
             transactionAction = "check-out";
@@ -460,9 +491,9 @@ export default function AttendanceKioskPage() {
       // Handle no-op cases
       if (transactionAction === "too-soon") {
         playKioskSound("neutral");
-        speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait 5 minutes to check out.`);
-        setInstruction(`${emp.fullName} checked in. Please wait a few minutes before checking out.`);
-        toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait 5 minutes to check out.`);
+        speakKioskMessage(`Hold-on! ${emp.fullName} is already checked in. Please wait 1 hour to check out.`);
+        setInstruction(`${emp.fullName} checked in. Please wait 1 hour before checking out.`);
+        toast.info(`Hold-on! ${emp.fullName} is already checked in. Wait 1 hour to check out.`);
         return;
       }
 
@@ -552,11 +583,13 @@ export default function AttendanceKioskPage() {
       // Successful matching chime sound!
       playKioskSound("success");
       
-      // Voice welcome / exit greeting with employee name
+      // Voice welcome / exit greeting with employee name and dynamic pause buffer
       if (transactionAction === "check-in") {
         speakKioskMessage(`Welcome ${emp.fullName}. Checked in successfully.`);
+        loopPausedUntilRef.current = Date.now() + 6000; // Pause scanner for 6 seconds
       } else {
         speakKioskMessage(`Thank you ${emp.fullName}. Checked out successfully.`);
+        loopPausedUntilRef.current = Date.now() + 3000; // Pause scanner for 3 seconds
       }
       
       const timeStr = new Date(nowIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -569,8 +602,12 @@ export default function AttendanceKioskPage() {
 
       toast.success(`${emp.fullName} ${transactionAction.toUpperCase()} saved successfully at ${timeStr}!`);
       
-      // Reset Scanner Feedback
-      setInstruction(`Registered: ${emp.fullName} - ${timeStr}`);
+      // Reset Scanner Feedback with Pause Notice
+      if (transactionAction === "check-in") {
+        setInstruction(`Welcome ${emp.fullName}! Scanner paused for 6 seconds.`);
+      } else {
+        setInstruction(`Goodbye ${emp.fullName}! Scanner paused for 3 seconds.`);
+      }
       
       // Reload logs timeline
       loadLogsToday();
@@ -601,6 +638,11 @@ export default function AttendanceKioskPage() {
       }
 
       if (isProcessing) {
+        requestRef.current = requestAnimationFrame(runKioskLoop);
+        return;
+      }
+
+      if (Date.now() < loopPausedUntilRef.current) {
         requestRef.current = requestAnimationFrame(runKioskLoop);
         return;
       }
@@ -649,10 +691,17 @@ export default function AttendanceKioskPage() {
             }
           } else {
             // Unrecognized user matches
+            const timeSinceLastSpeak = Date.now() - lastUnregisteredSpeakRef.current;
+            if (timeSinceLastSpeak > 8000) {
+              lastUnregisteredSpeakRef.current = Date.now();
+              playKioskSound("neutral");
+              speakKioskMessage("Face not recognized. Kindly register your face.");
+            }
+
             if (minDistance < 0.68) {
               setInstruction("Matching... hold still & look straight");
             } else {
-              setInstruction("Face detected. Position closer to screen");
+              setInstruction("Face not recognized. Kindly register your face.");
             }
           }
         } else {
@@ -723,6 +772,14 @@ export default function AttendanceKioskPage() {
           >
             {isLockActive ? <Lock className="h-3.5 w-3.5 text-emerald-400" /> : <Unlock className="h-3.5 w-3.5" />}
             <span>Screen Lock: {isLockActive ? "ACTIVE" : "OFF"}</span>
+          </Button>
+
+          {/* Register Face trigger */}
+          <Button 
+            onClick={() => { playKioskSound("click"); setIsDrawerOpen(true); }}
+            className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-650 text-xs font-semibold rounded-full gap-1.5 shadow-md shadow-indigo-900/10"
+          >
+            <Camera className="h-3.5 w-3.5 text-indigo-200" /> Register Face
           </Button>
 
           {/* Manual override drawer switch */}
@@ -970,21 +1027,30 @@ export default function AttendanceKioskPage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 pt-1">
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleAttendanceTransaction(emp, true, "check-in")}
+                        className="flex-1 h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg gap-1"
+                      >
+                        <UserCheck className="h-3 w-3" /> Force Check-In
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleAttendanceTransaction(emp, true, "check-out")}
+                        className="flex-1 h-8 border-slate-800 hover:bg-slate-850 text-slate-350 text-[10px] font-bold rounded-lg gap-1"
+                      >
+                        Force Check-Out
+                      </Button>
+                    </div>
                     <Button 
                       size="sm" 
-                      onClick={() => handleAttendanceTransaction(emp, true, "check-in")}
-                      className="flex-1 h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg gap-1"
+                      onClick={() => startRegistration(emp.userId)}
+                      className="w-full h-8 bg-indigo-650 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg gap-1.5 border border-indigo-600"
                     >
-                      <UserCheck className="h-3 w-3" /> Force Check-In
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => handleAttendanceTransaction(emp, true, "check-out")}
-                      className="flex-1 h-8 border-slate-800 hover:bg-slate-850 text-slate-350 text-[10px] font-bold rounded-lg gap-1"
-                    >
-                      Force Check-Out
+                      <Camera className="h-3.5 w-3.5 text-indigo-300 animate-pulse" /> Enroll / Update Face Biometrics
                     </Button>
                   </div>
                 </div>
@@ -999,6 +1065,25 @@ export default function AttendanceKioskPage() {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {isRegistering && registeringUserId && (
+        <div className="relative">
+          <FaceRegistrationModal
+            userId={registeringUserId}
+            onSuccess={handleRegistrationSuccess}
+          />
+          <div className="fixed top-6 right-6 z-[100000]">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRegistrationCancel}
+              className="h-10 w-10 text-white rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700 shadow-2xl"
+            >
+              <X className="h-5 w-5" />
+            </Button>
           </div>
         </div>
       )}
