@@ -1505,56 +1505,54 @@ export default function AttendanceKioskPage() {
               {/* Accent Color / Theme */}
               <div className="space-y-2">
                 <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Color Theme Accent</label>
-                <Select value={settingsTheme} onValueChange={(val: any) => setSettingsTheme(val)}>
-                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350">
-                    <SelectItem value="obsidian">Obsidian Deep (High Contrast Dark)</SelectItem>
-                    <SelectItem value="indigo">Midnight Indigo (Premium Purples)</SelectItem>
-                    <SelectItem value="slate">Steel Grey (Industrial Minimalist)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <select 
+                  value={settingsTheme} 
+                  onChange={(e) => setSettingsTheme(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="obsidian" className="bg-slate-900 text-slate-250">Obsidian Deep (High Contrast Dark)</option>
+                  <option value="indigo" className="bg-slate-900 text-slate-250">Midnight Indigo (Premium Purples)</option>
+                  <option value="slate" className="bg-slate-900 text-slate-250">Steel Grey (Industrial Minimalist)</option>
+                </select>
                 <span className="text-[9px] text-slate-500 block">Switches the overall glassmorphic accent coloring across the kiosk.</span>
               </div>
 
               {/* Text-To-Speech Voice Select */}
               <div className="space-y-2">
                 <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Speech Accent Voice</label>
-                <Select value={settingsVoice} onValueChange={(val: any) => setSettingsVoice(val)}>
-                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350 truncate">
-                    <SelectValue placeholder="System Voice Default" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350 max-h-56">
-                    {systemVoices.map(voice => (
-                      <SelectItem key={voice.name} value={voice.name} className="text-xs">
-                        {voice.name} ({voice.lang})
-                      </SelectItem>
-                    ))}
-                    {systemVoices.length === 0 && (
-                      <SelectItem value="default" disabled className="text-xs">No English voices found in browser</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                <select 
+                  value={settingsVoice} 
+                  onChange={(e) => setSettingsVoice(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="" className="bg-slate-900 text-slate-250">System Voice Default</option>
+                  {systemVoices.map(voice => (
+                    <option key={voice.name} value={voice.name} className="bg-slate-900 text-slate-250">
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                  {systemVoices.length === 0 && (
+                    <option value="default" disabled className="bg-slate-900 text-slate-250">No English voices found in browser</option>
+                  )}
+                </select>
                 <span className="text-[9px] text-slate-550 block">Select the voice model synthesizer for announcements.</span>
               </div>
 
               {/* Minimum checkout wait duration in hours */}
               <div className="space-y-2">
                 <label className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Checkout Lock Cooldown Buffer</label>
-                <Select value={settingsWait.toString()} onValueChange={(val) => setSettingsWait(Number(val))}>
-                  <SelectTrigger className="h-10 rounded-xl border-slate-800 bg-slate-950 text-xs text-slate-350">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-350">
-                    <SelectItem value="0.01">No wait delay (Instant toggle)</SelectItem>
-                    <SelectItem value="0.5">30 Minutes Wait</SelectItem>
-                    <SelectItem value="1">1 Hour Wait (Default standard shift)</SelectItem>
-                    <SelectItem value="2">2 Hours Wait</SelectItem>
-                    <SelectItem value="4">4 Hours Wait</SelectItem>
-                    <SelectItem value="8">8 Hours Wait (Full Shift)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <select 
+                  value={settingsWait.toString()} 
+                  onChange={(e) => setSettingsWait(Number(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="0.01" className="bg-slate-900 text-slate-250">No wait delay (Instant toggle)</option>
+                  <option value="0.5" className="bg-slate-900 text-slate-250">30 Minutes Wait</option>
+                  <option value="1" className="bg-slate-900 text-slate-250">1 Hour Wait (Default standard shift)</option>
+                  <option value="2" className="bg-slate-900 text-slate-250">2 Hours Wait</option>
+                  <option value="4" className="bg-slate-900 text-slate-250">4 Hours Wait</option>
+                  <option value="8" className="bg-slate-900 text-slate-250">8 Hours Wait (Full Shift)</option>
+                </select>
                 <span className="text-[9px] text-slate-500 block">Restricts immediate checkout toggling when employees pass by the sensor camera.</span>
               </div>
 
