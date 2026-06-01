@@ -160,6 +160,10 @@ export function AdminAttendanceDashboard() {
   const [missingRecords, setMissingRecords] = useState<AttendanceRecord[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
 
+  // Broadcaster settings state
+  const [broadcasts, setBroadcasts] = useState<{ [userId: string]: { id?: string; message: string; is_active: boolean } }>({});
+  const [broadcastSearch, setBroadcastSearch] = useState("");
+
   // --- 1. INITIALIZE TENANT ID ---
   useEffect(() => {
     const initAuth = async () => {
@@ -225,7 +229,7 @@ export function AdminAttendanceDashboard() {
       const yesterdayStr = format(subDays(new Date(), 1), "yyyy-MM-dd");
 
       // 🔴 ALL QUERIES EXPLICITLY FILTERED BY tenantId
-      const [usersRes, attendanceRes, feedRes, missingRes, holidaysRes] = await Promise.all([
+      const [usersRes, attendanceRes, feedRes, missingRes, holidaysRes, broadcastsRes] = await Promise.all([
         supabase.from("users").select("*").eq("is_active", true).eq('tenant_id', tenantId).order("full_name"),
         supabase.from("attendance").select(`*, user:users!attendance_user_id_fkey(full_name, email, department)`)
           .eq('tenant_id', tenantId)
@@ -243,7 +247,8 @@ export function AdminAttendanceDashboard() {
         supabase.from("holidays").select("*")
           .eq('tenant_id', tenantId)
           .gte("date", format(startOfMonth(dateRange.start), "yyyy-MM-dd"))
-          .lte("date", format(endOfMonth(dateRange.end), "yyyy-MM-dd"))
+          .lte("date", format(endOfMonth(dateRange.end), "yyyy-MM-dd")),
+        supabase.from("employee_broadcasts").select("*").eq('tenant_id', tenantId)
       ]);
 
       if (usersRes.error) throw usersRes.error;
@@ -252,6 +257,14 @@ export function AdminAttendanceDashboard() {
       setUsers(usersRes.data || []);
       setAttendanceData(attendanceRes.data || []);
       if (holidaysRes.data) setHolidays(holidaysRes.data);
+
+      if (broadcastsRes.data) {
+        const map: { [userId: string]: { id: string; message: string; is_active: boolean } } = {};
+        broadcastsRes.data.forEach((b: any) => {
+          map[b.user_id] = { id: b.id, message: b.message, is_active: b.is_active };
+        });
+        setBroadcasts(map);
+      }
       
       setMissingCheckoutCount(missingRes.data?.length || 0);
       setMissingRecords(missingRes.data || []);
@@ -282,6 +295,60 @@ export function AdminAttendanceDashboard() {
       console.error("Dashboard Load Error:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateBroadcast = async (userId: string, message: string, isActive: boolean) => {
+    try {
+      const existing = broadcasts[userId];
+      
+      if (existing?.id) {
+        const { error } = await supabase
+          .from("employee_broadcasts")
+          .update({
+            message: message,
+            is_active: isActive,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", existing.id);
+          
+        if (error) throw error;
+        toast.success("Personalized announcement updated successfully!");
+      } else {
+        const { data, error } = await supabase
+          .from("employee_broadcasts")
+          .insert({
+            user_id: userId,
+            message: message,
+            is_active: isActive,
+            tenant_id: tenantId
+          })
+          .select()
+          .single();
+          
+        if (error) throw error;
+        setBroadcasts(prev => ({
+          ...prev,
+          [userId]: { id: data.id, message: data.message, is_active: data.is_active }
+        }));
+        toast.success("Personalized announcement registered successfully!");
+      }
+      
+      // Reload broadcasts to sync state
+      const { data: updatedData } = await supabase
+        .from("employee_broadcasts")
+        .select("*")
+        .eq("tenant_id", tenantId);
+      if (updatedData) {
+        const map: { [userId: string]: { id: string; message: string; is_active: boolean } } = {};
+        updatedData.forEach((b: any) => {
+          map[b.user_id] = { id: b.id, message: b.message, is_active: b.is_active };
+        });
+        setBroadcasts(map);
+      }
+    } catch (err: any) {
+      console.error("Failed to update broadcast:", err);
+      toast.error(err.message || "Failed to update broadcast notice.");
     }
   };
 
@@ -779,6 +846,7 @@ export function AdminAttendanceDashboard() {
            <TabsList className="bg-slate-100 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-1 rounded-xl w-fit">
              <TabsTrigger value="roster" className="gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:shadow-2xs"><List className="h-3.5 w-3.5"/> Roster</TabsTrigger>
              <TabsTrigger value="analytics" className="gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:shadow-2xs"><BarChart3 className="h-3.5 w-3.5"/> Analytics</TabsTrigger>
+             <TabsTrigger value="broadcasts" className="gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:shadow-2xs"><MessageSquare className="h-3.5 w-3.5 text-indigo-500"/> Announcements</TabsTrigger>
            </TabsList>
            
            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 border border-slate-200/60 dark:border-slate-800/80 rounded-xl w-fit">
@@ -1140,7 +1208,119 @@ export function AdminAttendanceDashboard() {
                     </div>
                  </CardContent>
               </Card>
-           </div>
+            </div>
+         </TabsContent>
+
+        <TabsContent value="broadcasts" className="space-y-6 focus-visible:outline-none print:hidden">
+          <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs rounded-2xl overflow-hidden">
+            <CardHeader className="py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <MessageSquare className="h-4.5 w-4.5 text-indigo-500" /> Customized Reminders & Broadcasts
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Leave reminders or critical daily broadcast notices for specific employees. These will be read aloud by the speech synthesizer when they scan in at any gate kiosk.
+                  </CardDescription>
+                </div>
+                <div className="relative w-72">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <Input
+                    placeholder="Search employee or department..."
+                    value={broadcastSearch}
+                    onChange={(e) => setBroadcastSearch(e.target.value)}
+                    className="pl-9 h-8 text-xs bg-slate-50 dark:bg-slate-950 border-slate-205 dark:border-slate-800 rounded-lg focus-visible:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader className="bg-slate-50/50 dark:bg-slate-950/30">
+                  <TableRow className="border-b border-slate-100 dark:border-slate-800">
+                    <TableHead className="text-[10px] font-bold text-slate-450 uppercase tracking-wider pl-5 py-3">Employee</TableHead>
+                    <TableHead className="text-[10px] font-bold text-slate-450 uppercase tracking-wider py-3">Department</TableHead>
+                    <TableHead className="text-[10px] font-bold text-slate-450 uppercase tracking-wider py-3">Audio Broadcast Message</TableHead>
+                    <TableHead className="text-[10px] font-bold text-slate-450 uppercase tracking-wider py-3 text-center">Status</TableHead>
+                    <TableHead className="text-[10px] font-bold text-slate-450 uppercase tracking-wider pr-5 py-3 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-slate-100 dark:divide-slate-855">
+                  {users
+                    .filter((u) => 
+                      u.full_name.toLowerCase().includes(broadcastSearch.toLowerCase()) || 
+                      u.department.toLowerCase().includes(broadcastSearch.toLowerCase())
+                    )
+                    .map((emp) => {
+                      const existing = broadcasts[emp.id] || { message: "", is_active: false };
+                      return (
+                        <TableRow key={emp.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/30 dark:hover:bg-slate-800/10">
+                          <TableCell className="pl-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8.5 h-8.5 bg-gradient-to-br from-indigo-500 to-indigo-650 text-white rounded-xl flex items-center justify-center font-bold text-xs shadow-3xs uppercase">
+                                {emp.full_name.slice(0, 2)}
+                              </div>
+                              <div>
+                                <div className="text-xs font-bold text-slate-850 dark:text-slate-200">{emp.full_name}</div>
+                                <div className="text-[10px] font-semibold text-slate-405 dark:text-slate-500 truncate mt-0.5">{emp.email}</div>
+                              </div>
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="py-4 text-xs font-bold text-slate-650 dark:text-slate-400 uppercase tracking-wide">
+                            {emp.department}
+                          </TableCell>
+                          
+                          <TableCell className="py-4 max-w-sm">
+                            <Textarea
+                              placeholder="e.g. Please submit your weekly timesheet report to Gaurav Rajpoot today."
+                              defaultValue={existing.message}
+                              id={`msg-${emp.id}`}
+                              className="w-full text-xs bg-slate-50/50 dark:bg-slate-950/20 border-slate-200 dark:border-slate-800 rounded-lg p-2 resize-none h-14 focus-visible:ring-indigo-500"
+                            />
+                          </TableCell>
+                          
+                          <TableCell className="py-4 text-center">
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                defaultChecked={existing.is_active}
+                                id={`active-${emp.id}`}
+                                className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="py-4 pr-5 text-right">
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                const msgEl = document.getElementById(`msg-${emp.id}`) as HTMLTextAreaElement;
+                                const activeEl = document.getElementById(`active-${emp.id}`) as HTMLInputElement;
+                                if (msgEl && activeEl) {
+                                  handleUpdateBroadcast(emp.id, msgEl.value, activeEl.checked);
+                                }
+                              }}
+                              className="h-8.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                            >
+                              Save notice
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+
+                  {users.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-12 text-center text-slate-400 font-semibold text-xs">
+                        No employees loaded inside active database organization registry.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
