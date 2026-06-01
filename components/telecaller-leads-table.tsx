@@ -565,8 +565,8 @@ export function TelecallerLeadsTable({
               <div className="h-[1px] bg-slate-100 dark:bg-slate-800/80 w-full" />
 
               {/* Bottom Row: Quick Thumb Actions Group */}
-              <div className="flex items-center justify-between pl-2">
-                <div className="flex items-center gap-1.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full pl-2">
+                <div className="flex items-center gap-2 justify-start">
                   {/* WhatsApp trigger */}
                   <TooltipProvider>
                     <Tooltip>
@@ -623,12 +623,12 @@ export function TelecallerLeadsTable({
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   {/* Update Status Button */}
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="text-xs font-bold text-slate-600 dark:text-slate-400 h-9 rounded-xl active:scale-95 px-2"
+                    className="text-xs font-bold text-slate-600 dark:text-slate-400 h-9 rounded-xl active:scale-95 px-3 flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
                     onClick={() => { setSelectedLead(lead); setIsStatusDialogOpen(true); }}
                   >
                     Update
@@ -637,14 +637,12 @@ export function TelecallerLeadsTable({
                   {/* PRIMARY DIAL ACTION - Manual Call (visually strongest) */}
                   <Button 
                     size="sm" 
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 px-4 text-xs font-extrabold shadow-sm flex items-center gap-1.5 active:scale-95 transition-transform"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 px-4 text-xs font-extrabold shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-transform flex-1 sm:flex-none"
                     onClick={() => handleStandardCallInitiated(lead)}
                   >
                     <Phone className="h-3.5 w-3.5 fill-indigo-200/20" /> Call Now
                   </Button>
                 </div>
-
-
               </div>
 
             </div>
