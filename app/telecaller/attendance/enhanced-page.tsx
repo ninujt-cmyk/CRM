@@ -93,6 +93,18 @@ export default function EnhancedTelecallerAttendancePage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Preheat Speech Synthesis Voices Cache
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      const handleVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", handleVoices);
+      return () => window.speechSynthesis.removeEventListener("voiceschanged", handleVoices);
+    }
+  }, []);
+
   // --- IDLE TIMER LOGIC ---
   useEffect(() => {
     const handleUserActivity = () => {
@@ -193,48 +205,231 @@ export default function EnhancedTelecallerAttendancePage() {
     return { isHoliday: false, name: "" };
   };
 
-  // --- ACTIONS ---
-  const handleCheckIn = async () => {
+  // --- AUDIO SYNTHESIZER ENGINE ---
+  const playTelecallerSound = (type: "success" | "neutral" | "error" | "click") => {
+    try {
+      if (typeof window === "undefined") return;
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      
+      const ctx = new AudioContextClass();
+      
+      if (type === "success") {
+        // Pleasant chord chimes (C5 -> E5 -> G5 -> C6)
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.07);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime + idx * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.07 + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + idx * 0.07);
+          osc.stop(ctx.currentTime + idx * 0.07 + 0.25);
+        });
+      } else if (type === "error") {
+        // Low double buzz
+        const notes = [150, 130];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime + idx * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + idx * 0.12);
+          osc.stop(ctx.currentTime + idx * 0.12 + 0.2);
+        });
+      } else if (type === "neutral") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.08);
+      } else if (type === "click") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        gain.gain.setValueAtTime(0.02, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.05);
+      }
+    } catch (e) {
+      console.warn("Audio Context failed", e);
+    }
+  };
+
+  const speakMessage = (message: string) => {
+    try {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(v => 
+        (v.name.includes("Google") && v.name.includes("US English")) || 
+        v.name.includes("Samantha") || 
+        v.name.includes("Zira") ||
+        (v.lang === "en-US" && v.name.includes("Natural"))
+      );
+      if (preferredVoice) utterance.voice = preferredVoice;
+      
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Speech Synthesis failed", e);
+    }
+  };
+
+  const handleDirectCheckIn = async () => {
+    playTelecallerSound("success");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const attendance = await attendanceService.checkIn(user.id, notes, "Office");
+      const attendance = await attendanceService.checkIn(user.id, notes || "Office desk clock-in", "Office");
       setTodayAttendance(attendance);
       setNotes("");
       setShowCheckInDialog(false);
+      
+      // Calculate dynamic daily disbursement target for welcome speech announcement
+      const { data: profile } = await supabase
+        .from('users')
+        .select('full_name, monthly_target')
+        .eq('id', user.id)
+        .single();
+        
+      const name = profile?.full_name || "Agent";
+      const target = parseFloat(profile?.monthly_target || "3000000");
+
+      const monthStartStr = format(startOfMonth(new Date()), "yyyy-MM-dd") + "T00:00:00.000Z";
+      const monthEndStr = format(endOfMonth(new Date()), "yyyy-MM-dd") + "T23:59:59.999Z";
+
+      const { data: revenueLeads } = await supabase
+        .from('leads')
+        .select('disbursed_amount, loan_amount')
+        .eq('assigned_to', user.id)
+        .gte('updated_at', monthStartStr)
+        .lte('updated_at', monthEndStr)
+        .in('status', ['Disbursed', 'DISBURSED']);
+
+      let achieved = 0;
+      revenueLeads?.forEach((l: any) => {
+        const rawAmount = l.disbursed_amount || l.loan_amount || 0;
+        const cleanString = String(rawAmount).replace(/[^0-9.-]+/g, "");
+        const num = parseFloat(cleanString);
+        achieved += isNaN(num) ? 0 : num;
+      });
+
+      const totalDaysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+      const daysRemaining = Math.max(1, totalDaysInMonth - new Date().getDate());
+      const gap = Math.max(0, target - achieved);
+      const dailyRequired = Math.round(gap / daysRemaining);
+
+      const formattedDailyRequired = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(dailyRequired);
+
+      const welcomeSentence = `Good morning ${name}, your workday has officially started! Let's make today highly productive and successful.`;
+      const targetSentence = `${name}, your required daily disbursement target for today is ${formattedDailyRequired}. Let's hit this milestone today!`;
+      
+      speakMessage(`${welcomeSentence} ${targetSentence}`);
       loadAttendanceData(); 
-    } catch (error) { console.error("Check-in failed:", error); }
+    } catch (error) { 
+      console.error("Direct Check-in failed:", error); 
+      playTelecallerSound("error");
+    }
   };
 
-  const handleCheckOut = async () => {
+  const handleDirectCheckOut = async () => {
+    playTelecallerSound("success");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const attendance = await attendanceService.checkOut(user.id, notes);
+      const attendance = await attendanceService.checkOut(user.id, notes || "Office desk clock-out");
       setTodayAttendance(attendance);
       setNotes("");
       setShowCheckOutDialog(false);
+      
+      // Calculate achievements for goodbye announcement
+      const { data: profile } = await supabase
+        .from('users')
+        .select('full_name')
+        .eq('id', user.id)
+        .single();
+        
+      const name = profile?.full_name || "Agent";
+      
+      const monthStartStr = format(startOfMonth(new Date()), "yyyy-MM-dd") + "T00:00:00.000Z";
+      const monthEndStr = format(endOfMonth(new Date()), "yyyy-MM-dd") + "T23:59:59.999Z";
+
+      const { data: revenueLeads } = await supabase
+        .from('leads')
+        .select('disbursed_amount, loan_amount')
+        .eq('assigned_to', user.id)
+        .gte('updated_at', monthStartStr)
+        .lte('updated_at', monthEndStr)
+        .in('status', ['Disbursed', 'DISBURSED']);
+
+      let achieved = 0;
+      revenueLeads?.forEach((l: any) => {
+        const rawAmount = l.disbursed_amount || l.loan_amount || 0;
+        const cleanString = String(rawAmount).replace(/[^0-9.-]+/g, "");
+        const num = parseFloat(cleanString);
+        achieved += isNaN(num) ? 0 : num;
+      });
+
+      const formattedAchieved = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(achieved);
+
+      const goodbyeSentence = `Great job, ${name}! You have successfully clocked out for today.`;
+      const achievementSentence = `This month, you have achieved a phenomenal total of ${formattedAchieved} in disbursements. Thank you for your hard work and outstanding dedication! Have a restful evening!`;
+      
+      speakMessage(`${goodbyeSentence} ${achievementSentence}`);
       loadAttendanceData(); 
-    } catch (error) { console.error("Check-out failed:", error); }
+    } catch (error) { 
+      console.error("Direct Check-out failed:", error); 
+      playTelecallerSound("error");
+    }
   };
 
   const handleStartLunch = async () => {
+    playTelecallerSound("neutral");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const attendance = await attendanceService.startLunchBreak(user.id);
       setTodayAttendance(attendance);
       setShowBreakDialog(false);
-    } catch (error) { console.error("Start break failed:", error); }
+      speakMessage("Your lunch break has started. Enjoy your lunch break!");
+    } catch (error) { 
+      console.error("Start break failed:", error); 
+      playTelecallerSound("error");
+    }
   };
 
   const handleEndLunch = async () => {
+    playTelecallerSound("success");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const attendance = await attendanceService.endLunchBreak(user.id);
       setTodayAttendance(attendance);
-    } catch (error) { console.error("End break failed:", error); }
+      speakMessage("Welcome back! Your lunch break has ended. Let's resume work.");
+    } catch (error) { 
+      console.error("End break failed:", error); 
+      playTelecallerSound("error");
+    }
   };
 
   // --- LIVE CALCULATIONS ---
@@ -439,7 +634,7 @@ export default function EnhancedTelecallerAttendancePage() {
                         ) : <div className="text-sm text-slate-400 italic">Not taken</div>}
                         
                         {isOnLunch && (
-                          <Button size="sm" variant="outline" onClick={() => setActiveAuthAction("resume")} className="w-full mt-2 h-7 text-xs text-red-600 border-red-200 hover:bg-red-50">
+                          <Button size="sm" variant="outline" onClick={handleEndLunch} className="w-full mt-2 h-7 text-xs text-red-600 border-red-200 hover:bg-red-50">
                             End Break
                           </Button>
                         )}
@@ -485,22 +680,22 @@ export default function EnhancedTelecallerAttendancePage() {
 
                   <div className="flex gap-2 flex-col sm:flex-row">
                     {!isCheckedIn ? (
-                      <Button onClick={() => setActiveAuthAction("check-in")} className="w-full h-12 text-lg font-medium shadow-md hover:shadow-lg transition-all animate-in fade-in duration-300" size="lg">
+                      <Button onClick={handleDirectCheckIn} className="w-full h-12 text-lg font-medium shadow-md hover:shadow-lg transition-all animate-in fade-in duration-300" size="lg">
                         <LogIn className="h-5 w-5 mr-2" /> Check In Now
                       </Button>
                     ) : !isCheckedOut && !isOnLunch ? (
                       <>
                         {!todayAttendance?.lunch_start && (
-                          <Button variant="outline" onClick={() => setActiveAuthAction("break")} className="flex-1 h-12 bg-white hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors animate-in fade-in duration-300">
+                          <Button variant="outline" onClick={handleStartLunch} className="flex-1 h-12 bg-white hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors animate-in fade-in duration-300">
                             <Coffee className="h-5 w-5 mr-2" /> Lunch
                           </Button>
                         )}
-                        <Button onClick={() => setActiveAuthAction("check-out")} className="flex-1 h-12 bg-slate-800 hover:bg-slate-900 shadow-md animate-in fade-in duration-300">
+                        <Button onClick={handleDirectCheckOut} className="flex-1 h-12 bg-slate-800 hover:bg-slate-900 shadow-md animate-in fade-in duration-300">
                           <LogOut className="h-5 w-5 mr-2" /> Check Out
                         </Button>
                       </>
                     ) : isCheckedIn && isOnLunch && (
-                        <Button onClick={() => setActiveAuthAction("resume")} className="w-full h-12 bg-orange-100 hover:bg-orange-200 text-orange-700 opacity-100 font-bold border border-orange-200 transition-all cursor-pointer animate-in fade-in duration-300">
+                        <Button onClick={handleEndLunch} className="w-full h-12 bg-orange-100 hover:bg-orange-200 text-orange-700 opacity-100 font-bold border border-orange-200 transition-all cursor-pointer animate-in fade-in duration-300">
                             <Coffee className="h-5 w-5 mr-2 animate-pulse" /> On Lunch Break (End Break)
                         </Button>
                     )}
