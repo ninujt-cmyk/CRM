@@ -127,11 +127,22 @@ export function AttendanceWidget({ targetHours = 9 }: AttendanceWidgetProps) {
     if (navigator.onLine && localStorage.getItem('offlineCheckout')) {
         handleOnline();
     }
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+  }, []);
+
+  // Preheat Speech Synthesis Voices Cache
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      const handleVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", handleVoices);
+      return () => window.speechSynthesis.removeEventListener("voiceschanged", handleVoices);
+    }
   }, []);
 
   // --- 2. LIVE TIMER (Accurate tracking) ---
@@ -240,8 +251,99 @@ export function AttendanceWidget({ targetHours = 9 }: AttendanceWidgetProps) {
       setIsLocating(false);
   }
 
+  // --- AUDIO SYNTHESIZER ENGINE ---
+  const playTelecallerSound = (type: "success" | "neutral" | "error" | "click") => {
+    try {
+      if (typeof window === "undefined") return;
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      
+      const ctx = new AudioContextClass();
+      
+      if (type === "success") {
+        // Pleasant chord chimes (C5 -> E5 -> G5 -> C6)
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.07);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime + idx * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.07 + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + idx * 0.07);
+          osc.stop(ctx.currentTime + idx * 0.07 + 0.25);
+        });
+      } else if (type === "error") {
+        // Low double buzz
+        const notes = [150, 130];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime + idx * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + idx * 0.12);
+          osc.stop(ctx.currentTime + idx * 0.12 + 0.2);
+        });
+      } else if (type === "neutral") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.08);
+      } else if (type === "click") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        gain.gain.setValueAtTime(0.02, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.05);
+      }
+    } catch (e) {
+      console.warn("Audio Context failed", e);
+    }
+  };
+
+  const speakMessage = (message: string) => {
+    try {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(v => 
+        (v.name.includes("Google") && v.name.includes("US English")) || 
+        v.name.includes("Samantha") || 
+        v.name.includes("Zira") ||
+        (v.lang === "en-US" && v.name.includes("Natural"))
+      );
+      if (preferredVoice) utterance.voice = preferredVoice;
+      
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Speech Synthesis failed", e);
+    }
+  };
+
   const handleCheckInConfirm = async () => {
     setIsLocating(true);
+    playTelecallerSound("success");
     try {
       const locationString = await getCurrentLocation();
       
@@ -259,14 +361,59 @@ export function AttendanceWidget({ targetHours = 9 }: AttendanceWidgetProps) {
           finalNotes = `[${contextInfo.join(' | ')}] ${notes}`;
       }
 
-      // Check if your hook accepts IP as a 3rd argument, otherwise it's in the notes.
       await checkIn(finalNotes, locationString || undefined); 
       toast.success(distanceInfo?.isFar ? "Checked in remotely!" : "Checked in from Office!");
       
       setNotes("");
       setShowCheckInDialog(false);
+
+      // Perform calculations & Speak dynamic required target
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('full_name, monthly_target')
+          .eq('id', user.id)
+          .single();
+          
+        const name = profile?.full_name || "Agent";
+        const target = parseFloat(profile?.monthly_target || "3000000");
+
+        // Calculate achieved revenue for current month
+        const startOfMonthStr = format(new Date(), "yyyy-MM-01") + "T00:00:00.000Z";
+        const endOfMonthStr = format(new Date(), "yyyy-MM-") + new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() + "T23:59:59.999Z";
+
+        const { data: revenueLeads } = await supabase
+          .from('leads')
+          .select('disbursed_amount, loan_amount')
+          .eq('assigned_to', user.id)
+          .gte('updated_at', startOfMonthStr)
+          .lte('updated_at', endOfMonthStr)
+          .in('status', ['Disbursed', 'DISBURSED']);
+
+        let achieved = 0;
+        revenueLeads?.forEach((l: any) => {
+          const rawAmount = l.disbursed_amount || l.loan_amount || 0;
+          const cleanString = String(rawAmount).replace(/[^0-9.-]+/g, "");
+          const num = parseFloat(cleanString);
+          achieved += isNaN(num) ? 0 : num;
+        });
+
+        const totalDaysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+        const daysRemaining = Math.max(1, totalDaysInMonth - new Date().getDate());
+        const gap = Math.max(0, target - achieved);
+        const dailyRequired = Math.round(gap / daysRemaining);
+
+        const formattedDailyRequired = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(dailyRequired);
+
+        const welcomeSentence = `Good morning ${name}, your workday has officially started! Let's make today highly productive and successful.`;
+        const targetSentence = `${name}, your required daily disbursement target for today is ${formattedDailyRequired}. Let's hit this milestone today!`;
+        
+        speakMessage(`${welcomeSentence} ${targetSentence}`);
+      }
     } catch (error: any) {
       toast.error(error.message);
+      playTelecallerSound("error");
     } finally {
       setIsLocating(false);
     }
@@ -274,23 +421,63 @@ export function AttendanceWidget({ targetHours = 9 }: AttendanceWidgetProps) {
 
   const handleCheckOut = async () => {
     if (!isOnline) {
-        // Offline Fallback
         const checkoutData = { time: new Date().toISOString(), notes };
         localStorage.setItem('offlineCheckout', JSON.stringify(checkoutData));
-        
-        // Optimistic UI update could go here if your hook allowed local state mutation
         toast.info("Offline mode: Check-out saved locally. Will sync when online.");
         setShowCheckOutDialog(false);
         setNotes("");
         return;
     }
 
+    playTelecallerSound("success");
     try {
       await checkOut(notes);
       toast.success("Shift ended. Good job!");
       setNotes("");
       setShowCheckOutDialog(false);
-    } catch (error: any) { toast.error(error.message); }
+
+      // Calculate achievements & Speak dynamic achievement celebration
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', user.id)
+          .single();
+          
+        const name = profile?.full_name || "Agent";
+
+        // Calculate achieved revenue for current month
+        const startOfMonthStr = format(new Date(), "yyyy-MM-01") + "T00:00:00.000Z";
+        const endOfMonthStr = format(new Date(), "yyyy-MM-") + new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() + "T23:59:59.999Z";
+
+        const { data: revenueLeads } = await supabase
+          .from('leads')
+          .select('disbursed_amount, loan_amount')
+          .eq('assigned_to', user.id)
+          .gte('updated_at', startOfMonthStr)
+          .lte('updated_at', endOfMonthStr)
+          .in('status', ['Disbursed', 'DISBURSED']);
+
+        let achieved = 0;
+        revenueLeads?.forEach((l: any) => {
+          const rawAmount = l.disbursed_amount || l.loan_amount || 0;
+          const cleanString = String(rawAmount).replace(/[^0-9.-]+/g, "");
+          const num = parseFloat(cleanString);
+          achieved += isNaN(num) ? 0 : num;
+        });
+
+        const formattedAchieved = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(achieved);
+
+        const goodbyeSentence = `Great job, ${name}! You have successfully clocked out for today.`;
+        const achievementSentence = `This month, you have achieved a phenomenal total of ${formattedAchieved} in disbursements. Thank you for your hard work and outstanding dedication! Have a restful evening!`;
+        
+        speakMessage(`${goodbyeSentence} ${achievementSentence}`);
+      }
+    } catch (error: any) { 
+      toast.error(error.message); 
+      playTelecallerSound("error");
+    }
   };
 
   const handleBreak = async () => {
