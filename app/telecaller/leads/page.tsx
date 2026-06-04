@@ -71,7 +71,7 @@ export default async function TelecallerLeadsPage({
   
   // Calculate a gamified streak call target progress
   // Target: say 30 calls or contacted leads, lets calculate progress
-  const dailyTarget = 30;
+  const dailyTarget = 300;
   const dailyCallsDone = contactedCount; // Contacted leads as a proxy for productive calls
   const targetPercent = Math.min(Math.round((dailyCallsDone / dailyTarget) * 100), 100);
   const callsRemaining = Math.max(dailyTarget - dailyCallsDone, 0);
