@@ -282,8 +282,8 @@ export function LeadStatusUpdater({
   }
 
   // --- CORE ACTIONS ---
-  const handleStatusUpdate = async (statusOverride?: string) => {
-    const activeStatus = statusOverride || status
+  const handleStatusUpdate = async (statusOverride?: any) => {
+    const activeStatus = typeof statusOverride === 'string' ? statusOverride : status
     if (!activeStatus) { toast.error("Status Required", { description: "Please select a status." }); return }
     if (activeStatus === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
     if (activeStatus === "follow_up") { setIsModalOpen(true); return }
