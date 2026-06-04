@@ -67,6 +67,32 @@ export function TelecallerLeadsTable({
   const [isCallInitiated, setIsCallInitiated] = useState(false)
   const [isDialingC2C, setIsDialingC2C] = useState<string | null>(null) // Tracks which lead is currently connecting
 
+  const isToday = (dateString: string) => {
+    if (!dateString) return false
+    const d = new Date(dateString)
+    const now = new Date()
+    return d.getDate() === now.getDate() &&
+           d.getMonth() === now.getMonth() &&
+           d.getFullYear() === now.getFullYear()
+  }
+
+  const getLeadRank = (lead: Lead) => {
+    const createdToday = isToday(lead.created_at)
+    const isContacted = !!lead.last_contacted
+    if (createdToday && !isContacted) return 0
+    if (createdToday && isContacted) return 1
+    return 2
+  }
+
+  const sortedLeads = [...leads].sort((a, b) => {
+    const rankA = getLeadRank(a)
+    const rankB = getLeadRank(b)
+    if (rankA !== rankB) {
+      return rankA - rankB
+    }
+    return 0
+  })
+
   // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
     startTransition(() => {
@@ -144,17 +170,17 @@ export function TelecallerLeadsTable({
         return;
     }
     
-    const currentIndex = leads.findIndex(l => l.id === selectedLead.id);
+    const currentIndex = sortedLeads.findIndex(l => l.id === selectedLead.id);
     let nextIndex = -1;
 
-    if (currentIndex !== -1 && currentIndex < leads.length - 1) {
+    if (currentIndex !== -1 && currentIndex < sortedLeads.length - 1) {
         nextIndex = currentIndex + 1;
-    } else if (currentIndex === -1 && leads.length > 0) {
+    } else if (currentIndex === -1 && sortedLeads.length > 0) {
         nextIndex = 0;
     }
 
-    if (nextIndex !== -1 && leads[nextIndex]) {
-        const nextLead = leads[nextIndex];
+    if (nextIndex !== -1 && sortedLeads[nextIndex]) {
+        const nextLead = sortedLeads[nextIndex];
         
         setTimeout(() => {
             setSelectedLead(nextLead);
@@ -230,7 +256,7 @@ export function TelecallerLeadsTable({
 
   const totalPages = Math.ceil(totalCount / pageSize)
 
-  if (leads.length === 0) {
+  if (sortedLeads.length === 0) {
     return <div className="p-12 text-center text-slate-500 border border-dashed rounded-lg">No leads found.</div>
   }
 
@@ -262,7 +288,7 @@ export function TelecallerLeadsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-               {leads.map((lead) => {
+               {sortedLeads.map((lead) => {
                 const isHighPriority = lead.priority === 'high';
                 const isDialing = isDialingC2C === lead.id;
                 const isHot = Array.isArray(lead.tags) && lead.tags.some(t => t.includes("Hot Prospect"));
@@ -324,6 +350,16 @@ export function TelecallerLeadsTable({
                       <div className="flex flex-col">
                         <Link href={`/telecaller/leads/${lead.id}`} className="font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 group/link text-[13px]">
                             {lead.name}
+                            {isToday(lead.created_at) && !lead.last_contacted && (
+                                <Badge className="text-[9px] px-1.5 py-0 rounded-md font-extrabold bg-red-600 hover:bg-red-600 text-white shadow-sm animate-pulse shrink-0">
+                                    HIGH
+                                </Badge>
+                            )}
+                            {isToday(lead.created_at) && lead.last_contacted && (
+                                <Badge className="text-[9px] px-1.5 py-0 rounded-md font-semibold bg-emerald-500/10 hover:bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                                    TODAY
+                                </Badge>
+                            )}
                             <ArrowUpRight className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity text-indigo-500" />
                         </Link>
                         {lead.company && (
@@ -433,7 +469,7 @@ export function TelecallerLeadsTable({
         "block md:hidden space-y-3.5 relative",
         isPending ? "opacity-50 pointer-events-none" : "opacity-100"
       )}>
-        {leads.map((lead, index) => {
+        {sortedLeads.map((lead, index) => {
           const isHighPriority = lead.priority === 'high';
           const isDialing = isDialingC2C === lead.id;
           const isHot = Array.isArray(lead.tags) && lead.tags.some(t => t.includes("Hot Prospect"));
@@ -467,9 +503,19 @@ export function TelecallerLeadsTable({
                 <div className="space-y-0.5">
                   <Link 
                     href={`/telecaller/leads/${lead.id}`} 
-                    className="font-extrabold text-[15px] text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1"
+                    className="font-extrabold text-[15px] text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 flex-wrap"
                   >
-                    {lead.name}
+                    <span>{lead.name}</span>
+                    {isToday(lead.created_at) && !lead.last_contacted && (
+                        <Badge className="text-[9px] px-1.5 py-0 rounded-md font-extrabold bg-red-600 hover:bg-red-600 text-white shadow-sm animate-pulse shrink-0">
+                            HIGH
+                        </Badge>
+                    )}
+                    {isToday(lead.created_at) && lead.last_contacted && (
+                        <Badge className="text-[9px] px-1.5 py-0 rounded-md font-semibold bg-emerald-500/10 hover:bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                            TODAY
+                        </Badge>
+                    )}
                     <ArrowUpRight className="h-3.5 w-3.5 text-slate-400" />
                   </Link>
                   {lead.company && (
