@@ -282,32 +282,36 @@ export function LeadStatusUpdater({
   }
 
   // --- CORE ACTIONS ---
-  const handleStatusUpdate = async () => {
-    if (!status) { toast.error("Status Required", { description: "Please select a status." }); return }
-    if (status === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
-    if (status === "follow_up") { setIsModalOpen(true); return }
+  const handleStatusUpdate = async (statusOverride?: string) => {
+    const activeStatus = statusOverride || status
+    if (!activeStatus) { toast.error("Status Required", { description: "Please select a status." }); return }
+    if (activeStatus === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
+    if (activeStatus === "follow_up") { setIsModalOpen(true); return }
+    
+    const isRevenueStatus = activeStatus === "Login" || activeStatus === "Disbursed";
+    const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
     if (isLoanAmountMissing) { toast.error("Loan Amount Required", { description: "Please enter a valid loan amount for this status." }); return; }
       
     const finalDuration = callDurationOverride ?? elapsedTime;
-    if (isCallInitiated && status !== 'nr' && finalDuration <= 0) {
+    if (isCallInitiated && activeStatus !== 'nr' && finalDuration <= 0) {
         toast.error("Invalid Duration", { description: "Call duration must be > 0 seconds." }); return
     }
 
     setIsUpdating(true)
     try {
       const updateData: any = { 
-        status: status, 
+        status: activeStatus, 
         last_contacted: new Date().toISOString() 
       }
       
       if (loanAmount !== null && !isNaN(loanAmount)) updateData.loan_amount = loanAmount
       if (remarks.trim()) updateData.notes = remarks
-      if (status === "not_eligible" && note.trim()) {
+      if (activeStatus === "not_eligible" && note.trim()) {
         updateData.notes = updateData.notes ? `${updateData.notes}\n\nNot Eligible: ${note}` : `Not Eligible: ${note}`
       }
 
       // Get new sentiment tag
-      const newSentimentTag = classifySentiment(remarks, status);
+      const newSentimentTag = classifySentiment(remarks, activeStatus);
       
       // Fetch current tags
       const { data: leadData } = await supabase
@@ -326,19 +330,19 @@ export function LeadStatusUpdater({
       const { error } = await supabase.from("leads").update(updateData).eq("id", leadId)
       if (error) throw error;
       
-      onStatusUpdate?.(status, note) 
+      onStatusUpdate?.(activeStatus, note) 
 
       if (isCallInitiated) await logCall(finalDuration)
 
       // 2. WHATSAPP AUTOMATION
-      if ((status === "Documents_Sent" || status === "Interested") && leadPhoneNumber) {
+      if ((activeStatus === "Documents_Sent" || activeStatus === "Interested") && leadPhoneNumber) {
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
           if (kycResult.success) {
               toast.success("KYC WhatsApp Template sent securely!");
               
-              if (status === "Interested") {
+              if (activeStatus === "Interested") {
                   if(window.confirm("Automated KYC list sent. Open WhatsApp web to send a personal message too?")) {
                       let manualClean = leadPhoneNumber.replace(/\D/g, '');
                       if (manualClean.length === 10) manualClean = `91${manualClean}`;
@@ -523,7 +527,12 @@ export function LeadStatusUpdater({
             )}
             <Select value={status} onValueChange={(val) => {
                 if (val === "follow_up") setIsModalOpen(true)
-                else setStatus(val)
+                else {
+                    setStatus(val)
+                    if (val === "nr") {
+                        handleStatusUpdate(val)
+                    }
+                }
             }}>
               <SelectTrigger className={cn("h-10 bg-white transition-colors", status ? "border-blue-300 ring-1 ring-blue-100" : "")}>
                 <SelectValue placeholder="Select outcome..." />
