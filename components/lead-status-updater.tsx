@@ -529,7 +529,7 @@ export function LeadStatusUpdater({
                 if (val === "follow_up") setIsModalOpen(true)
                 else {
                     setStatus(val)
-                    if (val === "nr") {
+                    if (val === "nr" || val === "self_employed") {
                         handleStatusUpdate(val)
                     }
                 }
