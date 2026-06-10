@@ -84,7 +84,7 @@ export function TelecallerPerformance({ startDate, endDate, telecallerId }: Tele
         // 4. Calls (Period)
         const callsQuery = supabase
           .from("call_logs")
-          .select("user_id, call_status, duration_seconds, created_at")
+          .select("user_id, call_status, duration_seconds, created_at, disposition")
           .gte("created_at", startDate)
           .lte("created_at", `${endDate}T23:59:59`)
           .order("created_at", { ascending: false })
@@ -134,10 +134,13 @@ export function TelecallerPerformance({ startDate, endDate, telecallerId }: Tele
           }
 
           const statusBreakdown = {
-            connected: userCalls.filter(c => (c.duration_seconds || 0) > 0).length,
-            notConnected: userCalls.filter(c => (c.duration_seconds || 0) === 0).length,
-            noAnswer: userCalls.filter(c => c.call_status === "nr").length,
-            busy: userCalls.filter(c => c.call_status === "busy").length
+            connected: userCalls.filter(c => c.disposition?.toUpperCase() === "ANSWERED").length,
+            notConnected: userCalls.filter(c => c.disposition?.toUpperCase() !== "ANSWERED").length,
+            noAnswer: userCalls.filter(c => {
+              const disp = c.disposition?.toUpperCase()
+              return disp === "NO ANSWER" || disp === "NR" || c.call_status === "nr"
+            }).length,
+            busy: userCalls.filter(c => c.disposition?.toUpperCase() === "BUSY").length
           }
 
           return {
