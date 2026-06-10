@@ -104,7 +104,7 @@ export async function GET(request: Request) {
       
       // Identify Roles for this specific tenant
       const telecallers = tenantUsers.filter(u => u.role === 'telecaller')
-      const admins = tenantUsers.filter(u => ['admin', 'manager', 'team_leader', 'super_admin'].includes(u.role))
+      const admins = tenantUsers.filter(u => ['admin', 'manager', 'team_leader', 'super_admin', 'tenant_admin', 'marketing_manager', 'owner'].includes(u.role))
       
       const staffIds = telecallers.map(u => u.id)
       if (staffIds.length === 0) continue
@@ -222,12 +222,18 @@ export async function GET(request: Request) {
         const adminHTML = generateAdminHTML(volumeSorted, dateStr)
         
         for (const admin of admins) {
-          await resend.emails.send({
+          const { data, error } = await resend.emails.send({
             from: 'Hanva CRM <reports@crm.hanva.in>',
             to: admin.email,
             subject: `📊 Workspace Daily Report - ${dateStr}`,
             html: adminHTML
           })
+          
+          if (error) {
+            console.error(`❌ Failed to send admin report to ${admin.email}:`, error)
+          } else {
+            console.log(`✅ Admin report sent to ${admin.email}. Msg ID: ${data?.id}`)
+          }
           emailsSent++
           await delay(500)
         }
@@ -342,12 +348,18 @@ async function sendTelecallerReport({ recipient, stats, rank, totalStaff, topPer
       </div>
   `
 
-  await resend.emails.send({
+  const { data, error } = await resend.emails.send({
     from: 'Hanva CRM <reports@crm.hanva.in>', 
     to: recipient.email,
     subject: `🎯 Performance Coach - ${dateStr}`,
     html: html
   })
+
+  if (error) {
+    console.error(`❌ Failed to send telecaller report to ${recipient.email}:`, error)
+  } else {
+    console.log(`✅ Telecaller report sent to ${recipient.email}. Msg ID: ${data?.id}`)
+  }
 }
 
 
