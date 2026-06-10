@@ -41,7 +41,7 @@ export default async function TelecallerReportsPage() {
       .from("call_logs")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
-      .eq("disposition", "ANSWERED")
+      .neq("disposition", "NR")
       .gte("created_at", thirtyDaysAgo),
     supabase
       .from("leads")

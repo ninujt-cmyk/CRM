@@ -103,7 +103,7 @@ export default async function CallHistoryPage({
 
   // --- Calculate Overall Statistics ---
   const totalCalls = callLogs?.length || 0
-  const completedCalls = callLogs?.filter((call: any) => call.disposition?.toUpperCase() === "ANSWERED").length || 0
+  const completedCalls = callLogs?.filter((call: any) => call.disposition?.toUpperCase() !== "NR").length || 0
   const followUpRequired = callLogs?.filter((call: any) => call.follow_up_required).length || 0
   const upcomingCalls = callLogs?.filter((call: any) => 
     call.next_call_scheduled && isFuture(new Date(call.next_call_scheduled))

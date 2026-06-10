@@ -134,12 +134,9 @@ export function TelecallerPerformance({ startDate, endDate, telecallerId }: Tele
           }
 
           const statusBreakdown = {
-            connected: userCalls.filter(c => c.disposition?.toUpperCase() === "ANSWERED").length,
-            notConnected: userCalls.filter(c => c.disposition?.toUpperCase() !== "ANSWERED").length,
-            noAnswer: userCalls.filter(c => {
-              const disp = c.disposition?.toUpperCase()
-              return disp === "NO ANSWER" || disp === "NR" || c.call_status === "nr"
-            }).length,
+            connected: userCalls.filter(c => c.disposition?.toUpperCase() !== "NR" && c.call_status?.toUpperCase() !== "NR").length,
+            notConnected: userCalls.filter(c => c.disposition?.toUpperCase() === "NR" || c.call_status?.toUpperCase() === "NR").length,
+            noAnswer: userCalls.filter(c => c.disposition?.toUpperCase() === "NR" || c.call_status?.toUpperCase() === "NR").length,
             busy: userCalls.filter(c => c.disposition?.toUpperCase() === "BUSY").length
           }
 
