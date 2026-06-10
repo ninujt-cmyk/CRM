@@ -133,7 +133,7 @@ export async function GET(request: Request) {
                 .from("leads")
                 .select("id, notes")
                 .eq("tenant_id", tenantId) // ISOLATION: Only pull leads from this company!
-                .or("status.ilike.%not_interested%,status.ilike.%recycle_pool%") 
+                .or("status.ilike.%nr%,status.ilike.%not_reachable%") 
                 .neq("assigned_to", agent.id) 
                 .order("last_contacted", { ascending: true, nullsFirst: true }) 
                 .limit(10);
@@ -144,12 +144,12 @@ export async function GET(request: Request) {
             }
 
             if (!poolLeads || poolLeads.length === 0) {
-                console.log(`   ⚠️ Recycle pool is empty for this workspace! Cannot refill ${agent.full_name}.`);
+                console.log(`   ⚠️ No Response (NR) pool is empty for this workspace! Cannot refill ${agent.full_name}.`);
                 continue; 
             }
 
             for (const lead of poolLeads) {
-                const refillNote = `⛽ [SYSTEM: AUTO-REFILL]\nLead recycled from 'Not Interested/Pool'. Reassigned to ${agent.full_name} as a fresh lead.`;
+                const refillNote = `⛽ [SYSTEM: AUTO-REFILL]\nLead recycled from 'No Response (NR)'. Reassigned to ${agent.full_name} as a fresh lead.`;
                 const updatedNotes = lead.notes ? `${lead.notes}\n\n${refillNote}` : refillNote;
 
                 const { error: updateError } = await supabaseAdmin

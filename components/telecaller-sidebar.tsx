@@ -5,6 +5,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/client"
 
 // UI Components
 import { Button } from "@/components/ui/button"
@@ -190,6 +191,56 @@ export function TelecallerSidebar() {
 
 // --- INTERNAL CONTENT RENDERER ---
 function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathname: string }) {
+  const supabase = createClient()
+  const [userData, setUserData] = useState<{ name: string; email: string }>({
+    name: "Agent Profile",
+    email: "Online & Ready",
+  })
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          let name = user.user_metadata?.full_name || ""
+          const email = user.email || ""
+          
+          const { data: profile } = await supabase
+            .from("users")
+            .select("full_name")
+            .eq("id", user.id)
+            .single()
+            
+          if (profile?.full_name) {
+            name = profile.full_name
+          }
+          
+          setUserData({
+            name: name || "Agent",
+            email: email,
+          })
+        }
+      } catch (error) {
+        console.error("Error fetching user data in sidebar:", error)
+      }
+    }
+    fetchUser()
+  }, [supabase])
+
+  const getInitials = (name: string, email: string) => {
+    if (name && name !== "Admin User" && name !== "Agent Profile") {
+      const parts = name.split(" ").filter(Boolean)
+      if (parts.length > 1) {
+        return (parts[0][0] + parts[1][0]).toUpperCase()
+      }
+      return name.substring(0, 2).toUpperCase()
+    }
+    if (email && email !== "Online & Ready") {
+      return email.substring(0, 2).toUpperCase()
+    }
+    return "TA"
+  }
+
   return (
     <div className="flex flex-col h-full bg-white/60 dark:bg-slate-900/60 backdrop-blur-2xl">
       
@@ -245,15 +296,15 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
               <div className="relative shrink-0">
                 <Avatar className="h-9 w-9 border-2 border-white dark:border-slate-800 shadow-sm">
                   <AvatarImage src="/placeholder-user.jpg" />
-                  <AvatarFallback className="bg-blue-600 text-white font-bold text-xs">TA</AvatarFallback>
+                  <AvatarFallback className="bg-blue-600 text-white font-bold text-xs">{getInitials(userData.name, userData.email)}</AvatarFallback>
                 </Avatar>
                 <span className="absolute bottom-0 right-0 h-2.5 w-2.5 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
               </div>
 
               {/* Profile Text */}
               <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Agent Profile</span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">Online & Ready</span>
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{userData.name}</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">{userData.email}</span>
               </div>
             </div>
 

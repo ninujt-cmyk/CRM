@@ -6,6 +6,7 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { sidebarGroups } from "@/config/sidebar-nav"
+import { createClient } from "@/lib/supabase/client"
 
 // UI Components
 import { Button } from "@/components/ui/button"
@@ -173,6 +174,56 @@ export function AdminSidebar() {
 
 // --- INTERNAL CONTENT RENDERER ---
 function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathname: string }) {
+  const supabase = createClient()
+  const [userData, setUserData] = useState<{ name: string; email: string }>({
+    name: "Admin User",
+    email: "admin@hanva.com",
+  })
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          let name = user.user_metadata?.full_name || ""
+          const email = user.email || ""
+          
+          const { data: profile } = await supabase
+            .from("users")
+            .select("full_name")
+            .eq("id", user.id)
+            .single()
+            
+          if (profile?.full_name) {
+            name = profile.full_name
+          }
+          
+          setUserData({
+            name: name || "User",
+            email: email,
+          })
+        }
+      } catch (error) {
+        console.error("Error fetching user data in sidebar:", error)
+      }
+    }
+    fetchUser()
+  }, [supabase])
+
+  const getInitials = (name: string, email: string) => {
+    if (name && name !== "Admin User" && name !== "Agent Profile") {
+      const parts = name.split(" ").filter(Boolean)
+      if (parts.length > 1) {
+        return (parts[0][0] + parts[1][0]).toUpperCase()
+      }
+      return name.substring(0, 2).toUpperCase()
+    }
+    if (email) {
+      return email.substring(0, 2).toUpperCase()
+    }
+    return "U"
+  }
+
   return (
     <div className="flex flex-col h-full bg-white/60 dark:bg-slate-900/60 backdrop-blur-2xl">
       
@@ -200,7 +251,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
           </div>
         )}
       </div>
-
+ 
       {/* Navigation - Added min-h-0 to ensure flex child can scroll */}
       <ScrollArea className="flex-1 py-6 min-h-0">
         <div className="px-4 space-y-9">
@@ -235,13 +286,13 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
             <div className="relative">
               <Avatar className="h-10 w-10 border-2 border-white dark:border-slate-800 shadow-md group-hover:scale-105 transition-transform duration-300">
                 <AvatarImage src="/placeholder-user.jpg" />
-                <AvatarFallback className="bg-slate-800 text-white font-bold">AD</AvatarFallback>
+                <AvatarFallback className="bg-slate-800 text-white font-bold">{getInitials(userData.name, userData.email)}</AvatarFallback>
               </Avatar>
               <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></span>
             </div>
             <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Admin User</span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">admin@hanva.com</span>
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{userData.name}</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-medium">{userData.email}</span>
             </div>
           </div>
         )}
