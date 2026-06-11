@@ -41,6 +41,19 @@ export default function WorkspaceSettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error("Unauthorized")
+
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .single()
+
+        if (profileError || !profile?.tenant_id) {
+          throw new Error("User organization profile not found")
+        }
+
         const { data, error } = await supabase
           .from('tenant_settings')
           .select(`
@@ -48,6 +61,7 @@ export default function WorkspaceSettingsPage() {
             cron_auto_checkout, cron_auto_refill, cron_daily_report, 
             cron_kyc, cron_sla, cron_smart_notifications
           `)
+          .eq('tenant_id', profile.tenant_id)
           .maybeSingle()
 
         if (error) throw error

@@ -21,13 +21,14 @@ export async function updateWorkspaceSettings(formData: {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error("Unauthorized")
 
-        // 2. Fetch the user's tenant_id securely
-        const { data: settingsRow } = await supabase
-            .from('tenant_settings')
+        // 2. Fetch the user's tenant_id from the users profile securely
+        const { data: profile } = await supabase
+            .from('users')
             .select('tenant_id')
-            .maybeSingle()
+            .eq('id', user.id)
+            .single()
 
-        if (!settingsRow?.tenant_id) {
+        if (!profile?.tenant_id) {
             throw new Error("Workspace configuration not found. Please contact support.")
         }
 
@@ -47,7 +48,7 @@ export async function updateWorkspaceSettings(formData: {
                 cron_smart_notifications: formData.cron_smart_notifications,
                 updated_at: new Date().toISOString()
             })
-            .eq('tenant_id', settingsRow.tenant_id)
+            .eq('tenant_id', profile.tenant_id)
 
         if (error) throw error
 
