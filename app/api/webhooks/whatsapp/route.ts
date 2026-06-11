@@ -226,36 +226,61 @@ Rules:
 - Do not process or approve the loan yourself; just collect the documents.
 - Once all three documents (Aadhar, PAN, and Bank Statement/payslip) are received, thank them and let them know an agent will review them shortly. Do not ask for further documents.`;
 
-                  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                      "Authorization": `Bearer ${apiKey}`,
-                      "Content-Type": "application/json",
-                      "HTTP-Referer": "https://hanva-crm.vercel.app",
-                      "X-Title": "Hanva CRM"
-                    },
-                    body: JSON.stringify({
-                      model: "google/gemini-2.5-flash:free",
-                      messages: [
-                        { role: "system", content: systemPrompt },
-                        ...formattedMessages
-                      ]
-                    })
-                  });
+                  const modelsToTry = [
+                    "google/gemma-4-31b-it:free",
+                    "nvidia/nemotron-nano-9b-v2:free",
+                    "liquid/lfm-2.5-1.2b-instruct:free"
+                  ];
 
-                  if (!response.ok) {
-                    const errText = await response.text();
-                    throw new Error(`OpenRouter API responded with status ${response.status}: ${errText}`);
+                  let aiReply = "";
+                  let lastErr: any = null;
+
+                  for (const model of modelsToTry) {
+                      try {
+                          const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                            method: "POST",
+                            headers: {
+                              "Authorization": `Bearer ${apiKey}`,
+                              "Content-Type": "application/json",
+                              "HTTP-Referer": "https://hanva-crm.vercel.app",
+                              "X-Title": "Hanva CRM"
+                            },
+                            body: JSON.stringify({
+                              model: model,
+                              messages: [
+                                { role: "system", content: systemPrompt },
+                                ...formattedMessages
+                              ]
+                            })
+                          });
+
+                          if (!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(`OpenRouter API for ${model} responded with status ${response.status}: ${errText}`);
+                          }
+
+                          const resData = await response.json();
+                          
+                          if (resData.error) {
+                            throw new Error(`OpenRouter API for ${model} returned error: ${JSON.stringify(resData.error)}`);
+                          }
+                          
+                          const text = resData.choices?.[0]?.message?.content?.trim();
+                          if (text) {
+                              aiReply = text;
+                              break;
+                          }
+                      } catch (err: any) {
+                          console.warn(`⚠️ [AI AGENT WARNING] Model ${model} failed, trying next:`, err.message || err);
+                          lastErr = err;
+                      }
                   }
-
-                  const resData = await response.json();
-                  const aiReply = resData.choices?.[0]?.message?.content?.trim() || "";
 
                   if (aiReply) {
                     await sendFonadaMessage(customerPhone, aiReply, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
                     return NextResponse.json({ status: "success", action: "ai_agent_reply" });
                   } else {
-                    throw new Error("Empty response from OpenRouter");
+                    throw lastErr || new Error("All models failed to return a response from OpenRouter");
                   }
               } catch (aiError) {
                   console.error("❌ [AI AGENT ERROR] Failed to process message via OpenRouter:", aiError);
