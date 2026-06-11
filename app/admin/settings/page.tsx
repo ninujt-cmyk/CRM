@@ -27,6 +27,7 @@ export default function WorkspaceSettingsPage() {
     fonada_client_id: "",
     fonada_secret: "",
     whatsapp_api_key: "",
+    whatsapp_ai_agent_enabled: false,
     // Cron Job States
     cron_auto_checkout: true,
     cron_auto_refill: true,
@@ -43,7 +44,7 @@ export default function WorkspaceSettingsPage() {
         const { data, error } = await supabase
           .from('tenant_settings')
           .select(`
-            fonada_client_id, fonada_secret, whatsapp_api_key,
+            fonada_client_id, fonada_secret, whatsapp_api_key, whatsapp_ai_agent_enabled,
             cron_auto_checkout, cron_auto_refill, cron_daily_report, 
             cron_kyc, cron_sla, cron_smart_notifications
           `)
@@ -56,6 +57,7 @@ export default function WorkspaceSettingsPage() {
             fonada_client_id: data.fonada_client_id || "",
             fonada_secret: data.fonada_secret || "",
             whatsapp_api_key: data.whatsapp_api_key || "",
+            whatsapp_ai_agent_enabled: data.whatsapp_ai_agent_enabled ?? false,
             cron_auto_checkout: data.cron_auto_checkout ?? true,
             cron_auto_refill: data.cron_auto_refill ?? true,
             cron_daily_report: data.cron_daily_report ?? true,
@@ -183,6 +185,17 @@ export default function WorkspaceSettingsPage() {
                 value={formData.whatsapp_api_key}
                 onChange={(e) => setFormData(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
                 className="font-mono text-sm bg-slate-50"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <div className="space-y-0.5">
+                <Label className="text-base font-semibold text-slate-800">WhatsApp AI Chat Agent</Label>
+                <p className="text-sm text-slate-500">Automatically chats with customers to collect KYC documents (Aadhar Card, PAN Card, Payslips) using AI.</p>
+              </div>
+              <Switch 
+                checked={formData.whatsapp_ai_agent_enabled} 
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, whatsapp_ai_agent_enabled: checked }))} 
               />
             </div>
           </CardContent>

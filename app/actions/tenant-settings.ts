@@ -6,6 +6,7 @@ export async function updateWorkspaceSettings(formData: {
     fonada_client_id: string;
     fonada_secret: string;
     whatsapp_api_key: string;
+    whatsapp_ai_agent_enabled: boolean;
     cron_auto_checkout: boolean;
     cron_auto_refill: boolean;
     cron_daily_report: boolean;
@@ -37,6 +38,7 @@ export async function updateWorkspaceSettings(formData: {
                 fonada_client_id: formData.fonada_client_id,
                 fonada_secret: formData.fonada_secret,
                 whatsapp_api_key: formData.whatsapp_api_key,
+                whatsapp_ai_agent_enabled: formData.whatsapp_ai_agent_enabled,
                 cron_auto_checkout: formData.cron_auto_checkout,
                 cron_auto_refill: formData.cron_auto_refill,
                 cron_daily_report: formData.cron_daily_report,

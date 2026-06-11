@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       // 🔴 3. STRICT ISOLATION: Find the lead ONLY within this specific company
       const { data: lead, error: leadError } = await supabase
         .from("leads")
-        .select("id, assigned_to, notes")
+        .select("id, name, assigned_to, notes")
         .eq("tenant_id", tenantId) // SECURE LOOKUP
         .ilike("phone", `%${dbPhone}%`)
         .order("created_at", { ascending: false })
@@ -171,11 +171,11 @@ export async function POST(request: NextRequest) {
       }
 
       // 6. SMART AUTO-REPLY LOGIC (Using Company specific credentials)
-      if (!isMedia && lead) {
+      if (lead) {
           const textLower = messageText.toLowerCase();
 
-          // LIE-DETECTOR LOGIC
-          if (textLower === "i am still interested" || textLower.includes("still interested")) {
+          // LIE-DETECTOR SYSTEM RESCUE OVERRIDE (High priority)
+          if (!isMedia && (textLower === "i am still interested" || textLower.includes("still interested"))) {
               const rescueMsg = `Thank you for confirming! We apologize for the confusion. A senior executive has been notified and will contact you immediately.`;
               await sendFonadaMessage(customerPhone, rescueMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
               
@@ -187,29 +187,109 @@ export async function POST(request: NextRequest) {
               }).eq("id", lead.id);
               return NextResponse.json({ status: "success", action: "lead_rescued" });
           }
-        
-          const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply");
-          const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent");
-          const isHelp = textLower.includes("help") || textLower.includes("complete") || textLower.includes("interested");
 
-          if (isPersonalLoan) {
-            const plMessage = `Thank you for your interest. Please share the following documents:\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here.`;
-            await sendFonadaMessage(customerPhone, plMessage, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
-            return NextResponse.json({ status: "success", action: "pl_bot_reply" });
+          // AI CHAT AGENT (OpenRouter)
+          if (settings?.whatsapp_ai_agent_enabled) {
+              try {
+                  const apiKey = process.env.OPENROUTER_API_KEY;
+                  if (!apiKey) {
+                      throw new Error("OPENROUTER_API_KEY environment variable is missing.");
+                  }
+                  
+                  // Fetch last 15 messages for context
+                  const { data: messages } = await supabase
+                    .from("chat_messages")
+                    .select("direction, content")
+                    .eq("lead_id", lead.id)
+                    .order("created_at", { ascending: true })
+                    .limit(15);
+
+                  const formattedMessages = (messages || []).map(msg => ({
+                    role: msg.direction === 'inbound' ? 'user' : 'assistant',
+                    content: msg.content
+                  }));
+
+                  const systemPrompt = `You are an automated WhatsApp chat assistant for our loan service.
+Your primary and absolute objective is to collect the following three required documents from the customer to complete their loan application:
+1. Aadhar Card
+2. PAN Card
+3. Latest Bank Statement or Payslip
+
+Current Customer Name: ${lead?.name || "Customer"}
+
+Rules:
+- You must be polite, helpful, and extremely professional.
+- Keep your replies short and direct (1-3 sentences maximum). Customers ignore long walls of text on WhatsApp.
+- Check the chat history. If the customer has already sent a document (indicated by messages like "📁 Document Uploaded: [URL]" or "📁 Document Link Received: [URL]" or similar references to uploaded/received documents), acknowledge it, and politely ask for the remaining missing documents.
+- If the customer asks questions unrelated to their application or documents, answer them briefly, but immediately guide the conversation back to requesting the missing documents.
+- Do not process or approve the loan yourself; just collect the documents.
+- Once all three documents (Aadhar, PAN, and Bank Statement/payslip) are received, thank them and let them know an agent will review them shortly. Do not ask for further documents.`;
+
+                  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      "Authorization": `Bearer ${apiKey}`,
+                      "Content-Type": "application/json",
+                      "HTTP-Referer": "https://hanva-crm.vercel.app",
+                      "X-Title": "Hanva CRM"
+                    },
+                    body: JSON.stringify({
+                      model: "google/gemini-2.5-flash:free",
+                      messages: [
+                        { role: "system", content: systemPrompt },
+                        ...formattedMessages
+                      ]
+                    })
+                  });
+
+                  if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`OpenRouter API responded with status ${response.status}: ${errText}`);
+                  }
+
+                  const resData = await response.json();
+                  const aiReply = resData.choices?.[0]?.message?.content?.trim() || "";
+
+                  if (aiReply) {
+                    await sendFonadaMessage(customerPhone, aiReply, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
+                    return NextResponse.json({ status: "success", action: "ai_agent_reply" });
+                  } else {
+                    throw new Error("Empty response from OpenRouter");
+                  }
+              } catch (aiError) {
+                  console.error("❌ [AI AGENT ERROR] Failed to process message via OpenRouter:", aiError);
+                  // Fallback response to guide user to documents
+                  const fallbackMsg = `Thank you for your message. Please share clear photos or PDFs of your *Aadhar Card*, *PAN Card*, and *latest Bank Statement/Payslip* here so we can proceed with your loan application.`;
+                  await sendFonadaMessage(customerPhone, fallbackMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
+                  return NextResponse.json({ status: "success", action: "ai_agent_fallback_sent" });
+              }
           }
 
-          if (isSpeakToAgent || isHelp) {
-            if (lead.assigned_to) {
-              const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
-              if (agent && agent.phone) {
-                const agentMsg = `Our representative *${agent.full_name}* has been assigned to your application.\n\nYou can reach them directly at: *${agent.phone}*`;
-                await sendFonadaMessage(customerPhone, agentMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
-                return NextResponse.json({ status: "success", action: "agent_reply_sent" });
+          // FALLBACK / STANDARD AUTO-REPLY LOGIC (when AI agent is disabled)
+          if (!isMedia) {
+              const isPersonalLoan = textLower.includes("personal loan") || textLower.includes("apply");
+              const isSpeakToAgent = textLower.includes("speak with an agent") || textLower.includes("speak to an agent");
+              const isHelp = textLower.includes("help") || textLower.includes("complete") || textLower.includes("interested");
+
+              if (isPersonalLoan) {
+                const plMessage = `Thank you for your interest. Please share the following documents:\n✅ *Aadhar Card*\n✅ *PAN Card*\n✅ *One month's payslip*\n\nYou can upload them here.`;
+                await sendFonadaMessage(customerPhone, plMessage, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
+                return NextResponse.json({ status: "success", action: "pl_bot_reply" });
               }
-            }
-            const fallbackMsg = `Our team has been notified and a representative will call you shortly.`;
-            await sendFonadaMessage(customerPhone, fallbackMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
-            return NextResponse.json({ status: "success", action: "fallback_sent" });
+
+              if (isSpeakToAgent || isHelp) {
+                if (lead.assigned_to) {
+                  const { data: agent } = await supabase.from("users").select("full_name, phone").eq("id", lead.assigned_to).maybeSingle();
+                  if (agent && agent.phone) {
+                    const agentMsg = `Our representative *${agent.full_name}* has been assigned to your application.\n\nYou can reach them directly at: *${agent.phone}*`;
+                    await sendFonadaMessage(customerPhone, agentMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
+                    return NextResponse.json({ status: "success", action: "agent_reply_sent" });
+                  }
+                }
+                const fallbackMsg = `Our team has been notified and a representative will call you shortly.`;
+                await sendFonadaMessage(customerPhone, fallbackMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
+                return NextResponse.json({ status: "success", action: "fallback_sent" });
+              }
           }
       }
       return NextResponse.json({ status: "success" });
