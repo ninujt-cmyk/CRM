@@ -324,11 +324,14 @@ async function sendFonadaMessage(mobile: string, text: string, userId: string, p
   const apiUrl = "https://waba.fonada.com/api/SendMsgOld"; 
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
+  let safePhone = mobile.replace(/^\+/, '');
+  if (safePhone.length === 10) safePhone = `91${safePhone}`;
+
   const formData = new FormData();
   formData.append("userid", userId);
   formData.append("password", pass);
   formData.append("wabaNumber", waba);
-  formData.append("mobile", mobile); 
+  formData.append("mobile", safePhone); 
   formData.append("msg", text);
   formData.append("msgType", "text");
   formData.append("sendMethod", "quick");
@@ -342,7 +345,7 @@ async function sendFonadaMessage(mobile: string, text: string, userId: string, p
         await supabase.from("chat_messages").insert({
             tenant_id: tenantId, // 🔴 Ensure outbound auto-replies belong to the tenant
             lead_id: leadId,
-            phone_number: mobile,
+            phone_number: safePhone,
             direction: 'outbound',
             message_type: 'text',
             content: text,
