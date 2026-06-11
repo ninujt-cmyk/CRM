@@ -37,9 +37,13 @@ export async function POST(request: NextRequest) {
     let fonadaWaba = process.env.FONADA_WABA_NUMBER || "918217354172";
 
     const { data: settings } = await supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
-    if (settings?.fonada_userid) fonadaUser = settings.fonada_userid;
-    if (settings?.fonada_password) fonadaPass = settings.fonada_password;
-    if (settings?.fonada_waba_number) fonadaWaba = settings.fonada_waba_number;
+    const actualUser = settings?.wa_userid || settings?.fonada_userid;
+    const actualPass = settings?.wa_password || settings?.fonada_password;
+    const actualWaba = settings?.wa_waba_number || settings?.fonada_waba_number;
+
+    if (actualUser) fonadaUser = actualUser;
+    if (actualPass) fonadaPass = actualPass;
+    if (actualWaba) fonadaWaba = actualWaba;
 
 
     // =================================================================================

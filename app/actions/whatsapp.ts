@@ -15,13 +15,17 @@ async function getTenantWaCredentials(tenantId: string | null) {
     const supabaseAdmin = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: settings } = await supabaseAdmin
       .from('tenant_settings')
-      .select('fonada_userid, fonada_password, fonada_waba_number, whatsapp_api_key')
+      .select('fonada_userid, fonada_password, fonada_waba_number, whatsapp_api_key, wa_userid, wa_password, wa_waba_number')
       .eq('tenant_id', tenantId)
       .maybeSingle();
     
-    if (settings?.fonada_userid) fonadaUser = settings.fonada_userid;
-    if (settings?.fonada_password) fonadaPass = settings.fonada_password;
-    if (settings?.fonada_waba_number) fonadaWaba = settings.fonada_waba_number;
+    const actualUser = settings?.wa_userid || settings?.fonada_userid;
+    const actualPass = settings?.wa_password || settings?.fonada_password;
+    const actualWaba = settings?.wa_waba_number || settings?.fonada_waba_number;
+
+    if (actualUser) fonadaUser = actualUser;
+    if (actualPass) fonadaPass = actualPass;
+    if (actualWaba) fonadaWaba = actualWaba;
     if (settings?.whatsapp_api_key) whatsappApiKey = settings.whatsapp_api_key;
   }
   return { fonadaUser, fonadaPass, fonadaWaba, whatsappApiKey };
