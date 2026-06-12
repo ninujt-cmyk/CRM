@@ -310,8 +310,42 @@ Communication Style:
                   }
               } catch (aiError) {
                   console.error("❌ [AI AGENT ERROR] Failed to process message via OpenRouter:", aiError);
-                  // Fallback response to guide user to documents
-                  const fallbackMsg = `Thank you for your message. Please share clear photos or PDFs of your *Aadhar Card*, *PAN Card*, and *latest Bank Statement/Payslip* here so we can proceed with your loan application.`;
+                  
+                  // Fetch the count of documents uploaded by this customer so far to create a smart context-aware fallback
+                  let docCount = 0;
+                  try {
+                      const { count } = await supabase
+                        .from("chat_messages")
+                        .select("*", { count: "exact", head: true })
+                        .eq("lead_id", lead.id)
+                        .eq("direction", "inbound")
+                        .or("message_type.eq.document,content.ilike.%📁%");
+                      docCount = count || 0;
+                  } catch (cntErr) {
+                      console.error("⚠️ Failed to count documents, defaulting to 0:", cntErr);
+                  }
+
+                  let fallbackMsg = "";
+                  if (isMedia) {
+                      // Customer just sent a document
+                      if (docCount <= 1) {
+                          fallbackMsg = `Thank you for sharing! Please upload your remaining documents (Aadhar Card, PAN Card, or Payslip/Bank Statement) to proceed with your application.`;
+                      } else if (docCount === 2) {
+                          fallbackMsg = `Thank you! Almost done. Please share the final document (Aadhar Card, PAN Card, or Payslip/Bank Statement) so we can submit your application.`;
+                      } else {
+                          fallbackMsg = `Thank you for sharing your documents. We have received them and a representative will contact you shortly.`;
+                      }
+                  } else {
+                      // Customer sent a text message
+                      if (docCount === 0) {
+                          fallbackMsg = `Thank you for your message. To proceed with your loan application, please share clear photos or PDFs of your *Aadhar Card*, *PAN Card*, and *latest Bank Statement/Payslip* here.`;
+                      } else if (docCount < 3) {
+                          fallbackMsg = `Thank you for your message. We are still waiting for your remaining documents (Aadhar Card, PAN Card, or Payslip/Bank Statement). Please share them here to proceed.`;
+                      } else {
+                          fallbackMsg = `Thank you! All documents have been received. Our representative will contact you shortly to complete the process.`;
+                      }
+                  }
+
                   await sendFonadaMessage(customerPhone, fallbackMsg, fonadaUser, fonadaPass, fonadaWaba, lead.id, tenantId);
                   return NextResponse.json({ status: "success", action: "ai_agent_fallback_sent" });
               }
