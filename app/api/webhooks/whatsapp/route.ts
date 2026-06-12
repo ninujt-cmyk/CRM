@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       if (dbPhone.length > 10) dbPhone = dbPhone.slice(-10);
 
       // 🔴 3. STRICT ISOLATION: Find the lead ONLY within this specific company
-      const { data: lead, error: leadError } = await supabase
+      let { data: lead, error: leadError } = await supabase
         .from("leads")
         .select("id, name, assigned_to, notes")
         .eq("tenant_id", tenantId) // SECURE LOOKUP
@@ -74,6 +74,31 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (leadError) console.error("❌ [DB ERROR] Finding lead:", leadError);
+
+      // 🔴 AUTO-CREATE LEAD IF NOT FOUND
+      if (!lead) {
+          const senderName = body.senderName || body.name || body.fromName || body?.message?.from_name || "WhatsApp Customer";
+          console.log(`🆕 [AUTO-CREATE LEAD] Creating new lead for unregistered number: ${customerPhone} (Tenant: ${tenantId})`);
+          
+          const { data: newLead, error: createError } = await supabase
+            .from("leads")
+            .insert({
+                tenant_id: tenantId,
+                name: senderName,
+                phone: dbPhone,
+                status: "new",
+                source: "other",
+                notes: "🚨 [SYSTEM] Lead automatically created from inbound WhatsApp message."
+            })
+            .select("id, name, assigned_to, notes")
+            .single();
+
+          if (createError) {
+              console.error("❌ [AUTO-CREATE LEAD ERROR] Failed to create lead:", createError);
+          } else if (newLead) {
+              lead = newLead;
+          }
+      }
 
       let finalContentToSave = messageText; 
 
