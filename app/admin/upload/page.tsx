@@ -269,30 +269,122 @@ export default function UploadPage() {
             
             const { data: existing } = await supabase
                 .from("leads")
-                .select("phone, status")
+                .select("id, phone, status, notes, assigned_to")
                 .in("phone", phones)
             
-            const existingMap = new Map<string, string>();
+            const existingMap = new Map<string, any>();
             if (existing) {
-                existing.forEach((e: any) => existingMap.set(e.phone, e.status));
+                existing.forEach((e: any) => existingMap.set(e.phone, e));
             }
 
             const skipStatuses = ['Interested', 'follow_up', 'DISBURSED', 'Disbursed', 'Login', 'Documents_Sent'];
 
-            batch.forEach(row => {
+            for (const row of batch) {
                 if (existingMap.has(row.phone)) {
-                    const existingStatus = existingMap.get(row.phone);
+                    const existingLead = existingMap.get(row.phone);
+                    const existingStatus = existingLead.status;
+                    
                     if (existingStatus && skipStatuses.includes(existingStatus)) {
                         skipCount++
                     } else {
-                        leadsToInsert.push(row)
+                        // SMART MERGE: Update the existing lead instead of creating a duplicate!
+                        try {
+                            const { _originalIndex, _id, ...cleanLeadData } = row;
+                            
+                            // Determine assignee (preserve existing, or assign if empty)
+                            let assigneeId = existingLead.assigned_to;
+                            if (!assigneeId) {
+                                if (autoDistribute && distributionList.length > 0) {
+                                    assigneeId = distributionList[(successCount) % distributionList.length];
+                                } else if (selectedTelecaller && selectedTelecaller !== "unassigned") {
+                                    assigneeId = selectedTelecaller;
+                                }
+                            }
+
+                            // Determine priority
+                            let finalPriority = 'medium';
+                            if (autoPrioritize) {
+                                const amount = Number(row.loan_amount || 0);
+                                const designation = String(row.designation || "").toLowerCase();
+                                const notes = String(row.notes || "").toLowerCase();
+                                const isHighAmount = amount >= 1500000;
+                                const isLowAmount = amount > 0 && amount < 300000;
+                                const isHighProfile = designation.includes("director") || designation.includes("owner") || designation.includes("founder") || designation.includes("ceo") || designation.includes("vp") || designation.includes("president") || designation.includes("partner") || designation.includes("manager");
+                                const isHighIntent = notes.includes("urgent") || notes.includes("interested") || notes.includes("now") || notes.includes("immediately");
+
+                                if (isHighAmount || isHighProfile || isHighIntent) {
+                                    finalPriority = 'high';
+                                } else if (isLowAmount) {
+                                    finalPriority = 'low';
+                                }
+                            }
+
+                            // Merge notes: append instead of overwriting completely
+                            let mergedNotes = cleanLeadData.notes || "";
+                            if (existingLead.notes && cleanLeadData.notes) {
+                                mergedNotes = `${existingLead.notes}\n\n[Import Update]: ${cleanLeadData.notes}`;
+                            } else if (existingLead.notes) {
+                                mergedNotes = existingLead.notes;
+                            }
+
+                            const updatePayload: any = {
+                                tenant_id: tenantId,
+                                name: cleanLeadData.name || undefined,
+                                email: cleanLeadData.email || null,
+                                company: cleanLeadData.company || null,
+                                designation: cleanLeadData.designation || null,
+                                address: cleanLeadData.address || null,
+                                city: cleanLeadData.city || null,
+                                state: cleanLeadData.state || null,
+                                notes: mergedNotes || null,
+                                source: (globalSource || cleanLeadData.source || "other").toLowerCase(),
+                                tags: globalTags ? globalTags.split(",").map(t => t.trim()) : [],
+                                assigned_to: assigneeId,
+                                assigned_at: assigneeId && !existingLead.assigned_to ? new Date().toISOString() : undefined,
+                                priority: finalPriority,
+                                updated_at: new Date().toISOString()
+                            };
+
+                            // Clean undefined keys from payload
+                            Object.keys(updatePayload).forEach(key => {
+                                if (updatePayload[key] === undefined) {
+                                    delete updatePayload[key];
+                                }
+                            });
+
+                            const { error: updateError } = await supabase
+                                .from("leads")
+                                .update(updatePayload)
+                                .eq("id", existingLead.id);
+
+                            if (updateError) {
+                                throw updateError;
+                            }
+
+                            // Update stats for successfully updated lead
+                            if (finalPriority === 'high') setHighPriorityCount(prev => prev + 1);
+                            else if (finalPriority === 'low') setLowPriorityCount(prev => prev + 1);
+                            else setMediumPriorityCount(prev => prev + 1);
+
+                            if (assigneeId) {
+                                setAssignmentSummary(prev => ({
+                                    ...prev,
+                                    [assigneeId]: (prev[assigneeId] || 0) + 1
+                                }));
+                            }
+
+                            successCount++;
+                        } catch (err: any) {
+                            failCount++;
+                            errors.push({ ...row, error: err.message || "Failed to update lead" });
+                        }
                     }
                 } else {
-                    leadsToInsert.push(row)
+                    leadsToInsert.push(row);
                 }
-            })
+            }
         } else {
-            leadsToInsert.push(...batch)
+            leadsToInsert.push(...batch);
         }
 
         if (leadsToInsert.length > 0) {
