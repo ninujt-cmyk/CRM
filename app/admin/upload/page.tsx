@@ -135,8 +135,38 @@ export default function UploadPage() {
 
   const checkActiveTelecallersCount = async () => {
     const today = new Date().toISOString().split('T')[0]
-    const { count } = await supabase.from("attendance").select("user_id", { count: 'exact', head: true }).eq("date", today).not("check_in", "is", null)
-    if (count !== null) setActiveCount(count)
+    
+    // Fetch active telecallers of the current tenant first
+    const { data: activeTcs } = await supabase
+      .from("users")
+      .select("id")
+      .eq("role", "telecaller")
+      .eq("is_active", true)
+
+    if (!activeTcs || activeTcs.length === 0) {
+      setActiveCount(0)
+      return
+    }
+
+    const activeTcIds = activeTcs.map((u: any) => u.id as string)
+
+    // Fetch checked-in records
+    const { data: attendanceData } = await supabase
+      .from("attendance")
+      .select("user_id")
+      .eq("date", today)
+      .not("check_in", "is", null)
+
+    if (attendanceData) {
+      const checkedInTcs = attendanceData
+        .map((a: any) => a.user_id as string)
+        .filter((id: string) => activeTcIds.includes(id))
+      
+      const uniqueCount = new Set(checkedInTcs).size
+      setActiveCount(uniqueCount)
+    } else {
+      setActiveCount(0)
+    }
   }
 
   // --- Handlers: Step 1 (File Selection) ---
@@ -255,8 +285,24 @@ export default function UploadPage() {
     let distributionList: string[] = []
     if (autoDistribute) {
         const today = new Date().toISOString().split('T')[0]
-        const { data: activeUsers } = await supabase.from("attendance").select("user_id").eq("date", today).not("check_in", "is", null)
-        if (activeUsers) distributionList = shuffleArray(activeUsers.map((u: any) => u.user_id))
+        const { data: activeUsers } = await supabase
+            .from("attendance")
+            .select("user_id")
+            .eq("date", today)
+            .not("check_in", "is", null)
+
+        if (activeUsers) {
+            const activeTcIds = telecallers.map(t => t.id)
+            const checkedInTcs = activeUsers
+                .map((u: any) => u.user_id as string)
+                .filter((id: string) => activeTcIds.includes(id))
+            
+            // Deduplicate telecallers to handle multiple check-in entries
+            const uniqueCheckedInTcs = Array.from(new Set(checkedInTcs)) as string[]
+            if (uniqueCheckedInTcs.length > 0) {
+                distributionList = shuffleArray(uniqueCheckedInTcs)
+            }
+        }
     }
 
     // 3. Batch Process

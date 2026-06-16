@@ -119,10 +119,10 @@ export async function GET(request: NextRequest) {
     let successCount = 0;
     let failCount = 0;
 
-    // 🔴 2. CHUNKED CONCURRENCY (The Magic Speed Boost)
-    // We process 50 logs at the exact same time. Once those 50 finish, we do the next 50.
-    // This protects Supabase's connection pool while running 50x faster!
-    const chunkSize = 50; 
+    // 🔴 2. CHUNKED CONCURRENCY (Connection Pool Protected)
+    // We process 15 logs at the exact same time. Once those 15 finish, we do the next 15.
+    // This protects Supabase's connection pool while keeping processing fast.
+    const chunkSize = 15; 
     
     for (let i = 0; i < pendingEvents.length; i += chunkSize) {
         const chunk = pendingEvents.slice(i, i + chunkSize);

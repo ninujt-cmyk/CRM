@@ -58,45 +58,48 @@ export async function GET(request: Request) {
 
     console.log(`⚠️ [CRON] Auto-checking out ${activeSessions.length} users...`);
 
-    // 4. PROCESS CHECKOUTS
-    const updatePromises = activeSessions.map(async (session) => {
-      const checkInDate = new Date(session.check_in);
-      
-      let totalMinutes = differenceInMinutes(autoCheckoutDate, checkInDate);
-      let breakMinutes = 0;
+    // 4. PROCESS CHECKOUTS (Connection Pool Protected)
+    const chunkSize = 15;
+    for (let i = 0; i < activeSessions.length; i += chunkSize) {
+      const chunk = activeSessions.slice(i, i + chunkSize);
+      const chunkPromises = chunk.map(async (session) => {
+        const checkInDate = new Date(session.check_in);
+        
+        let totalMinutes = differenceInMinutes(autoCheckoutDate, checkInDate);
+        let breakMinutes = 0;
 
-      if (session.lunch_start && session.lunch_end) {
-        breakMinutes = differenceInMinutes(parseISO(session.lunch_end), parseISO(session.lunch_start));
-      } else if (session.lunch_start && !session.lunch_end) {
-        breakMinutes = differenceInMinutes(autoCheckoutDate, parseISO(session.lunch_start));
-        await supabaseAdmin.from('attendance')
-            .update({ lunch_end: autoCheckoutTimeStr })
-            .eq('id', session.id);
-      }
+        if (session.lunch_start && session.lunch_end) {
+          breakMinutes = differenceInMinutes(parseISO(session.lunch_end), parseISO(session.lunch_start));
+        } else if (session.lunch_start && !session.lunch_end) {
+          breakMinutes = differenceInMinutes(autoCheckoutDate, parseISO(session.lunch_start));
+          await supabaseAdmin.from('attendance')
+              .update({ lunch_end: autoCheckoutTimeStr })
+              .eq('id', session.id);
+        }
 
-      const workingMinutes = Math.max(0, totalMinutes - breakMinutes);
-      const hours = Math.floor(workingMinutes / 60);
-      const mins = workingMinutes % 60;
-      const totalHoursStr = `${hours}:${mins.toString().padStart(2, '0')}`;
+        const workingMinutes = Math.max(0, totalMinutes - breakMinutes);
+        const hours = Math.floor(workingMinutes / 60);
+        const mins = workingMinutes % 60;
+        const totalHoursStr = `${hours}:${mins.toString().padStart(2, '0')}`;
 
-      const existingNotes = session.notes ? session.notes + '\n' : '';
-      const autoNote = "System: Auto-checked out at 7:00 PM";
+        const existingNotes = session.notes ? session.notes + '\n' : '';
+        const autoNote = "System: Auto-checked out at 7:00 PM";
 
-      // 🔴 EXTRA ISOLATION SAFETY: Match both ID and Tenant ID on the update
-      return supabaseAdmin
-        .from('attendance')
-        .update({
-          check_out: autoCheckoutTimeStr,
-          total_hours: totalHoursStr,
-          status: 'present',
-          notes: existingNotes + autoNote,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', session.id)
-        .eq('tenant_id', session.tenant_id); 
-    });
-
-    await Promise.all(updatePromises);
+        // 🔴 EXTRA ISOLATION SAFETY: Match both ID and Tenant ID on the update
+        await supabaseAdmin
+          .from('attendance')
+          .update({
+            check_out: autoCheckoutTimeStr,
+            total_hours: totalHoursStr,
+            status: 'present',
+            notes: existingNotes + autoNote,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', session.id)
+          .eq('tenant_id', session.tenant_id); 
+      });
+      await Promise.all(chunkPromises);
+    }
 
     console.log(`🏁 [CRON FINISHED] Successfully checked out ${activeSessions.length} employees.`);
     
