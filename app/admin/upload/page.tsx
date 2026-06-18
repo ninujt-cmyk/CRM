@@ -135,38 +135,8 @@ export default function UploadPage() {
 
   const checkActiveTelecallersCount = async () => {
     const today = new Date().toISOString().split('T')[0]
-    
-    // Fetch active telecallers of the current tenant first
-    const { data: activeTcs } = await supabase
-      .from("users")
-      .select("id")
-      .eq("role", "telecaller")
-      .eq("is_active", true)
-
-    if (!activeTcs || activeTcs.length === 0) {
-      setActiveCount(0)
-      return
-    }
-
-    const activeTcIds = activeTcs.map((u: any) => u.id as string)
-
-    // Fetch checked-in records
-    const { data: attendanceData } = await supabase
-      .from("attendance")
-      .select("user_id")
-      .eq("date", today)
-      .not("check_in", "is", null)
-
-    if (attendanceData) {
-      const checkedInTcs = attendanceData
-        .map((a: any) => a.user_id as string)
-        .filter((id: string) => activeTcIds.includes(id))
-      
-      const uniqueCount = new Set(checkedInTcs).size
-      setActiveCount(uniqueCount)
-    } else {
-      setActiveCount(0)
-    }
+    const { count } = await supabase.from("attendance").select("user_id", { count: 'exact', head: true }).eq("date", today).not("check_in", "is", null)
+    if (count !== null) setActiveCount(count)
   }
 
   // --- Handlers: Step 1 (File Selection) ---
@@ -277,6 +247,7 @@ export default function UploadPage() {
 
     const BATCH_SIZE = 50
     let successCount = 0
+    let roundRobinIndex = 0
     let skipCount = tempSkipCount; 
     let failCount = 0
     const errors: any[] = []
@@ -285,24 +256,8 @@ export default function UploadPage() {
     let distributionList: string[] = []
     if (autoDistribute) {
         const today = new Date().toISOString().split('T')[0]
-        const { data: activeUsers } = await supabase
-            .from("attendance")
-            .select("user_id")
-            .eq("date", today)
-            .not("check_in", "is", null)
-
-        if (activeUsers) {
-            const activeTcIds = telecallers.map(t => t.id)
-            const checkedInTcs = activeUsers
-                .map((u: any) => u.user_id as string)
-                .filter((id: string) => activeTcIds.includes(id))
-            
-            // Deduplicate telecallers to handle multiple check-in entries
-            const uniqueCheckedInTcs = Array.from(new Set(checkedInTcs)) as string[]
-            if (uniqueCheckedInTcs.length > 0) {
-                distributionList = shuffleArray(uniqueCheckedInTcs)
-            }
-        }
+        const { data: activeUsers } = await supabase.from("attendance").select("user_id").eq("date", today).not("check_in", "is", null)
+        if (activeUsers) distributionList = shuffleArray(activeUsers.map((u: any) => u.user_id))
     }
 
     // 3. Batch Process
@@ -341,7 +296,8 @@ export default function UploadPage() {
                             let assigneeId = existingLead.assigned_to;
                             if (!assigneeId) {
                                 if (autoDistribute && distributionList.length > 0) {
-                                    assigneeId = distributionList[(successCount) % distributionList.length];
+                                    assigneeId = distributionList[roundRobinIndex % distributionList.length];
+                                    roundRobinIndex++;
                                 } else if (selectedTelecaller && selectedTelecaller !== "unassigned") {
                                     assigneeId = selectedTelecaller;
                                 }
@@ -439,7 +395,8 @@ export default function UploadPage() {
             const finalLeads = leadsToInsert.map((lead, idx) => {
                   let assigneeId = null
                   if (autoDistribute && distributionList.length > 0) {
-                      assigneeId = distributionList[(successCount + idx) % distributionList.length]
+                      assigneeId = distributionList[roundRobinIndex % distributionList.length];
+                      roundRobinIndex++;
                   } else if (selectedTelecaller && selectedTelecaller !== "unassigned") {
                       assigneeId = selectedTelecaller
                   }
