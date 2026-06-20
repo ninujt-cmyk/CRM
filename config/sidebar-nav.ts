@@ -16,7 +16,8 @@ import {
   Workflow,          // Replaced KeyRound for "Operations" (Interconnected processes)
   PhoneOutgoing,     // Replaced KeyRound for "Dialer" (Directly indicates outbound calling)
   Settings,
-  CloudUpload 
+  CloudUpload,
+  Webhook
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -59,6 +60,7 @@ export const sidebarGroups = [
     label: "System",
     items: [
       { name: "Settings", href: "/admin/settings", icon: Settings, module: "core" },
+      { name: "Integrations", href: "/admin/integrations", icon: Webhook, module: "integrations" },
     ]
   }
 ]

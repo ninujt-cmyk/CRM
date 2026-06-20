@@ -62,6 +62,7 @@ export default function SuperAdminConsole() {
     { id: "wallboard", name: "Live Wallboard", icon: Presentation },
     { id: "ivr", name: "IVR Campaigns", icon: Workflow },
     { id: "files", name: "Master Data", icon: CloudUpload },
+    { id: "integrations", name: "Lead Sources & Webhooks", icon: Workflow },
     { id: "logs", name: "System Logs", icon: Activity },
   ]
 
