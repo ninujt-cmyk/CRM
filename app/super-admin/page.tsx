@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare } from "lucide-react"
 import { toast } from "sonner"
 
-import { provisionNewTenant, updateTenantSettings } from "@/app/actions/super-admin"
+import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations } from "@/app/actions/super-admin"
 import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
 import { LoadingSkeleton } from "@/components/loading-skeleton"
 import { useRouter } from "next/navigation"
@@ -79,13 +79,14 @@ export default function SuperAdminConsole() {
         return router.push('/telecaller')
     }
 
-    // Fetch Orgs and get a rough user count
-    const { data: orgs, error } = await supabase
-      .from('organizations')
-      .select('*, users(count)')
-      .order('created_at', { ascending: false })
-
-    if (orgs) setOrganizations(orgs)
+    // Fetch Orgs bypassing RLS
+    const res = await fetchAllOrganizations()
+    
+    if (res.success && res.data) {
+        setOrganizations(res.data)
+    } else if (!res.success) {
+        toast.error(res.error)
+    }
     setLoading(false)
   }
 

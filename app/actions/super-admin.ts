@@ -107,3 +107,33 @@ export async function updateTenantSettings(orgId: string, enabledStatuses: strin
         return { success: false, error: error.message || "Failed to update tenant settings" }
     }
 }
+
+export async function fetchAllOrganizations() {
+    try {
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error("Unauthorized")
+
+        const { data: caller } = await supabase.from('users').select('role').eq('id', user.id).single()
+        if (caller?.role !== 'super_admin') {
+            throw new Error("Forbidden: Only Super Admins can view all tenants.")
+        }
+
+        const supabaseAdmin = createAdminClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+
+        const { data: orgs, error } = await supabaseAdmin
+            .from('organizations')
+            .select('*, users(count)')
+            .order('created_at', { ascending: false })
+
+        if (error) throw new Error("Failed to fetch organizations: " + error.message)
+
+        return { success: true, data: orgs }
+    } catch (error: any) {
+        console.error("Fetch Error:", error)
+        return { success: false, error: error.message || "Failed to fetch organizations" }
+    }
+}
