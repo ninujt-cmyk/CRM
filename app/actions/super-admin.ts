@@ -126,12 +126,31 @@ export async function fetchAllOrganizations() {
 
         const { data: orgs, error } = await supabaseAdmin
             .from('organizations')
-            .select('*, users(count)')
+            .select('*')
             .order('created_at', { ascending: false })
 
         if (error) throw new Error("Failed to fetch organizations: " + error.message)
 
-        return { success: true, data: orgs }
+        // Fetch user counts manually to avoid schema cache issues if FK is missing
+        const { data: userCounts } = await supabaseAdmin
+            .from('users')
+            .select('tenant_id');
+        
+        const countsMap: Record<string, number> = {};
+        if (userCounts) {
+            userCounts.forEach(u => {
+                if (u.tenant_id) {
+                    countsMap[u.tenant_id] = (countsMap[u.tenant_id] || 0) + 1;
+                }
+            });
+        }
+
+        const orgsWithCounts = orgs.map(org => ({
+            ...org,
+            users: [{ count: countsMap[org.id] || 0 }]
+        }));
+
+        return { success: true, data: orgsWithCounts }
     } catch (error: any) {
         console.error("Fetch Error:", error)
         return { success: false, error: error.message || "Failed to fetch organizations" }
