@@ -8,6 +8,7 @@ import { Watermark } from "@/components/watermark"
 
 // ✅ 1. IMPORT THE TENANT PROVIDER
 import { TenantProvider } from "@/context/tenant-provider"
+import { GlobalModuleGuard } from "@/components/global-module-guard"
 
 export default function AdminLayout({
   children,
@@ -26,7 +27,11 @@ export default function AdminLayout({
             <div className="flex-1 flex flex-col">
               <TopHeader />
               {/* The watermark is fixed, so it will float above everything here */}
-              <main className="flex-1 overflow-y-auto relative">{children}</main>
+              <main className="flex-1 overflow-y-auto relative">
+                <GlobalModuleGuard>
+                  {children}
+                </GlobalModuleGuard>
+              </main>
             </div>
           </div>
         </CallTrackingProvider>

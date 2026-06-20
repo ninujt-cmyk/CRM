@@ -75,7 +75,7 @@ export async function provisionNewTenant(formData: {
     }
 }
 
-export async function updateTenantSettings(orgId: string, enabledStatuses: string[], workflowTriggers: any) {
+export async function updateTenantSettings(orgId: string, enabledStatuses: string[], workflowTriggers: any, enabledModules: string[]) {
     try {
         const supabase = await createClient()
         const { data: { user } } = await supabase.auth.getUser()
@@ -95,7 +95,8 @@ export async function updateTenantSettings(orgId: string, enabledStatuses: strin
             .from('organizations')
             .update({ 
                 enabled_statuses: enabledStatuses,
-                workflow_triggers: workflowTriggers
+                workflow_triggers: workflowTriggers,
+                enabled_modules: enabledModules
             })
             .eq('id', orgId)
 

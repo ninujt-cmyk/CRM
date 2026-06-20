@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { sendWhatsAppText } from "@/app/actions/whatsapp"
 import Link from "next/link"
+import { ModuleGuard } from "@/components/module-guard"
 
 // --- TYPES ---
 interface ChatLead {
@@ -317,7 +318,8 @@ export default function AdminWhatsAppPanel() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
+    <ModuleGuard requiredModule="whatsapp">
+      <div className="flex h-[calc(100vh-7.5rem)] bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
       
       {/* --- LEFT SIDEBAR: GOD MODE --- */}
       <div className="w-1/3 border-r border-slate-200/60 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex flex-col">
@@ -511,5 +513,6 @@ export default function AdminWhatsAppPanel() {
         )}
       </div>
     </div>
+    </ModuleGuard>
   )
 }

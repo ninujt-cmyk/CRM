@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare } from "lucide-react"
+import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare, MessageSquare, BarChart3, Presentation, Workflow, CloudUpload, Activity } from "lucide-react"
 import { toast } from "sonner"
 
 import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations, fetchGlobalStatuses, addGlobalStatus } from "@/app/actions/super-admin"
@@ -50,11 +50,26 @@ export default function SuperAdminConsole() {
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false)
   const [enabledStatuses, setEnabledStatuses] = useState<string[]>([])
   const [workflowTriggers, setWorkflowTriggers] = useState<any>(DEFAULT_WORKFLOW_TRIGGERS)
+  const [enabledModules, setEnabledModules] = useState<string[]>([])
+
+  const AVAILABLE_MODULES = [
+    { id: "leads", name: "Lead Management", icon: Users },
+    { id: "dialer", name: "Calling & Dialer", icon: Server },
+    { id: "team", name: "User Management", icon: Users },
+    { id: "attendance", name: "Attendance & Leaves", icon: CheckSquare },
+    { id: "whatsapp", name: "WhatsApp Integration", icon: MessageSquare },
+    { id: "analytics", name: "Reports & Charts", icon: BarChart3 },
+    { id: "wallboard", name: "Live Wallboard", icon: Presentation },
+    { id: "ivr", name: "IVR Campaigns", icon: Workflow },
+    { id: "files", name: "Master Data", icon: CloudUpload },
+    { id: "logs", name: "System Logs", icon: Activity },
+  ]
 
   const openSettings = (org: any) => {
     setSelectedOrg(org)
     setEnabledStatuses(org.enabled_statuses || currentMasterStatuses.map(s => s.value))
     setWorkflowTriggers(org.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS)
+    setEnabledModules(org.enabled_modules || ["leads", "dialer", "team", "analytics"])
     setShowSettingsModal(true)
   }
 
@@ -66,10 +81,18 @@ export default function SuperAdminConsole() {
     }
   }
 
+  const toggleModule = (moduleId: string) => {
+    if (enabledModules.includes(moduleId)) {
+      setEnabledModules(enabledModules.filter(m => m !== moduleId))
+    } else {
+      setEnabledModules([...enabledModules, moduleId])
+    }
+  }
+
   const handleUpdateSettings = async () => {
     if (!selectedOrg) return
     setIsUpdatingSettings(true)
-    const res = await updateTenantSettings(selectedOrg.id, enabledStatuses, workflowTriggers)
+    const res = await updateTenantSettings(selectedOrg.id, enabledStatuses, workflowTriggers, enabledModules)
     if (res.success) {
       toast.success(res.message)
       setShowSettingsModal(false)
@@ -392,6 +415,31 @@ export default function SuperAdminConsole() {
                     <label htmlFor={`status-${status.value}`} className="text-sm font-medium leading-none cursor-pointer flex items-center gap-2">
                       {(() => { const OptIcon = resolveIcon(status.icon_name); return <OptIcon className="w-3.5 h-3.5 text-slate-500"/> })()}
                       {status.label}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b pb-2">
+                <Settings className="h-4 w-4 text-indigo-500" />
+                Feature Modules
+              </h4>
+              <p className="text-xs text-slate-500 mb-2">Enable or disable specific system modules for this tenant.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {AVAILABLE_MODULES.map(mod => (
+                  <div key={mod.id} className="flex items-center space-x-2 bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 shadow-sm transition-all hover:shadow-md">
+                    <input 
+                      type="checkbox" 
+                      id={`mod-${mod.id}`}
+                      checked={enabledModules.includes(mod.id)}
+                      onChange={() => toggleModule(mod.id)}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <label htmlFor={`mod-${mod.id}`} className="text-sm font-semibold leading-none cursor-pointer flex items-center gap-2 flex-1 text-slate-700">
+                      <mod.icon className="w-4 h-4 text-slate-400" />
+                      {mod.name}
                     </label>
                   </div>
                 ))}

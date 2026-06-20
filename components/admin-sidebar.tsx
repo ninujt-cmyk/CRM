@@ -175,6 +175,8 @@ export function AdminSidebar() {
 // --- INTERNAL CONTENT RENDERER ---
 function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathname: string }) {
   const supabase = createClient()
+  const { useTenant } = require("@/context/tenant-provider");
+  const org = useTenant();
   const [userData, setUserData] = useState<{ name: string; email: string }>({
     name: "Admin User",
     email: "admin@hanva.com",
@@ -256,7 +258,17 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       <ScrollArea className="flex-1 py-6 min-h-0">
         <div className="px-4 space-y-9">
           <TooltipProvider delayDuration={0}>
-            {sidebarGroups.map((group, groupIndex) => (
+            {sidebarGroups.map((group, groupIndex) => {
+              // Filter items based on enabled modules
+              const visibleItems = group.items.filter(item => {
+                if (item.module === "core") return true;
+                if (!org || !org.enabled_modules) return false;
+                return org.enabled_modules.includes(item.module);
+              });
+
+              if (visibleItems.length === 0) return null;
+
+              return (
               <div key={group.label} className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${groupIndex * 100}ms` }}>
                 {!isCollapsed && (
                   <h4 className="mb-4 px-3 text-[11px] font-extrabold text-slate-300 uppercase tracking-widest">
@@ -264,7 +276,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
                   </h4>
                 )}
                 <div className="space-y-1.5">
-                  {group.items.map((item) => (
+                  {visibleItems.map((item) => (
                     <SidebarItem 
                       key={item.href} 
                       item={item} 
@@ -274,7 +286,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
                   ))}
                 </div>
               </div>
-            ))}
+            )})}
           </TooltipProvider>
         </div>
       </ScrollArea>
