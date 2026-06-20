@@ -152,7 +152,7 @@ export function AdminSidebar() {
       {/* 2. DESKTOP SIDEBAR */}
       <div 
         className={cn(
-          "hidden md:flex flex-col h-screen bg-slate-50/50 dark:bg-slate-950/50 border-r border-slate-200/60 dark:border-slate-850/60 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] relative sticky top-0",
+          "hidden md:flex flex-col h-screen glass border-r transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] relative sticky top-0",
           isCollapsed ? "w-[90px]" : "w-72"
         )}
       >
@@ -227,7 +227,7 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
   }
 
   return (
-    <div className="flex flex-col h-full bg-white/60 dark:bg-slate-900/60 backdrop-blur-2xl">
+    <div className="flex flex-col h-full bg-transparent">
       
       {/* Branding - 3D Logo */}
       <div className={cn("h-24 flex items-center border-b border-slate-100/50 dark:border-slate-800/50 px-6 transition-all duration-500", isCollapsed ? "justify-center" : "justify-start gap-4")}>

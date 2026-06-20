@@ -157,7 +157,7 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 min-h-16 pt-[max(env(safe-area-inset-top),0rem)] px-4 md:px-6 flex items-center justify-between gap-4 transition-all">
+    <header className="sticky top-0 z-30 glass border-b min-h-16 pt-[max(env(safe-area-inset-top),0rem)] px-4 md:px-6 flex items-center justify-between gap-4 transition-all">
       
       {/* LEFT: Mobile Toggle & Breadcrumbs */}
       <div className={`flex items-center gap-4 ${isSearchOpen ? 'hidden md:flex' : 'flex-1'}`}>
