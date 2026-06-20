@@ -95,10 +95,11 @@ const DetailItem = ({ label, value, icon }: { label: string, value: React.ReactN
 // --- COMPONENT: Transfer Module ---
 interface LeadTransferModuleProps {
     lead: Lead;
+    tenantId?: string | null;
     onTransferSuccess: (kycUserId: string) => void;
 }
 
-const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps) => {
+const LeadTransferModule = ({ lead, tenantId, onTransferSuccess }: LeadTransferModuleProps) => {
     const supabase = createClient();
     const { toast } = useToast();
     const [kycUsers, setKycUsers] = useState<UserProfile[]>([]);
@@ -109,7 +110,7 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
     const fetchedRef = useRef(false); 
 
     useEffect(() => {
-        if (fetchedRef.current) return;
+        if (fetchedRef.current || !tenantId) return;
         fetchedRef.current = true;
 
         const fetchKycUsers = async () => {
@@ -118,6 +119,7 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
                 .from('users') 
                 .select('id, email, full_name')
                 .eq('role', 'kyc_team') 
+                .eq('tenant_id', tenantId)
                 .limit(100);
 
             if (error) {
@@ -130,7 +132,7 @@ const LeadTransferModule = ({ lead, onTransferSuccess }: LeadTransferModuleProps
             setIsFetchingUsers(false);
         };
         fetchKycUsers();
-    }, [supabase]);
+    }, [supabase, tenantId]);
 
     const handleTransfer = async () => {
         if (!selectedKycUserId) return;
@@ -222,6 +224,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     // Auth States
     const [agentName, setAgentName] = useState<string>("Agent");
     const [agentId, setAgentId] = useState<string>(""); 
+    const [tenantId, setTenantId] = useState<string | null>(null);
 
     // ⌨️ KEYBOARD SHORTCUTS & DIALER STATES
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -351,9 +354,11 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 
                 const { data: userProfile } = await supabase
                     .from('users')
-                    .select('full_name')
+                    .select('full_name, tenant_id')
                     .eq('id', user.id)
                     .single();
+                
+                if (userProfile?.tenant_id) setTenantId(userProfile.tenant_id);
                 
                 const fetchedName = userProfile?.full_name 
                     || user.user_metadata?.full_name 
@@ -544,7 +549,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
 
                     {/* TRANSFER MODULE (Conditionally Rendered) */}
                     {(lead.status === STATUSES.LOGIN_DONE || lead.status === STATUSES.TRANSFERRED_TO_KYC) ? (
-                        <LeadTransferModule lead={lead} onTransferSuccess={(id) => handleInputChange('kyc_member_id', id)} />
+                        <LeadTransferModule lead={lead} tenantId={tenantId} onTransferSuccess={(id) => handleInputChange('kyc_member_id', id)} />
                     ) : (
                         <Card className="bg-slate-50 border-slate-200 text-slate-500">
                             <CardContent className="p-4 text-sm text-center">

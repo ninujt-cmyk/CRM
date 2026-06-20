@@ -13,11 +13,24 @@ export interface KycTeamMember {
 export async function getKycTeamMembers(): Promise<KycTeamMember[]> {
   const supabase = await createClient();
 
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.tenant_id) return [];
+
   // Assuming your user roles are stored in a 'users' table with a 'role' column.
   const { data, error } = await supabase
     .from("users") // Use 'profiles' or whatever table holds your user roles
     .select("id, full_name") // Adjust column names as necessary
-    .eq("role", "kyc_team"); 
+    .eq("role", "kyc_team")
+    .eq("tenant_id", profile.tenant_id)
+    .eq("is_active", true); 
 
   if (error) {
     console.error("Error fetching KYC team members:", error);
@@ -45,7 +58,7 @@ export async function transferLeadToKyc({
   const { data: leadUpdate, error: leadError } = await supabase
     .from("leads")
     .update({
-      status: "Awaiting KYC", 
+      status: "Transferred to KYC", 
       kyc_member_id: kycMemberId, 
     })
     .eq("id", leadId)

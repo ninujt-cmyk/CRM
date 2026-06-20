@@ -56,6 +56,7 @@ type Lead = {
 // --- CONSTANTS ---
 const STATUS_OPTS = [
   { label: "All Leads", value: "all" },
+  { label: "Login Done", value: "Login Done" },
   { label: "Transferred to KYC", value: "Transferred to KYC" },
   { label: "Underwriting", value: "Underwriting" },
   { label: "Approved", value: "Approved" },
@@ -164,7 +165,7 @@ export default function KycLeadsPage() {
   const stats = useMemo(() => {
     return {
       total: leads.length,
-      pending: leads.filter(l => ["Transferred to KYC", "Underwriting"].includes(l.status)).length,
+      pending: leads.filter(l => ["Login Done", "Transferred to KYC", "Underwriting"].includes(l.status)).length,
       approved: leads.filter(l => l.status === "Approved").length,
       DISBURSED: leads.filter(l => l.status === "DISBURSED").length,
     }
@@ -173,6 +174,8 @@ export default function KycLeadsPage() {
   // --- HELPER: STATUS BADGE ---
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "Login Done":
+        return <Badge className="bg-gray-400 text-white">Login Done</Badge>
       case "Transferred to KYC":
         return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200">New Assignment</Badge>
       case "Underwriting":

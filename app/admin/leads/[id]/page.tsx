@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
 import { 
   Phone, Mail, MapPin, Calendar, MessageSquare, ArrowLeft, Clock, Save, History, 
-  Building, User, AlertTriangle, Printer, Trash2, CheckCircle2, Circle, Copy, ExternalLink, ArrowRightCircle
+  Building, User, AlertTriangle, Printer, Trash2, CheckCircle2, Circle, Copy, ExternalLink, ArrowRightCircle, ShieldCheck
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -64,6 +64,7 @@ interface Lead {
   last_contacted: string | null
   next_follow_up: string | null
   assigned_to: string | null
+  kyc_member_id: string | null
   assigned_user: { id: string; full_name: string } | null
   assigner: { id: string; full_name: string } | null
   notes: string | null
@@ -83,8 +84,11 @@ const PIPELINE_STEPS = [
     { id: 'new', label: 'New Lead' },
     { id: 'contacted', label: 'Contacted' },
     { id: 'Interested', label: 'Interested' },
-    { id: 'Login', label: 'Login' },
-    { id: 'Disbursed', label: 'Disbursed' }
+    { id: 'Login Done', label: 'Login Done' },
+    { id: 'Transferred to KYC', label: 'Transferred to KYC' },
+    { id: 'Underwriting', label: 'Underwriting' },
+    { id: 'Approved', label: 'Approved' },
+    { id: 'DISBURSED', label: 'Disbursed' }
 ]
 
 export default function EditLeadPage({ params }: EditLeadPageProps) {
@@ -95,6 +99,8 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
   const [lead, setLead] = useState<Lead | null>(null)
   const [telecallers, setTelecallers] = useState<Telecaller[] | null>(null)
   const [telecallerStatus, setTelecallerStatus] = useState<Record<string, boolean>>({})
+  const [kycMembers, setKycMembers] = useState<{id: string, full_name: string}[] | null>(null)
+  const [selectedStatus, setSelectedStatus] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
@@ -131,6 +137,19 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
             assigner: leadData.assigner || null
         }
         setLead(leadWithUserData as Lead)
+        setSelectedStatus(leadData.status)
+
+        const { data: userProfile } = await supabase.from("users").select("tenant_id").eq("id", currentUser.id).single()
+        if (userProfile?.tenant_id) {
+            const { data: kycData } = await supabase
+              .from("users")
+              .select("id, full_name")
+              .eq("role", "kyc_team")
+              .eq("tenant_id", userProfile.tenant_id)
+              .eq("is_active", true)
+            
+            if (kycData) setKycMembers(kycData)
+        }
 
         const { data: telecallersData } = await supabase
           .from("users")
@@ -184,6 +203,7 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
     try {
       const formData = new FormData(event.currentTarget)
       const assignedToValue = formData.get("assigned_to") as string
+      const kycMemberValue = formData.get("kyc_member_id") as string
       
       const updates = {
         name: formData.get("name") as string,
@@ -199,6 +219,7 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
         status: formData.get("status") as string,
         priority: formData.get("priority") as string,
         assigned_to: assignedToValue === "unassigned" ? null : assignedToValue,
+        kyc_member_id: kycMemberValue === "unassigned" || !kycMemberValue ? null : kycMemberValue,
         source: (formData.get("source") as string) || null,
         notes: (formData.get("notes") as string) || null,
         updated_at: new Date().toISOString() // Force update timestamp
@@ -484,13 +505,17 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <Label className="text-xs font-semibold text-slate-650 dark:text-slate-350">Status</Label>
-                                <Select name="status" defaultValue={lead.status || "new"}>
+                                <Select name="status" value={selectedStatus} onValueChange={setSelectedStatus}>
                                     <SelectTrigger className="mt-1.5 h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-850 text-xs"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl">
                                         <SelectItem value="new" className="rounded-lg text-xs">New</SelectItem>
                                         <SelectItem value="contacted" className="rounded-lg text-xs">Contacted</SelectItem>
                                         <SelectItem value="Interested" className="rounded-lg text-xs">Interested</SelectItem>
-                                        <SelectItem value="Disbursed" className="rounded-lg text-xs">Disbursed</SelectItem>
+                                        <SelectItem value="Login Done" className="rounded-lg text-xs">Login Done</SelectItem>
+                                        <SelectItem value="Transferred to KYC" className="rounded-lg text-xs">Transferred to KYC</SelectItem>
+                                        <SelectItem value="Underwriting" className="rounded-lg text-xs">Underwriting</SelectItem>
+                                        <SelectItem value="Approved" className="rounded-lg text-xs">Approved</SelectItem>
+                                        <SelectItem value="DISBURSED" className="rounded-lg text-xs">Disbursed</SelectItem>
                                         <SelectItem value="Not_Interested" className="rounded-lg text-xs">Not Interested</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -524,6 +549,31 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
                                 </Select>
                             </div>
                         </div>
+                        
+                        {/* Conditionally show KYC Team Member Dropdown */}
+                        {(selectedStatus === "Login Done" || selectedStatus === "Transferred to KYC" || selectedStatus === "Underwriting" || lead.kyc_member_id) && (
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-3">
+                                <div>
+                                    <Label className="text-xs font-semibold text-indigo-650 dark:text-indigo-350 flex items-center gap-1.5 mb-1.5">
+                                        <ShieldCheck className="h-3.5 w-3.5" />
+                                        Assign to KYC Team
+                                    </Label>
+                                    <Select name="kyc_member_id" defaultValue={lead.kyc_member_id || "unassigned"}>
+                                        <SelectTrigger className="h-9 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800 text-xs">
+                                            <SelectValue placeholder="Select KYC Member" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl">
+                                            <SelectItem value="unassigned" className="rounded-lg text-xs">Unassigned</SelectItem>
+                                            {kycMembers?.map(k => (
+                                                <SelectItem key={k.id} value={k.id} className="rounded-lg text-xs">
+                                                    {k.full_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="pt-4">
