@@ -8,7 +8,7 @@ import { Search, X, Calendar, Loader2 } from "lucide-react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { useState, useEffect, useTransition, useRef } from "react"
 import { Label } from "@/components/ui/label"
-import { useTenant } from "@/context/tenant-provider"
+import { useTenant, useMasterStatuses } from "@/context/tenant-provider"
 import { MASTER_STATUSES } from "@/lib/lead-statuses"
 
 interface LeadFiltersProps {
@@ -29,8 +29,11 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
   const [customEnd, setCustomEnd] = useState(searchParams.get("to") || "")
 
   const org = useTenant()
-  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
-  const availableStatuses = MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
+  const masterStatuses = useMasterStatuses()
+  const currentMasterStatuses = masterStatuses.length > 0 ? masterStatuses : MASTER_STATUSES
+
+  const enabledStatusValues = org?.enabled_statuses || currentMasterStatuses.map(s => s.value)
+  const availableStatuses = currentMasterStatuses.filter(s => enabledStatusValues.includes(s.value))
 
   // 1. Sync from URL to input (ONLY if updated by the other search bar)
   useEffect(() => {

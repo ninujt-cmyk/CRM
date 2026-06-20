@@ -25,8 +25,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 // --- IMPORT THE SERVER ACTIONS ---
 import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" 
-import { useTenant } from "@/context/tenant-provider"
-import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
+import { useTenant, useMasterStatuses } from "@/context/tenant-provider"
+import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS, resolveIcon } from "@/lib/lead-statuses"
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -91,12 +91,14 @@ export function LeadStatusUpdater({
   onNextLead
 }: LeadStatusUpdaterProps) {
   const org = useTenant()
-  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
+  const masterStatuses = useMasterStatuses()
+  const currentMasterStatuses = masterStatuses.length > 0 ? masterStatuses : MASTER_STATUSES
+  const enabledStatusValues = org?.enabled_statuses || currentMasterStatuses.map(s => s.value)
   const workflowTriggers = org?.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS
 
   const availableStatusOptions = useMemo(() => {
-    return MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
-  }, [enabledStatusValues])
+    return currentMasterStatuses.filter(s => enabledStatusValues.includes(s.value))
+  }, [enabledStatusValues, currentMasterStatuses])
 
   const supabase = createClient()
   const { activeCall, endCall, updateCallDuration } = useCallTracking()
@@ -133,8 +135,8 @@ export function LeadStatusUpdater({
   }, [loanAmount, emiRate, emiTenure]);
   
   // DERIVED STATE
-  const currentStatusOption = useMemo(() => MASTER_STATUSES.find((o) => o.value === currentStatus), [currentStatus])
-  const selectedStatusOption = useMemo(() => MASTER_STATUSES.find((o) => o.value === status), [status])
+  const currentStatusOption = useMemo(() => currentMasterStatuses.find((o) => o.value === currentStatus), [currentStatus, currentMasterStatuses])
+  const selectedStatusOption = useMemo(() => currentMasterStatuses.find((o) => o.value === status), [status, currentMasterStatuses])
    
   const whatsappLink = useMemo(() => {
       let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
@@ -439,7 +441,7 @@ export function LeadStatusUpdater({
         <CardTitle className="text-base font-semibold flex items-center gap-2">
           {/* Dialer Status Indicator Simplified */}
           <>
-            {isCallInitiated ? <Phone className="h-4 w-4 text-blue-600 animate-pulse"/> : <Activity className="h-4 w-4 text-slate-500"/>}
+            {currentStatusOption ? (() => { const CurrentIcon = resolveIcon(currentStatusOption.icon_name); return <CurrentIcon className="w-5 h-5 text-slate-500" /> })() : <Activity className="w-5 h-5 text-slate-500" />}
             {isCallInitiated ? "Active Call Session" : "Update Status"}
           </>
         </CardTitle>
@@ -540,7 +542,7 @@ export function LeadStatusUpdater({
                 {availableStatusOptions.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
                         <div className="flex items-center gap-2">
-                            <o.icon className={cn("h-4 w-4", o.color.split(' ')[1])} />
+                            {(() => { const OptIcon = resolveIcon(o.icon_name); return <OptIcon className={cn("h-4 w-4", o.color.split(' ')[1])} /> })()}
                             {o.label}
                         </div>
                     </SelectItem>
@@ -741,6 +743,10 @@ export function LeadStatusUpdater({
                     selectedStatusOption?.btnColor || "bg-primary hover:bg-primary/90"
                 )}
             >
+                {selectedStatusOption ? (() => {
+                  const SelectedIcon = resolveIcon(selectedStatusOption.icon_name);
+                  return <SelectedIcon className="w-4 h-4 mr-2" />;
+                })() : <CheckCircle2 className="w-4 h-4 mr-2" />}
                 {isUpdating ? "Saving..." : status === 'Disbursed' ? <><Sparkles className="w-4 h-4 mr-2 animate-spin-slow"/> Confirm Disbursal</> : isCallInitiated ? "End Call & Update" : "Update Status"}
                 {autoNext && !isUpdating && <ArrowRight className="w-4 h-4 ml-2 opacity-60" />}
             </Button>

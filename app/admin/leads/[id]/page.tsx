@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { useTenant } from "@/context/tenant-provider"
+import { useTenant, useMasterStatuses } from "@/context/tenant-provider"
 import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
 
 // --- TYPES ---
@@ -102,12 +102,14 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
   const [user, setUser] = useState<any>(null)
 
   const org = useTenant()
-  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
+  const masterStatuses = useMasterStatuses()
+  const currentMasterStatuses = masterStatuses.length > 0 ? masterStatuses : MASTER_STATUSES
+  const enabledStatusValues = org?.enabled_statuses || currentMasterStatuses.map(s => s.value)
   const workflowTriggers = org?.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS
 
   const availableStatusOptions = useMemo(() => {
-    return MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
-  }, [enabledStatusValues])
+    return currentMasterStatuses.filter(s => enabledStatusValues.includes(s.value))
+  }, [enabledStatusValues, currentMasterStatuses])
 
   const PIPELINE_STEPS = useMemo(() => {
       // Create pipeline steps from enabled statuses, filtering out statuses like "nr", "not_eligible", "follow_up" which are outcomes, not steps.

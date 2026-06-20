@@ -12,8 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare } from "lucide-react"
 import { toast } from "sonner"
 
-import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations } from "@/app/actions/super-admin"
-import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
+import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations, fetchGlobalStatuses, addGlobalStatus } from "@/app/actions/super-admin"
+import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS, resolveIcon } from "@/lib/lead-statuses"
 import { LoadingSkeleton } from "@/components/loading-skeleton"
 import { useRouter } from "next/navigation"
 
@@ -23,8 +23,22 @@ export default function SuperAdminConsole() {
   
   const [loading, setLoading] = useState(true)
   const [organizations, setOrganizations] = useState<any[]>([])
+  const [masterStatuses, setMasterStatuses] = useState<any[]>([])
+  const currentMasterStatuses = masterStatuses.length > 0 ? masterStatuses : MASTER_STATUSES
+
   const [isProvisioning, setIsProvisioning] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [showAddStatusModal, setShowAddStatusModal] = useState(false)
+  const [isAddingStatus, setIsAddingStatus] = useState(false)
+
+  // Status Form State
+  const [statusForm, setStatusForm] = useState({
+    label: "",
+    value: "",
+    color: "bg-blue-100 text-blue-800",
+    btnColor: "bg-blue-600 hover:bg-blue-700",
+    iconName: "Circle"
+  })
 
   // Form State
   const [formData, setFormData] = useState({
@@ -39,7 +53,7 @@ export default function SuperAdminConsole() {
 
   const openSettings = (org: any) => {
     setSelectedOrg(org)
-    setEnabledStatuses(org.enabled_statuses || MASTER_STATUSES.map(s => s.value))
+    setEnabledStatuses(org.enabled_statuses || currentMasterStatuses.map(s => s.value))
     setWorkflowTriggers(org.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS)
     setShowSettingsModal(true)
   }
@@ -66,6 +80,23 @@ export default function SuperAdminConsole() {
     setIsUpdatingSettings(false)
   }
 
+  const handleAddStatus = async () => {
+    if (!statusForm.label || !statusForm.value || !statusForm.iconName) {
+        return toast.error("Please fill in all fields.")
+    }
+    setIsAddingStatus(true)
+    const res = await addGlobalStatus(statusForm)
+    if (res.success) {
+        toast.success(res.message)
+        setShowAddStatusModal(false)
+        setStatusForm({ label: "", value: "", color: "bg-blue-100 text-blue-800", btnColor: "bg-blue-600 hover:bg-blue-700", iconName: "Circle" })
+        fetchOrganizations()
+    } else {
+        toast.error(res.error)
+    }
+    setIsAddingStatus(false)
+  }
+
   const fetchOrganizations = async () => {
     setLoading(true)
     
@@ -86,7 +117,12 @@ export default function SuperAdminConsole() {
         setOrganizations(res.data)
     } else if (!res.success) {
         toast.error(res.error)
+    // Fetch Global Statuses
+    const statusRes = await fetchGlobalStatuses()
+    if (statusRes.success && statusRes.data && statusRes.data.length > 0) {
+        setMasterStatuses(statusRes.data)
     }
+
     setLoading(false)
   }
 
@@ -127,9 +163,14 @@ export default function SuperAdminConsole() {
           </h1>
           <p className="text-slate-500 mt-1">Manage global workspaces, billing plans, and instance provisioning.</p>
         </div>
-        <Button onClick={() => setShowModal(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-md">
-            <Plus className="h-4 w-4 mr-2" /> Provision New Tenant
-        </Button>
+        <div className="flex gap-2">
+            <Button onClick={() => setShowAddStatusModal(true)} variant="outline" className="shadow-sm">
+                <Plus className="h-4 w-4 mr-2" /> Global Status
+            </Button>
+            <Button onClick={() => setShowModal(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-md">
+                <Plus className="h-4 w-4 mr-2" /> Provision New Tenant
+            </Button>
+        </div>
       </div>
 
       {/* Warning Banner */}
@@ -230,6 +271,93 @@ export default function SuperAdminConsole() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Global Status Modal */}
+      <Dialog open={showAddStatusModal} onOpenChange={setShowAddStatusModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+                <Plus className="h-5 w-5 text-indigo-600" /> Add Global Status
+            </DialogTitle>
+            <DialogDescription>
+              Create a new status that all tenants can enable in their settings.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+                <Label>Label (Display Name) <span className="text-red-500">*</span></Label>
+                <Input placeholder="e.g. Verification Pending" value={statusForm.label} onChange={e => {
+                    const label = e.target.value;
+                    const value = label.toLowerCase().replace(/\s+/g, '_');
+                    setStatusForm({...statusForm, label, value});
+                }} />
+            </div>
+
+            <div className="space-y-2">
+                <Label>Internal Value <span className="text-red-500">*</span></Label>
+                <Input placeholder="e.g. verification_pending" value={statusForm.value} disabled className="bg-slate-50" />
+            </div>
+
+            <div className="space-y-2">
+                <Label>Color Theme</Label>
+                <Select value={statusForm.color} onValueChange={v => {
+                    const btnColorMap: any = {
+                        "bg-blue-100 text-blue-800": "bg-blue-600 hover:bg-blue-700",
+                        "bg-cyan-100 text-cyan-800": "bg-cyan-600 hover:bg-cyan-700",
+                        "bg-green-100 text-green-800": "bg-green-600 hover:bg-green-700",
+                        "bg-purple-100 text-purple-800": "bg-purple-600 hover:bg-purple-700",
+                        "bg-orange-100 text-orange-800": "bg-orange-600 hover:bg-orange-700",
+                        "bg-indigo-100 text-indigo-800": "bg-indigo-600 hover:bg-indigo-700",
+                        "bg-yellow-100 text-yellow-800": "bg-yellow-600 hover:bg-yellow-700",
+                        "bg-emerald-100 text-emerald-800": "bg-emerald-600 hover:bg-emerald-700",
+                        "bg-red-100 text-red-800": "bg-red-600 hover:bg-red-700",
+                        "bg-rose-100 text-rose-800": "bg-rose-600 hover:bg-rose-700",
+                        "bg-amber-100 text-amber-800": "bg-amber-600 hover:bg-amber-700",
+                        "bg-slate-100 text-slate-800": "bg-slate-600 hover:bg-slate-700",
+                    };
+                    setStatusForm({...statusForm, color: v, btnColor: btnColorMap[v] || "bg-slate-600 hover:bg-slate-700"});
+                }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="bg-blue-100 text-blue-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Blue</div></SelectItem>
+                        <SelectItem value="bg-cyan-100 text-cyan-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-cyan-500"></div> Cyan</div></SelectItem>
+                        <SelectItem value="bg-green-100 text-green-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> Green</div></SelectItem>
+                        <SelectItem value="bg-purple-100 text-purple-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-purple-500"></div> Purple</div></SelectItem>
+                        <SelectItem value="bg-orange-100 text-orange-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-orange-500"></div> Orange</div></SelectItem>
+                        <SelectItem value="bg-indigo-100 text-indigo-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-indigo-500"></div> Indigo</div></SelectItem>
+                        <SelectItem value="bg-yellow-100 text-yellow-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> Yellow</div></SelectItem>
+                        <SelectItem value="bg-emerald-100 text-emerald-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Emerald</div></SelectItem>
+                        <SelectItem value="bg-red-100 text-red-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div> Red</div></SelectItem>
+                        <SelectItem value="bg-rose-100 text-rose-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-rose-500"></div> Rose</div></SelectItem>
+                        <SelectItem value="bg-amber-100 text-amber-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-500"></div> Amber</div></SelectItem>
+                        <SelectItem value="bg-slate-100 text-slate-800"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-slate-500"></div> Slate</div></SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="space-y-2">
+                <Label>Icon Name</Label>
+                <Select value={statusForm.iconName} onValueChange={v => setStatusForm({...statusForm, iconName: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        {["Circle", "Sparkles", "PhoneForwarded", "ThumbsUp", "FileText", "LogIn", "CheckCircle2", "ThumbsDown", "XCircle", "PhoneMissed", "Briefcase", "Recycle", "Activity", "ShieldCheck"].map(icon => (
+                            <SelectItem key={icon} value={icon}>{icon}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddStatusModal(false)} disabled={isAddingStatus}>Cancel</Button>
+            <Button onClick={handleAddStatus} disabled={isAddingStatus} className="bg-indigo-600 hover:bg-indigo-700">
+                {isAddingStatus ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                Add Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Settings Modal */}
       <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -251,7 +379,7 @@ export default function SuperAdminConsole() {
               </h4>
               <p className="text-xs text-slate-500 mb-2">Uncheck statuses that this tenant does not need in their pipeline.</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {MASTER_STATUSES.map(status => (
+                {currentMasterStatuses.map(status => (
                   <div key={status.value} className="flex items-center space-x-2 bg-slate-50 p-2 rounded-md border border-slate-100">
                     <input 
                       type="checkbox" 
@@ -260,7 +388,8 @@ export default function SuperAdminConsole() {
                       onChange={() => toggleStatus(status.value)}
                       className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <label htmlFor={`status-${status.value}`} className="text-sm font-medium leading-none cursor-pointer">
+                    <label htmlFor={`status-${status.value}`} className="text-sm font-medium leading-none cursor-pointer flex items-center gap-2">
+                      {(() => { const OptIcon = resolveIcon(status.icon_name); return <OptIcon className="w-3.5 h-3.5 text-slate-500"/> })()}
                       {status.label}
                     </label>
                   </div>
@@ -281,7 +410,7 @@ export default function SuperAdminConsole() {
                     <Select value={workflowTriggers.on_document_request} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_document_request: v})}>
                         <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
                         <SelectContent>
-                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                            {currentMasterStatuses.filter(s => enabledStatuses.includes(s.value)).map(s => (
                                 <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                             ))}
                         </SelectContent>
@@ -293,7 +422,7 @@ export default function SuperAdminConsole() {
                     <Select value={workflowTriggers.on_kyc_transfer} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_kyc_transfer: v})}>
                         <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
                         <SelectContent>
-                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                            {currentMasterStatuses.filter(s => enabledStatuses.includes(s.value)).map(s => (
                                 <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                             ))}
                         </SelectContent>
@@ -305,7 +434,7 @@ export default function SuperAdminConsole() {
                     <Select value={workflowTriggers.on_revenue_marked} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_revenue_marked: v})}>
                         <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
                         <SelectContent>
-                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                            {currentMasterStatuses.filter(s => enabledStatuses.includes(s.value)).map(s => (
                                 <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                             ))}
                         </SelectContent>
@@ -317,7 +446,7 @@ export default function SuperAdminConsole() {
                     <Select value={workflowTriggers.on_login_done} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_login_done: v})}>
                         <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
                         <SelectContent>
-                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                            {currentMasterStatuses.filter(s => enabledStatuses.includes(s.value)).map(s => (
                                 <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                             ))}
                         </SelectContent>

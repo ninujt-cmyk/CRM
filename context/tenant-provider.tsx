@@ -11,10 +11,16 @@ interface Organization {
   workflow_triggers: any;
 }
 
-const TenantContext = createContext<Organization | null>(null)
+interface TenantContextValue {
+  org: Organization | null;
+  masterStatuses: any[];
+}
+
+const TenantContext = createContext<TenantContextValue>({ org: null, masterStatuses: [] })
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [org, setOrg] = useState<Organization | null>(null)
+  const [masterStatuses, setMasterStatuses] = useState<any[]>([])
   const supabase = createClient()
 
   useEffect(() => {
@@ -40,16 +46,27 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
          if (data) setOrg(data)
       }
+
+      // Fetch global master statuses
+      const { data: globalStatuses } = await supabase
+        .from("global_lead_statuses")
+        .select("*")
+        .order("created_at", { ascending: true })
+      
+      if (globalStatuses && globalStatuses.length > 0) {
+        setMasterStatuses(globalStatuses)
+      }
     }
     
     fetchTenant()
   }, [supabase])
 
   return (
-    <TenantContext.Provider value={org}>
+    <TenantContext.Provider value={{ org, masterStatuses }}>
       {children}
     </TenantContext.Provider>
   )
 }
 
-export const useTenant = () => useContext(TenantContext)
+export const useTenant = () => useContext(TenantContext).org
+export const useMasterStatuses = () => useContext(TenantContext).masterStatuses
