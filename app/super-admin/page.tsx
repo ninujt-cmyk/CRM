@@ -117,6 +117,7 @@ export default function SuperAdminConsole() {
         setOrganizations(res.data)
     } else if (!res.success) {
         toast.error(res.error)
+    }
     // Fetch Global Statuses
     const statusRes = await fetchGlobalStatuses()
     if (statusRes.success && statusRes.data && statusRes.data.length > 0) {
