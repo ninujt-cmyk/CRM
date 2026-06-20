@@ -9,6 +9,7 @@ import { Watermark } from "@/components/watermark"
 // ✅ 1. IMPORT THE TENANT PROVIDER
 import { TenantProvider } from "@/context/tenant-provider"
 import { GlobalModuleGuard } from "@/components/global-module-guard"
+import { AIGuideAssistant } from "@/components/ai-guide-assistant"
 
 export default function AdminLayout({
   children,
@@ -33,6 +34,10 @@ export default function AdminLayout({
                 </GlobalModuleGuard>
               </main>
             </div>
+            
+            {/* AI Assistant Floating Widget */}
+            <AIGuideAssistant />
+            
           </div>
         </CallTrackingProvider>
       </TenantProvider>
