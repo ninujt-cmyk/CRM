@@ -12,6 +12,7 @@ import PWAWrapper from "@/components/pwa-client-wrapper"
 // Providers
 import { TenantProvider } from "@/context/tenant-provider"
 import { ThemeProvider } from "@/components/theme-provider"
+import { getGlobalTenantData } from "@/lib/supabase/server-tenant"
 
 const geistSans = Inter({
   subsets: ["latin"],
@@ -78,11 +79,13 @@ export const viewport: Viewport = {
   themeColor: "#000000",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const { org, masterStatuses } = await getGlobalTenantData()
+
   return (
     <html 
       lang="en" 
@@ -117,7 +120,7 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <TenantProvider>
+            <TenantProvider initialOrg={org as any} initialMasterStatuses={masterStatuses}>
               
               {/* Main content */}
               {children}

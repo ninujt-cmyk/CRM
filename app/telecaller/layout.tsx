@@ -1,5 +1,4 @@
 import type React from "react"
-import { AuthGuard } from "@/components/auth-guard"
 import { TelecallerSidebar } from "@/components/telecaller-sidebar"
 import { CallTrackingProvider } from "@/context/call-tracking-context"
 import { PushSubscriber } from "@/components/push-subscriber" 
@@ -15,6 +14,8 @@ import { createClient } from "@/lib/supabase/server"
 // ✅ IMPORT THE THEME PROVIDER
 import { ThemeProvider } from "@/components/theme-provider"
 
+import { redirect } from "next/navigation"
+
 // ✅ 2. MAKE THE LAYOUT ASYNC TO FETCH THE USER
 export default async function TelecallerLayout({
   children,
@@ -24,6 +25,10 @@ export default async function TelecallerLayout({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
+  if (!user) {
+    redirect("/auth/login")
+  }
+
   return (
     // ✅ WRAP EVERYTHING IN THE THEME PROVIDER
     <ThemeProvider
@@ -32,7 +37,6 @@ export default async function TelecallerLayout({
       enableSystem
       disableTransitionOnChange
     >
-      <AuthGuard requiredRole="telecaller">
         <PushSubscriber />
         <Watermark />
         <CallTrackingProvider>
@@ -68,7 +72,6 @@ export default async function TelecallerLayout({
             </div>
           </div>
         </CallTrackingProvider>
-      </AuthGuard>
     </ThemeProvider>
   )
 }

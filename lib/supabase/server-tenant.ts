@@ -1,0 +1,36 @@
+import { createClient } from "@/lib/supabase/server"
+
+// We will fetch these on the server instead of the client
+export async function getGlobalTenantData() {
+    const supabase = await createClient();
+    
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { org: null, masterStatuses: [] }
+
+    const { data: profile } = await supabase
+        .from('users')
+        .select('tenant_id')
+        .eq('id', user.id)
+        .single();
+
+    let org = null;
+    if (profile?.tenant_id) {
+        const { data } = await supabase
+            .from("organizations")
+            .select("id, name, plan, enabled_statuses, enabled_modules, workflow_triggers")
+            .eq('id', profile.tenant_id)
+            .limit(1)
+            .maybeSingle()
+        if (data) org = data;
+    }
+
+    const { data: globalStatuses } = await supabase
+        .from("global_lead_statuses")
+        .select("*")
+        .order("created_at", { ascending: true })
+
+    return { 
+        org, 
+        masterStatuses: globalStatuses || [] 
+    }
+}
