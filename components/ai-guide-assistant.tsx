@@ -104,7 +104,7 @@ export function AIGuideAssistant() {
             />
             <button 
               type="submit"
-              disabled={!input.trim() || isLoading}
+              disabled={!(input || "").trim() || isLoading}
               className="absolute right-1.5 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors shadow-sm"
             >
               <Send className="w-4 h-4" />
