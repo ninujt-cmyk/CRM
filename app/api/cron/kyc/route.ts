@@ -20,64 +20,63 @@ export async function GET(request: Request) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // 🔴 2. FETCH TENANTS WITH KYC REMINDERS ENABLED
-    const { data: activeTenants, error: tenantError } = await supabaseAdmin
-      .from('tenant_settings')
-      .select('tenant_id')
-      .eq('cron_kyc', true);
+    // 🔴 2. FETCH ORGANIZATIONS WITH WORKFLOW TRIGGERS
+    const { data: orgs, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .select('id, workflow_triggers');
 
-    if (tenantError) throw tenantError;
+    if (orgError) throw orgError;
 
-    if (!activeTenants || activeTenants.length === 0) {
-      console.log("⏭️ [CRON] No tenants have KYC reminders enabled. Skipping.");
-      return NextResponse.json({ status: "success", message: 'No tenants opted in.' });
+    if (!orgs || orgs.length === 0) {
+      console.log("⏭️ [CRON] No organizations found. Skipping.");
+      return NextResponse.json({ status: "success", message: 'No organizations found.' });
     }
-
-    // Extract the opted-in tenant IDs
-    const enabledTenantIds = activeTenants.map(t => t.tenant_id);
 
     // Calculate exactly 24 hours ago
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    // 🔴 3. FETCH LEADS STRICTLY FOR ENABLED TENANTS
-    // 1. Status is STILL 'Documents_Sent'
-    // 2. Reminder hasn't been sent yet
-    // 3. The first request was sent 24+ hours ago
-    const { data: leads, error } = await supabaseAdmin
-      .from('leads')
-      .select('id, phone, name, tenant_id')
-      .in('tenant_id', enabledTenantIds) // ISOLATION: Only fetch opted-in companies
-      .eq('status', 'Documents_Sent') 
-      .eq('kyc_reminder_sent', false)
-      .lte('kyc_requested_at', twentyFourHoursAgo);
-
-    if (error) throw error;
-
-    if (!leads || leads.length === 0) {
-        console.log("✅ [CRON] No pending reminders found right now for active tenants.");
-        return NextResponse.json({ status: "success", message: "No reminders needed." });
-    }
-
-    console.log(`🚀 [CRON] Found ${leads.length} leads requiring a 24-hour reminder across active workspaces.`);
-
     let sentCount = 0;
+    let totalPending = 0;
 
-    // 4. PROCESS WHATSAPP REMINDERS
-    // (Your sendKYCRequestTemplate should also be updated to use the tenant's specific WhatsApp API Key internally)
-    for (const lead of leads) {
-        console.log(`📱 Sending reminder to: ${lead.name} (${lead.phone}) [Tenant: ${lead.tenant_id}]`);
-        
-        // Notice the 'true' at the end! This tells the function it is the reminder.
-        const res = await sendKYCRequestTemplate(lead.id, lead.phone, true);
-        
-        if (res.success) {
-            sentCount++;
-        }
+    // 🔴 3. PROCESS EACH ORGANIZATION
+    for (const org of orgs) {
+      // Get the document request trigger for this tenant, fallback to "Documents_Sent"
+      const docTrigger = org.workflow_triggers?.on_document_request || "Documents_Sent";
+
+      const { data: leads, error } = await supabaseAdmin
+        .from('leads')
+        .select('id, phone, name, tenant_id')
+        .eq('tenant_id', org.id) 
+        .eq('status', docTrigger) 
+        .eq('kyc_reminder_sent', false)
+        .lte('kyc_requested_at', twentyFourHoursAgo);
+
+      if (error) {
+        console.error(`❌ [CRON] Error fetching leads for org ${org.id}:`, error);
+        continue;
+      }
+
+      if (!leads || leads.length === 0) continue;
+
+      totalPending += leads.length;
+
+      // 4. PROCESS WHATSAPP REMINDERS
+      for (const lead of leads) {
+          console.log(`📱 Sending reminder to: ${lead.name} (${lead.phone}) [Tenant: ${lead.tenant_id}]`);
+          
+          const res = await sendKYCRequestTemplate(lead.id, lead.phone, true);
+          
+          if (res.success) {
+              sentCount++;
+          }
+      }
     }
+
+    console.log(`✅ [CRON] Finished processing. Found ${totalPending} pending, sent ${sentCount} reminders.`);
 
     return NextResponse.json({ 
         status: "success", 
-        message: `Fired ${sentCount} reminders out of ${leads.length} pending.` 
+        message: `Fired ${sentCount} reminders out of ${totalPending} pending.` 
     });
 
   } catch (error: any) {

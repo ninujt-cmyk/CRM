@@ -8,6 +8,8 @@ import { Search, X, Calendar, Loader2 } from "lucide-react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { useState, useEffect, useTransition, useRef } from "react"
 import { Label } from "@/components/ui/label"
+import { useTenant } from "@/context/tenant-provider"
+import { MASTER_STATUSES } from "@/lib/lead-statuses"
 
 interface LeadFiltersProps {
   telecallers: Array<{ id: string; full_name: string }>
@@ -25,6 +27,10 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
   
   const [customStart, setCustomStart] = useState(searchParams.get("from") || "")
   const [customEnd, setCustomEnd] = useState(searchParams.get("to") || "")
+
+  const org = useTenant()
+  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
+  const availableStatuses = MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
 
   // 1. Sync from URL to input (ONLY if updated by the other search bar)
   useEffect(() => {
@@ -128,9 +134,9 @@ export function LeadFilters({ telecallers, telecallerStatus }: LeadFiltersProps)
           </SelectTrigger>
           <SelectContent className="rounded-xl">
             <SelectItem value="all" className="rounded-lg text-xs">All Statuses</SelectItem>
-            {['new','contacted','Interested','Documents_Sent','Login','Disbursed','Not_Interested','follow_up','not_eligible','self_employed','nr','recycle_pool'].map(s => (
-               <SelectItem key={s} value={s} className="rounded-lg text-xs">
-                 {s.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+            {availableStatuses.map(s => (
+               <SelectItem key={s.value} value={s.value} className="rounded-lg text-xs">
+                 {s.label}
                </SelectItem>
             ))}
           </SelectContent>

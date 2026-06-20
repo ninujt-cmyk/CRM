@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Building2, Users, Loader2, Plus, Server, ShieldAlert } from "lucide-react"
+import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare } from "lucide-react"
 import { toast } from "sonner"
 
-import { provisionNewTenant } from "@/app/actions/super-admin"
+import { provisionNewTenant, updateTenantSettings } from "@/app/actions/super-admin"
+import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
 import { LoadingSkeleton } from "@/components/loading-skeleton"
 import { useRouter } from "next/navigation"
 
@@ -29,6 +30,41 @@ export default function SuperAdminConsole() {
   const [formData, setFormData] = useState({
     orgName: "", plan: "pro", adminName: "", adminEmail: "", adminPassword: ""
   })
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [selectedOrg, setSelectedOrg] = useState<any>(null)
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false)
+  const [enabledStatuses, setEnabledStatuses] = useState<string[]>([])
+  const [workflowTriggers, setWorkflowTriggers] = useState<any>(DEFAULT_WORKFLOW_TRIGGERS)
+
+  const openSettings = (org: any) => {
+    setSelectedOrg(org)
+    setEnabledStatuses(org.enabled_statuses || MASTER_STATUSES.map(s => s.value))
+    setWorkflowTriggers(org.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS)
+    setShowSettingsModal(true)
+  }
+
+  const toggleStatus = (statusValue: string) => {
+    if (enabledStatuses.includes(statusValue)) {
+      setEnabledStatuses(enabledStatuses.filter(s => s !== statusValue))
+    } else {
+      setEnabledStatuses([...enabledStatuses, statusValue])
+    }
+  }
+
+  const handleUpdateSettings = async () => {
+    if (!selectedOrg) return
+    setIsUpdatingSettings(true)
+    const res = await updateTenantSettings(selectedOrg.id, enabledStatuses, workflowTriggers)
+    if (res.success) {
+      toast.success(res.message)
+      setShowSettingsModal(false)
+      fetchOrganizations()
+    } else {
+      toast.error(res.error)
+    }
+    setIsUpdatingSettings(false)
+  }
 
   const fetchOrganizations = async () => {
     setLoading(true)
@@ -126,9 +162,9 @@ export default function SuperAdminConsole() {
                             <Users className="h-4 w-4 text-slate-400" />
                             {org.users[0]?.count || 0} Total Users
                         </div>
-                        <div className="text-xs text-slate-400">
-                            Created {new Date(org.created_at).toLocaleDateString()}
-                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => openSettings(org)} className="text-xs">
+                            <Settings className="h-3.5 w-3.5 mr-1" /> Settings
+                        </Button>
                     </div>
                 </CardContent>
             </Card>
@@ -188,6 +224,113 @@ export default function SuperAdminConsole() {
             <Button onClick={handleProvision} disabled={isProvisioning} className="bg-indigo-600 hover:bg-indigo-700">
                 {isProvisioning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Server className="h-4 w-4 mr-2" />}
                 Provision Tenant
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Modal */}
+      <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-indigo-600" /> 
+                Manage Tenant Settings: {selectedOrg?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Configure which lead statuses are enabled and map automated workflow triggers.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b pb-2">
+                <CheckSquare className="h-4 w-4 text-indigo-500" />
+                Enabled Lead Statuses
+              </h4>
+              <p className="text-xs text-slate-500 mb-2">Uncheck statuses that this tenant does not need in their pipeline.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {MASTER_STATUSES.map(status => (
+                  <div key={status.value} className="flex items-center space-x-2 bg-slate-50 p-2 rounded-md border border-slate-100">
+                    <input 
+                      type="checkbox" 
+                      id={`status-${status.value}`}
+                      checked={enabledStatuses.includes(status.value)}
+                      onChange={() => toggleStatus(status.value)}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor={`status-${status.value}`} className="text-sm font-medium leading-none cursor-pointer">
+                      {status.label}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b pb-2">
+                <Server className="h-4 w-4 text-indigo-500" />
+                Workflow Triggers
+              </h4>
+              <p className="text-xs text-slate-500 mb-2">Map specific statuses to trigger system automations.</p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label className="text-xs">Document Request WhatsApp Trigger</Label>
+                    <Select value={workflowTriggers.on_document_request} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_document_request: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                        <SelectContent>
+                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                
+                <div className="space-y-2">
+                    <Label className="text-xs">Transfer to KYC Trigger</Label>
+                    <Select value={workflowTriggers.on_kyc_transfer} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_kyc_transfer: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                        <SelectContent>
+                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs">Mark as Revenue Trigger (e.g. Disbursed)</Label>
+                    <Select value={workflowTriggers.on_revenue_marked} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_revenue_marked: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                        <SelectContent>
+                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-xs">Login Done Trigger</Label>
+                    <Select value={workflowTriggers.on_login_done} onValueChange={v => setWorkflowTriggers({...workflowTriggers, on_login_done: v})}>
+                        <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                        <SelectContent>
+                            {MASTER_STATUSES.filter(s => enabledStatuses.includes(s.value)).map(s => (
+                                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSettingsModal(false)} disabled={isUpdatingSettings}>Cancel</Button>
+            <Button onClick={handleUpdateSettings} disabled={isUpdatingSettings} className="bg-indigo-600 hover:bg-indigo-700">
+                {isUpdatingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Settings className="h-4 w-4 mr-2" />}
+                Save Settings
             </Button>
           </DialogFooter>
         </DialogContent>

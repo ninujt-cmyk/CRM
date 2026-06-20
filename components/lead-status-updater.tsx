@@ -25,6 +25,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 // --- IMPORT THE SERVER ACTIONS ---
 import { sendMissedCallMessage, sendKYCRequestTemplate } from "@/app/actions/whatsapp" 
+import { useTenant } from "@/context/tenant-provider"
+import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
 
 interface LeadStatusUpdaterProps {
   leadId: string
@@ -38,19 +40,7 @@ interface LeadStatusUpdaterProps {
   onNextLead?: () => void 
 }
 
-const STATUS_OPTIONS = [
-  { value: "new", label: "New", color: "bg-blue-100 text-blue-800", btnColor: "bg-blue-600 hover:bg-blue-700", icon: Sparkles },
-  { value: "Interested", label: "Interested", color: "bg-green-100 text-green-800", btnColor: "bg-green-600 hover:bg-green-700", icon: ThumbsUp },
-  { value: "Documents_Sent", label: "Docs Pending", color: "bg-purple-100 text-purple-800", btnColor: "bg-purple-600 hover:bg-purple-700", icon: FileText },
-  { value: "Login Done", label: "Login Done", color: "bg-orange-100 text-orange-800", btnColor: "bg-orange-600 hover:bg-orange-700", icon: LogIn },
-  { value: "Transferred to KYC", label: "Transferred to KYC", color: "bg-indigo-100 text-indigo-800", btnColor: "bg-indigo-600 hover:bg-indigo-700", icon: CheckCircle2 },
-  { value: "Disbursed", label: "Disbursed", color: "bg-emerald-100 text-emerald-800", btnColor: "bg-emerald-600 hover:bg-emerald-700", icon: CheckCircle2 },
-  { value: "Not_Interested", label: "Not Interested", color: "bg-red-100 text-red-800", btnColor: "bg-red-600 hover:bg-red-700", icon: ThumbsDown },
-  { value: "follow_up", label: "Call Back", color: "bg-indigo-100 text-indigo-800", btnColor: "bg-indigo-600 hover:bg-indigo-700", icon: PhoneForwarded },
-  { value: "not_eligible", label: "Not Eligible", color: "bg-rose-100 text-rose-800", btnColor: "bg-rose-600 hover:bg-rose-700", icon: XCircle },
-  { value: "nr", label: "NR", color: "bg-gray-100 text-gray-800", btnColor: "bg-slate-600 hover:bg-slate-700", icon: PhoneMissed },
-  { value: "self_employed", label: "Self Employed", color: "bg-amber-100 text-amber-800", btnColor: "bg-amber-600 hover:bg-amber-700", icon: Briefcase },
-]
+// Statuses are now fetched from MASTER_STATUSES
 
 const QUICK_NOTES = ["No Answer", "Busy", "Switch Off", "Call Later", "Wrong Number", "Docs Pending", "Rate Issue"];
 const QUICK_AMOUNTS = [
@@ -100,6 +90,14 @@ export function LeadStatusUpdater({
   telecallerName = "Telecaller",
   onNextLead
 }: LeadStatusUpdaterProps) {
+  const org = useTenant()
+  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
+  const workflowTriggers = org?.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS
+
+  const availableStatusOptions = useMemo(() => {
+    return MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
+  }, [enabledStatusValues])
+
   const supabase = createClient()
   const { activeCall, endCall, updateCallDuration } = useCallTracking()
 
@@ -135,8 +133,8 @@ export function LeadStatusUpdater({
   }, [loanAmount, emiRate, emiTenure]);
   
   // DERIVED STATE
-  const currentStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === currentStatus), [currentStatus])
-  const selectedStatusOption = useMemo(() => STATUS_OPTIONS.find((o) => o.value === status), [status])
+  const currentStatusOption = useMemo(() => MASTER_STATUSES.find((o) => o.value === currentStatus), [currentStatus])
+  const selectedStatusOption = useMemo(() => MASTER_STATUSES.find((o) => o.value === status), [status])
    
   const whatsappLink = useMemo(() => {
       let cleaned = String(leadPhoneNumber || "").replace(/[^0-9]/g, '');
@@ -152,7 +150,7 @@ export function LeadStatusUpdater({
 
   const isWhatsappEnabled = whatsappLink !== "#";
   const hasUnsavedChanges = status !== "" || remarks !== "" || (loanAmount !== initialLoanAmount);
-  const isRevenueStatus = status === "Login Done" || status === "Disbursed";
+  const isRevenueStatus = status === workflowTriggers.on_login_done || status === workflowTriggers.on_revenue_marked;
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
   // --- EFFECTS ---
@@ -289,7 +287,7 @@ export function LeadStatusUpdater({
     if (activeStatus === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
     if (activeStatus === "follow_up") { setIsModalOpen(true); return }
     
-    const isRevenueStatus = activeStatus === "Login Done" || activeStatus === "Disbursed";
+    const isRevenueStatus = activeStatus === workflowTriggers.on_login_done || activeStatus === workflowTriggers.on_revenue_marked;
     const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
     if (isLoanAmountMissing) { toast.error("Loan Amount Required", { description: "Please enter a valid loan amount for this status." }); return; }
       
@@ -336,7 +334,7 @@ export function LeadStatusUpdater({
       if (isCallInitiated) await logCall(finalDuration)
 
       // 2. WHATSAPP AUTOMATION
-      if ((activeStatus === "Documents_Sent" || activeStatus === "Interested") && leadPhoneNumber) {
+      if ((activeStatus === workflowTriggers.on_document_request || activeStatus === "Interested") && leadPhoneNumber) {
           toast.info("Sending KYC Document Request via WhatsApp...");
           const kycResult = await sendKYCRequestTemplate(leadId, leadPhoneNumber);
           
@@ -539,7 +537,7 @@ export function LeadStatusUpdater({
                 <SelectValue placeholder="Select outcome..." />
               </SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map((o) => (
+                {availableStatusOptions.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
                         <div className="flex items-center gap-2">
                             <o.icon className={cn("h-4 w-4", o.color.split(' ')[1])} />

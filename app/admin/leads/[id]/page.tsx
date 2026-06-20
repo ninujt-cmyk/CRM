@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useTenant } from "@/context/tenant-provider"
+import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS } from "@/lib/lead-statuses"
 
 // --- TYPES ---
 interface EditLeadPageProps {
@@ -80,16 +82,7 @@ interface Telecaller {
   full_name: string
 }
 
-const PIPELINE_STEPS = [
-    { id: 'new', label: 'New Lead' },
-    { id: 'contacted', label: 'Contacted' },
-    { id: 'Interested', label: 'Interested' },
-    { id: 'Login Done', label: 'Login Done' },
-    { id: 'Transferred to KYC', label: 'Transferred to KYC' },
-    { id: 'Underwriting', label: 'Underwriting' },
-    { id: 'Approved', label: 'Approved' },
-    { id: 'DISBURSED', label: 'Disbursed' }
-]
+// Pipeline steps are now calculated dynamically based on enabled statuses
 
 export default function EditLeadPage({ params }: EditLeadPageProps) {
   const router = useRouter()
@@ -107,6 +100,22 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
   const [deleting, setDeleting] = useState(false)
   const [timelineData, setTimelineData] = useState<any[]>([])
   const [user, setUser] = useState<any>(null)
+
+  const org = useTenant()
+  const enabledStatusValues = org?.enabled_statuses || MASTER_STATUSES.map(s => s.value)
+  const workflowTriggers = org?.workflow_triggers || DEFAULT_WORKFLOW_TRIGGERS
+
+  const availableStatusOptions = useMemo(() => {
+    return MASTER_STATUSES.filter(s => enabledStatusValues.includes(s.value))
+  }, [enabledStatusValues])
+
+  const PIPELINE_STEPS = useMemo(() => {
+      // Create pipeline steps from enabled statuses, filtering out statuses like "nr", "not_eligible", "follow_up" which are outcomes, not steps.
+      const excludedSteps = ["nr", "not_eligible", "self_employed", "follow_up", "Not_Interested"]
+      return availableStatusOptions
+          .filter(s => !excludedSteps.includes(s.value))
+          .map(s => ({ id: s.value, label: s.label }))
+  }, [availableStatusOptions])
 
   // --- DATA FETCHING ---
   useEffect(() => {
@@ -508,15 +517,9 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
                                 <Select name="status" value={selectedStatus} onValueChange={setSelectedStatus}>
                                     <SelectTrigger className="mt-1.5 h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-850 text-xs"><SelectValue /></SelectTrigger>
                                     <SelectContent className="rounded-xl">
-                                        <SelectItem value="new" className="rounded-lg text-xs">New</SelectItem>
-                                        <SelectItem value="contacted" className="rounded-lg text-xs">Contacted</SelectItem>
-                                        <SelectItem value="Interested" className="rounded-lg text-xs">Interested</SelectItem>
-                                        <SelectItem value="Login Done" className="rounded-lg text-xs">Login Done</SelectItem>
-                                        <SelectItem value="Transferred to KYC" className="rounded-lg text-xs">Transferred to KYC</SelectItem>
-                                        <SelectItem value="Underwriting" className="rounded-lg text-xs">Underwriting</SelectItem>
-                                        <SelectItem value="Approved" className="rounded-lg text-xs">Approved</SelectItem>
-                                        <SelectItem value="DISBURSED" className="rounded-lg text-xs">Disbursed</SelectItem>
-                                        <SelectItem value="Not_Interested" className="rounded-lg text-xs">Not Interested</SelectItem>
+                                        {availableStatusOptions.map(opt => (
+                                            <SelectItem key={opt.value} value={opt.value} className="rounded-lg text-xs">{opt.label}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -551,7 +554,7 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
                         </div>
                         
                         {/* Conditionally show KYC Team Member Dropdown */}
-                        {(selectedStatus === "Login Done" || selectedStatus === "Transferred to KYC" || selectedStatus === "Underwriting" || lead.kyc_member_id) && (
+                        {(selectedStatus === workflowTriggers.on_login_done || selectedStatus === workflowTriggers.on_kyc_transfer || selectedStatus === "Underwriting" || lead.kyc_member_id) && (
                             <div className="mt-4 grid grid-cols-1 md:grid-cols-3">
                                 <div>
                                     <Label className="text-xs font-semibold text-indigo-650 dark:text-indigo-350 flex items-center gap-1.5 mb-1.5">

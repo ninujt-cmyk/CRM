@@ -74,3 +74,36 @@ export async function provisionNewTenant(formData: {
         return { success: false, error: error.message || "Failed to provision workspace" }
     }
 }
+
+export async function updateTenantSettings(orgId: string, enabledStatuses: string[], workflowTriggers: any) {
+    try {
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error("Unauthorized")
+
+        const { data: caller } = await supabase.from('users').select('role').eq('id', user.id).single()
+        if (caller?.role !== 'super_admin') {
+            throw new Error("Forbidden: Only Super Admins can update tenant settings.")
+        }
+
+        const supabaseAdmin = createAdminClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+
+        const { error } = await supabaseAdmin
+            .from('organizations')
+            .update({ 
+                enabled_statuses: enabledStatuses,
+                workflow_triggers: workflowTriggers
+            })
+            .eq('id', orgId)
+
+        if (error) throw new Error("Failed to update organization: " + error.message)
+
+        return { success: true, message: "Tenant settings updated successfully!" }
+    } catch (error: any) {
+        console.error("Update Error:", error)
+        return { success: false, error: error.message || "Failed to update tenant settings" }
+    }
+}

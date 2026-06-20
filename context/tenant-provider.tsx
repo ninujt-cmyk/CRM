@@ -7,6 +7,8 @@ interface Organization {
   id: string;
   name: string;
   plan: string;
+  enabled_statuses: string[];
+  workflow_triggers: any;
 }
 
 const TenantContext = createContext<Organization | null>(null)
@@ -31,7 +33,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
          // 2. Fetch only THAT specific organization (Prevents 406 Error for Super Admins)
          const { data } = await supabase
            .from("organizations")
-           .select("id, name, plan")
+           .select("id, name, plan, enabled_statuses, workflow_triggers")
            .eq('id', profile.tenant_id)
            .limit(1)
            .maybeSingle()
