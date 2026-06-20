@@ -10,7 +10,7 @@ import { Copy, Facebook, Code, Zap, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 
 export default function IntegrationsPage() {
-  const { org } = useTenant()
+  const org = useTenant()
   const [webhookUrl, setWebhookUrl] = useState("")
   const [copied, setCopied] = useState(false)
 
