@@ -13,28 +13,32 @@ export async function POST(request: NextRequest) {
   console.log("🔔 [INCOMING LEAD WEBHOOK] Received request.");
 
   try {
-    // 1. Get Tenant ID from URL Query Params
+    // 1. Get Token from URL Query Params
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('org_id');
+    const token = searchParams.get('token');
 
-    if (!orgId) {
-      console.error("🚨 [INCOMING LEAD WEBHOOK] Missing org_id parameter.");
-      return NextResponse.json({ status: "error", message: "Missing org_id parameter. Your Webhook URL must include ?org_id=YOUR_TENANT_ID" }, { status: 400 });
+    if (!token) {
+      console.error("🚨 [INCOMING LEAD WEBHOOK] Missing token parameter.");
+      return NextResponse.json({ status: "error", message: "Missing token parameter. Your Webhook URL must include ?token=YOUR_SECRET_KEY" }, { status: 400 });
     }
 
-    // Verify Organization exists
-    const { data: tenant, error: tenantError } = await supabaseAdmin
-      .from('organizations')
-      .select('id, name')
-      .eq('id', orgId)
+    // 2. Look up the organization by their secret token
+    const { data: settings, error: tokenError } = await supabaseAdmin
+      .from('tenant_settings')
+      .select('tenant_id, organizations(name)')
+      .eq('webhook_secret', token)
       .single();
 
-    if (tenantError || !tenant) {
-        console.error("🚨 [INCOMING LEAD WEBHOOK] Invalid org_id:", orgId);
-        return NextResponse.json({ status: "error", message: "Invalid org_id" }, { status: 401 });
+    if (tokenError || !settings || !settings.tenant_id) {
+        console.error("🚨 [INCOMING LEAD WEBHOOK] Invalid token:", token);
+        return NextResponse.json({ status: "error", message: "Unauthorized. Invalid webhook token." }, { status: 401 });
     }
 
-    // 2. Parse Body securely
+    const orgId = settings.tenant_id;
+    // Type casting because supabase join returns an array or object
+    const orgName = (settings.organizations as any)?.name || "Unknown Organization";
+
+    // 3. Parse Body securely
     let body: any = {};
     const rawBody = await request.text();
     if (rawBody) {
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`📋 [INCOMING LEAD WEBHOOK] Payload for ${tenant.name}:`, body);
+    console.log(`📋 [INCOMING LEAD WEBHOOK] Payload for ${orgName}:`, body);
 
     // Normalize keys to lowercase for robust extraction
     const safeBody: Record<string, any> = {};
@@ -73,7 +77,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: "error", message: "A valid 10-digit Indian phone number is required." }, { status: 400 });
     }
 
-    // 3. Insert Lead
+    // 4. Insert Lead
     const { data: newLead, error: insertError } = await supabaseAdmin
         .from('leads')
         .insert({
@@ -97,7 +101,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: "error", message: "Failed to create lead" }, { status: 500 });
     }
 
-    console.log(`✅ [INCOMING LEAD WEBHOOK] Successfully saved lead ${cleanPhone} for ${tenant.name}.`);
+    console.log(`✅ [INCOMING LEAD WEBHOOK] Successfully saved lead ${cleanPhone} for ${orgName}.`);
     
     return NextResponse.json({ 
         status: "success", 
