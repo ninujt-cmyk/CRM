@@ -42,7 +42,8 @@ const STATUS_OPTIONS = [
   { value: "new", label: "New", color: "bg-blue-100 text-blue-800", btnColor: "bg-blue-600 hover:bg-blue-700", icon: Sparkles },
   { value: "Interested", label: "Interested", color: "bg-green-100 text-green-800", btnColor: "bg-green-600 hover:bg-green-700", icon: ThumbsUp },
   { value: "Documents_Sent", label: "Docs Pending", color: "bg-purple-100 text-purple-800", btnColor: "bg-purple-600 hover:bg-purple-700", icon: FileText },
-  { value: "Login", label: "Login", color: "bg-orange-100 text-orange-800", btnColor: "bg-orange-600 hover:bg-orange-700", icon: LogIn },
+  { value: "Login Done", label: "Login Done", color: "bg-orange-100 text-orange-800", btnColor: "bg-orange-600 hover:bg-orange-700", icon: LogIn },
+  { value: "Transferred to KYC", label: "Transferred to KYC", color: "bg-indigo-100 text-indigo-800", btnColor: "bg-indigo-600 hover:bg-indigo-700", icon: CheckCircle2 },
   { value: "Disbursed", label: "Disbursed", color: "bg-emerald-100 text-emerald-800", btnColor: "bg-emerald-600 hover:bg-emerald-700", icon: CheckCircle2 },
   { value: "Not_Interested", label: "Not Interested", color: "bg-red-100 text-red-800", btnColor: "bg-red-600 hover:bg-red-700", icon: ThumbsDown },
   { value: "follow_up", label: "Call Back", color: "bg-indigo-100 text-indigo-800", btnColor: "bg-indigo-600 hover:bg-indigo-700", icon: PhoneForwarded },
@@ -72,7 +73,7 @@ export function classifySentiment(remarks: string, status: string): string | nul
   if (hasCold) return "Cold Lead ❄️";
   if (hasCallback) return "Callback Scheduled ⏰";
   
-  if (status === "Interested" || status === "Login" || status === "Disbursed") {
+  if (status === "Interested" || status === "Login Done" || status === "Disbursed") {
     return "Hot Prospect 🔥";
   }
   if (status === "Not_Interested" || status === "not_eligible") {
@@ -151,7 +152,7 @@ export function LeadStatusUpdater({
 
   const isWhatsappEnabled = whatsappLink !== "#";
   const hasUnsavedChanges = status !== "" || remarks !== "" || (loanAmount !== initialLoanAmount);
-  const isRevenueStatus = status === "Login" || status === "Disbursed";
+  const isRevenueStatus = status === "Login Done" || status === "Disbursed";
   const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
 
   // --- EFFECTS ---
@@ -288,7 +289,7 @@ export function LeadStatusUpdater({
     if (activeStatus === "not_eligible" && !note.trim()) { toast.error("Reason Required", { description: "Specify why not eligible." }); return }
     if (activeStatus === "follow_up") { setIsModalOpen(true); return }
     
-    const isRevenueStatus = activeStatus === "Login" || activeStatus === "Disbursed";
+    const isRevenueStatus = activeStatus === "Login Done" || activeStatus === "Disbursed";
     const isLoanAmountMissing = isRevenueStatus && (!loanAmount || loanAmount <= 0);
     if (isLoanAmountMissing) { toast.error("Loan Amount Required", { description: "Please enter a valid loan amount for this status." }); return; }
       
