@@ -17,7 +17,7 @@ export async function getGlobalTenantData() {
     if (profile?.tenant_id) {
         const { data } = await supabase
             .from("organizations")
-            .select("id, name, plan, enabled_statuses, enabled_modules, workflow_triggers, is_suspended")
+            .select("id, name, plan, industry, enabled_statuses, enabled_modules, workflow_triggers, is_suspended")
             .eq('id', profile.tenant_id)
             .limit(1)
             .maybeSingle()

@@ -9,6 +9,7 @@ interface Organization {
   enabled_statuses: string[];
   enabled_modules: string[];
   workflow_triggers: any;
+  industry?: string;
 }
 
 interface TenantContextValue {
