@@ -52,7 +52,8 @@ export const sidebarGroups = [
       { name: "Activities", href: "/admin/audit-logs", icon: Activity, module: "logs" },
       { name: "Logins", href: "/admin/logins", icon: UserCheck, module: "logs" },
       { name: "Wallboard", href: "/admin/wallboard", icon: Presentation, module: "wallboard" },
-      { name: "IVR", href: "/admin/ivr-campaigns", icon: Workflow, module: "ivr" },
+      { name: "IVR Campaigns", href: "/admin/ivr-campaigns", icon: Workflow, module: "ivr" },
+      { name: "IVR Configs", href: "/admin/ivr-configs", icon: Settings, module: "ivr" },
       { name: "Files", href: "/admin/master-data", icon: CloudUpload, module: "files" },
     ]
   },

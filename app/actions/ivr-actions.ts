@@ -146,3 +146,111 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
         return { success: false, error: error.message || "Internal Server Error" };
     }
 }
+
+// ==========================================
+// CRUD Actions for IVR Configurations
+// ==========================================
+
+export async function fetchIvrConfigs() {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Unauthorized");
+
+        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+        if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
+
+        const { data, error } = await supabase
+            .from('ivr_campaign_configs')
+            .select('*')
+            .eq('tenant_id', profile.tenant_id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function createIvrConfig(payload: {
+    campaign_name: string;
+    fonada_campaign_id: string;
+    fonada_user_id: string;
+    fonada_ukey: string;
+}) {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Unauthorized");
+
+        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+        if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
+
+        const { error } = await supabase
+            .from('ivr_campaign_configs')
+            .insert({
+                tenant_id: profile.tenant_id,
+                ...payload
+            });
+
+        if (error) throw error;
+        return { success: true, message: "Configuration created successfully." };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateIvrConfig(id: string, payload: {
+    campaign_name: string;
+    fonada_campaign_id: string;
+    fonada_user_id: string;
+    fonada_ukey: string;
+}) {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Unauthorized");
+
+        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+        if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
+
+        const { error } = await supabase
+            .from('ivr_campaign_configs')
+            .update(payload)
+            .eq('id', id)
+            .eq('tenant_id', profile.tenant_id);
+
+        if (error) throw error;
+        return { success: true, message: "Configuration updated successfully." };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteIvrConfig(id: string) {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Unauthorized");
+
+        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
+        if (!profile?.tenant_id) throw new Error("Tenant ID not found.");
+
+        // Instead of hard delete, maybe just soft delete or actual delete
+        // If history is tied to campaign_name (string), hard delete is okay. 
+        // If tied to config_id, then soft delete is needed. 
+        // Current code shows `ivr_campaign_history` stores `campaign_name` string, so hard delete is fine.
+        const { error } = await supabase
+            .from('ivr_campaign_configs')
+            .delete()
+            .eq('id', id)
+            .eq('tenant_id', profile.tenant_id);
+
+        if (error) throw error;
+        return { success: true, message: "Configuration deleted successfully." };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+

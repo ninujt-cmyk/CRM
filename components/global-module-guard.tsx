@@ -19,7 +19,7 @@ export function GlobalModuleGuard({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.href.length - a.href.length)
       
     for (const item of allItems) {
-      if (item.exact) {
+      if ((item as any).exact) {
         if (pathname === item.href) {
           requiredModule = item.module
           break

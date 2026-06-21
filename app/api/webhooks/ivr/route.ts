@@ -201,6 +201,40 @@ export async function POST(request: NextRequest) {
         console.log("✨ Created brand new lead from IVR call.");
     }
 
+    // 🔴 RECORD IN IVR_CALL_LOGS FOR ANALYTICS
+    const batchId = body.batchId || body.batch_id || null;
+    const clid = body.clid || body.caller_id || null;
+    const hangupCause = body.hangupCause || null;
+    const hangupCode = body.hangupCode || null;
+    const answerDate = body.answerDate || null;
+    
+    // Calculate credits used if possible
+    let creditsUsed = 0;
+    if (disposition === 'ANSWERED') {
+        creditsUsed = Math.ceil((parseInt(callDuration) || 0) / 60);
+        if (creditsUsed === 0) creditsUsed = 1;
+    }
+
+    try {
+        await supabaseAdmin.from("ivr_call_logs").insert({
+            tenant_id: tenantId,
+            batch_id: batchId,
+            mobile_number: dbPhone,
+            disposition: disposition,
+            call_duration: parseInt(callDuration) || 0,
+            bill_seconds: parseInt(callDuration) || 0, 
+            digits_pressed: digitsPressed ? String(digitsPressed) : null,
+            credits_used: creditsUsed,
+            hangup_cause: hangupCause,
+            hangup_code: hangupCode,
+            clid: clid,
+            answer_date: answerDate ? new Date(answerDate).toISOString() : null,
+        });
+        console.log("📊 Logged call to ivr_call_logs for analytics.");
+    } catch (logErr) {
+        console.error("⚠️ Failed to log to ivr_call_logs (Analytics might be missing this call):", logErr);
+    }
+
     return NextResponse.json({ status: "success", message: "IVR data processed securely" });
 
   } catch (error) {
