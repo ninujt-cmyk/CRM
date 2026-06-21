@@ -16,7 +16,7 @@ export default async function TasksPage() {
     redirect("/auth/login")
   }
 
-  // Get follow-ups (tasks) for the telecaller
+  // Get pending follow-ups (tasks) for the telecaller
   const { data: followUps } = await supabase
     .from("follow_ups")
     .select(`
@@ -31,10 +31,11 @@ export default async function TasksPage() {
       )
     `)
     .eq("user_id", user.id)
+    .eq("status", "pending")
     .order("scheduled_at", { ascending: true })
 
   // Separate tasks by status and urgency
-  const pendingTasks = followUps?.filter((task: any) => task.status === "pending") || []
+  const pendingTasks = followUps || []
   const overdueTasks = pendingTasks.filter((task: any) => isPast(new Date(task.scheduled_at)))
   const todayTasks = pendingTasks.filter((task: any) => isToday(new Date(task.scheduled_at)))
   const tomorrowTasks = pendingTasks.filter((task: any) => isTomorrow(new Date(task.scheduled_at)))

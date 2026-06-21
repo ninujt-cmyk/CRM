@@ -31,6 +31,9 @@ import { PerformanceMetrics } from "@/components/performance-metrics"
 import { DailyTargetProgress } from "@/components/daily-target-progress"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { EmptyState } from "@/components/empty-state"
+import { LiveLeaderboard } from "@/components/telecaller/LiveLeaderboard"
+import { MyLeadStatusChart } from "@/components/my-lead-status-chart"
+import { RecentLeads } from "@/components/recent-leads"
 
 interface DashboardStats {
   title: string
@@ -454,17 +457,56 @@ export default function TelecallerDashboard() {
           currentCompleted={data.stats.completedToday}
         />
 
-        {/* --- Schedule Section --- */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
-              <Calendar className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" /> AI Recommended Schedule
-            </h3>
+        {/* --- Quick Insights Section (New) --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
+            <CardHeader className="pb-3 border-b bg-slate-50/50 dark:bg-slate-800/20">
+              <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-150 flex items-center gap-1.5">
+                <Activity className="h-4 w-4 text-indigo-500" />
+                Pipeline Health
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <MyLeadStatusChart userId={data.user?.id || ""} />
+            </CardContent>
+          </Card>
+          
+          <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
+            <CardHeader className="pb-3 border-b bg-slate-50/50 dark:bg-slate-800/20">
+              <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-150 flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-emerald-500" />
+                Actionable Recent Leads
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 px-2 sm:px-4">
+              <RecentLeads userId={data.user?.id || ""} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* --- Tasks & Leaderboard Section --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
+                <Calendar className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" /> AI Recommended Schedule
+              </h3>
+            </div>
+            <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load tasks." />}>
+              <TodaysTasks userId={data.user?.id || ""} />
+            </ErrorBoundary>
           </div>
           
-          <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load tasks." />}>
-            <TodaysTasks userId={data.user?.id || ""} />
-          </ErrorBoundary>
+          <div className="lg:col-span-1 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
+                <Trophy className="h-4.5 w-4.5 text-yellow-500" /> Gamification
+              </h3>
+            </div>
+            <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load leaderboard." />}>
+              <LiveLeaderboard />
+            </ErrorBoundary>
+          </div>
         </div>
 
         {/* --- Work session tracker attendance & performance gauges --- */}

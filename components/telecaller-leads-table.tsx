@@ -76,22 +76,7 @@ export function TelecallerLeadsTable({
            d.getFullYear() === now.getFullYear()
   }
 
-  const getLeadRank = (lead: Lead) => {
-    const createdToday = isToday(lead.created_at)
-    const isContacted = !!lead.last_contacted
-    if (createdToday && !isContacted) return 0
-    if (createdToday && isContacted) return 1
-    return 2
-  }
-
-  const sortedLeads = [...leads].sort((a, b) => {
-    const rankA = getLeadRank(a)
-    const rankB = getLeadRank(b)
-    if (rankA !== rankB) {
-      return rankA - rankB
-    }
-    return 0
-  })
+  const sortedLeads = leads; // Use server-side sorted leads directly
 
   // --- 1. HANDLE SORTING ---
   const handleSort = (field: string) => {
