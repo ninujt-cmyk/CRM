@@ -50,7 +50,7 @@ export default function SuperAdminConsole() {
 
   // Form State
   const [formData, setFormData] = useState({
-    orgName: "", plan: "pro", adminName: "", adminEmail: "", adminPassword: ""
+    orgName: "", plan: "pro", industry: "general", adminName: "", adminEmail: "", adminPassword: ""
   })
 
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -411,6 +411,17 @@ export default function SuperAdminConsole() {
                         <SelectItem value="free">Free Tier</SelectItem>
                         <SelectItem value="pro">Pro Tier</SelectItem>
                         <SelectItem value="enterprise">Enterprise</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="space-y-2">
+                <Label>Industry / Vertical</Label>
+                <Select value={formData.industry} onValueChange={v => setFormData({...formData, industry: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="general">General CRM</SelectItem>
+                        <SelectItem value="real_estate">Real Estate</SelectItem>
                     </SelectContent>
                 </Select>
             </div>
