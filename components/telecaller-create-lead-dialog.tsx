@@ -52,10 +52,17 @@ export function TelecallerCreateLeadDialog({ currentUserId }: TelecallerCreateLe
   const router = useRouter()
   const supabase = createClient()
 
+  const { useTenant } = require("@/context/tenant-provider");
+  const org = useTenant();
+
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
     status: "new", // Default status
+    // Real Estate Fields
+    budget: "",
+    bhk: "",
+    location: ""
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -69,8 +76,11 @@ export function TelecallerCreateLeadDialog({ currentUserId }: TelecallerCreateLe
         return
       }
 
+      // Fetch tenant profile to get tenant_id for custom fields
+      const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', currentUserId).single()
+
       // Insert into Supabase
-      const { error } = await supabase.from("leads").insert({
+      const { data: lead, error } = await supabase.from("leads").insert({
         name: formData.name,
         phone: formData.phone,
         status: formData.status,
@@ -78,12 +88,26 @@ export function TelecallerCreateLeadDialog({ currentUserId }: TelecallerCreateLe
         source: "other", // FIX: Changed to 'Other' to match DB constraint
         created_at: new Date().toISOString(),
         last_contacted: new Date().toISOString(),
-      })
+        tenant_id: profile?.tenant_id // Provide if needed
+      }).select().single()
 
       if (error) throw error
 
+      // Insert custom fields if it's a real estate lead
+      if (org?.industry === 'real_estate' && lead?.id && profile?.tenant_id) {
+        const customFields = [
+          { lead_id: lead.id, tenant_id: profile.tenant_id, field_key: 'budget', field_value: formData.budget },
+          { lead_id: lead.id, tenant_id: profile.tenant_id, field_key: 'bhk_preference', field_value: formData.bhk },
+          { lead_id: lead.id, tenant_id: profile.tenant_id, field_key: 'preferred_location', field_value: formData.location },
+        ].filter(f => f.field_value)
+
+        if (customFields.length > 0) {
+           await supabase.from('lead_custom_fields').insert(customFields)
+        }
+      }
+
       toast.success("Lead created successfully!")
-      setFormData({ name: "", phone: "", status: "new" }) // Reset form
+      setFormData({ name: "", phone: "", status: "new", budget: "", bhk: "", location: "" }) // Reset form
       setOpen(false) // Close dialog
       router.refresh() // Refresh data on page
     } catch (error: any) {
@@ -151,10 +175,60 @@ export function TelecallerCreateLeadDialog({ currentUserId }: TelecallerCreateLe
               </SelectContent>
             </Select>
           </div>
+          {org?.industry === 'real_estate' && (
+            <div className="border-t pt-4 mt-2">
+              <h4 className="text-sm font-semibold mb-3 text-slate-700">Property Requirements</h4>
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="budget">Budget (Max)</Label>
+                  <Input
+                    id="budget"
+                    placeholder="e.g. 8000000"
+                    type="number"
+                    value={formData.budget}
+                    onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="bhk">BHK Preference</Label>
+                    <Select
+                      value={formData.bhk}
+                      onValueChange={(val) => setFormData({ ...formData, bhk: val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1 BHK">1 BHK</SelectItem>
+                        <SelectItem value="2 BHK">2 BHK</SelectItem>
+                        <SelectItem value="3 BHK">3 BHK</SelectItem>
+                        <SelectItem value="4+ BHK">4+ BHK</SelectItem>
+                        <SelectItem value="Plot">Plot / Land</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="location">Location</Label>
+                    <Input
+                      id="location"
+                      placeholder="e.g. Noida Sector 62"
+                      value={formData.location}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Lead
+              Create Lead
             </Button>
           </DialogFooter>
         </form>

@@ -262,6 +262,9 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
               // Filter items based on enabled modules
               const visibleItems = group.items.filter(item => {
                 if (item.module === "core") return true;
+                if (item.module === "real_estate") {
+                   return org?.industry === 'real_estate';
+                }
                 if (!org || !org.enabled_modules) return false;
                 return org.enabled_modules.includes(item.module);
               });

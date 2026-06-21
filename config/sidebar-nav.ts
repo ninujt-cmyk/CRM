@@ -17,7 +17,9 @@ import {
   PhoneOutgoing,     // Replaced KeyRound for "Dialer" (Directly indicates outbound calling)
   Settings,
   CloudUpload,
-  Webhook
+  Webhook,
+  Home,
+  MapPin
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -33,6 +35,13 @@ export const sidebarGroups = [
       { name: "All Leads", href: "/admin/leads", icon: ClipboardList, module: "leads" },
       { name: "Upload Leads", href: "/admin/upload", icon: FileUp, module: "leads" },
       { name: "Available Leads", href: "/admin/calls", icon: Target, module: "dialer" },
+    ]
+  },
+  {
+    label: "Real Estate",
+    items: [
+      { name: "Properties", href: "/admin/properties", icon: Home, module: "real_estate" },
+      { name: "Site Visits", href: "/admin/site-visits", icon: MapPin, module: "real_estate" },
     ]
   },
   {

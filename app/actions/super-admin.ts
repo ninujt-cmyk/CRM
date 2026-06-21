@@ -6,6 +6,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js"
 export async function provisionNewTenant(formData: {
     orgName: string;
     plan: string;
+    industry?: string;
     adminName: string;
     adminEmail: string;
     adminPassword: string;
@@ -31,7 +32,11 @@ export async function provisionNewTenant(formData: {
         // 3. Create the Organization
         const { data: newOrg, error: orgError } = await supabaseAdmin
             .from('organizations')
-            .insert({ name: formData.orgName, plan: formData.plan })
+            .insert({ 
+                name: formData.orgName, 
+                plan: formData.plan,
+                industry: formData.industry || 'general'
+            })
             .select('id').single()
 
         if (orgError || !newOrg) throw new Error("Failed to create organization: " + orgError?.message)

@@ -35,21 +35,25 @@ import {
   Fingerprint,     // Logins (Identity/Security)
   ChevronsLeft,
   AlignLeft,
-  UserSearch 
+  UserSearch,
+  Home,
+  MapPin
 } from "lucide-react"
 
 const navigation = [
-  { name: "Dashboard", href: "/telecaller", icon: LayoutDashboard },
-  { name: "My Leads", href: "/telecaller/leads", icon: Headset },
-  { name: "Today's Tasks", href: "/telecaller/tasks", icon: ListTodo },
-  { name: "Call History", href: "/telecaller/calls", icon: History },
-  { name: "Follow-ups", href: "/telecaller/follow-ups", icon: CalendarClock },
-  { name: "Notes", href: "/telecaller/notes", icon: StickyNote },
-  { name: "Attendance", href: "/telecaller/attendance", icon: UserCheck },
-  { name: "Leave", href: "/telecaller/leave", icon: CalendarOff },
-  { name: "Whatsapp", href: "/telecaller/chat", icon: MessageCircle },
-  { name: "Logins", href: "/telecaller/logins", icon: Fingerprint },
-  { name: "Files", href: "/telecaller/global-search", icon: UserSearch },
+  { name: "Dashboard", href: "/telecaller", icon: LayoutDashboard, module: "core" },
+  { name: "My Leads", href: "/telecaller/leads", icon: Headset, module: "leads" },
+  { name: "Properties", href: "/telecaller/properties", icon: Home, module: "real_estate" },
+  { name: "Site Visits", href: "/telecaller/site-visits", icon: MapPin, module: "real_estate" },
+  { name: "Today's Tasks", href: "/telecaller/tasks", icon: ListTodo, module: "core" },
+  { name: "Call History", href: "/telecaller/calls", icon: History, module: "core" },
+  { name: "Follow-ups", href: "/telecaller/follow-ups", icon: CalendarClock, module: "core" },
+  { name: "Notes", href: "/telecaller/notes", icon: StickyNote, module: "core" },
+  { name: "Attendance", href: "/telecaller/attendance", icon: UserCheck, module: "core" },
+  { name: "Leave", href: "/telecaller/leave", icon: CalendarOff, module: "core" },
+  { name: "Whatsapp", href: "/telecaller/chat", icon: MessageCircle, module: "core" },
+  { name: "Logins", href: "/telecaller/logins", icon: Fingerprint, module: "core" },
+  { name: "Files", href: "/telecaller/global-search", icon: UserSearch, module: "core" },
 ]
 
 // --- SUB-COMPONENT: Nav Item with 3D Effects ---
@@ -192,6 +196,8 @@ export function TelecallerSidebar() {
 // --- INTERNAL CONTENT RENDERER ---
 function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathname: string }) {
   const supabase = createClient()
+  const { useTenant } = require("@/context/tenant-provider");
+  const org = useTenant();
   const [userData, setUserData] = useState<{ name: string; email: string }>({
     name: "Agent Profile",
     email: "Online & Ready",
@@ -272,7 +278,12 @@ function SidebarContent({ isCollapsed, pathname }: { isCollapsed: boolean, pathn
       <ScrollArea className="flex-1 py-6 min-h-0">
         <div className="px-4 space-y-1.5">
           <TooltipProvider delayDuration={0}>
-            {navigation.map((item, index) => (
+            {navigation.filter(item => {
+              if (item.module === "core") return true;
+              if (item.module === "real_estate") return org?.industry === 'real_estate';
+              if (!org || !org.enabled_modules) return false;
+              return org.enabled_modules.includes(item.module);
+            }).map((item, index) => (
               <div key={item.href} className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${index * 50}ms` }}>
                 <SidebarItem 
                   item={item} 
