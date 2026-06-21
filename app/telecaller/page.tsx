@@ -457,6 +457,45 @@ export default function TelecallerDashboard() {
           currentCompleted={data.stats.completedToday}
         />
 
+        {/* --- Work session tracker attendance & performance gauges --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <ErrorBoundary fallback={null}>
+            <AttendanceWidget />
+          </ErrorBoundary>
+
+          {/* --- Circular performance analytics Board --- */}
+          <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
+            <CardHeader className="pb-3 border-b bg-slate-50/50 dark:bg-slate-800/20">
+              <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-150 flex items-center gap-1.5">
+                <Activity className="h-4 w-4 text-indigo-500" />
+                Session Analytics
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
+                  <RadialProgress percent={data.stats.conversionRate} colorClass="text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Conversion</span>
+                  <span className="text-[9px] text-slate-400 mt-0.5">Calls to Lead</span>
+                </div>
+                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
+                  <RadialProgress percent={data.stats.successRate} colorClass="text-emerald-500" />
+                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Response Rate</span>
+                  <span className="text-[9px] text-slate-400 mt-0.5">Connect ratio</span>
+                </div>
+              </div>
+              <div className="p-3 bg-indigo-50/40 dark:bg-indigo-950/10 border border-indigo-100/60 dark:border-indigo-950/30 rounded-xl">
+                <div className="flex items-center gap-2 text-[9px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-widest mb-1">
+                  <Zap className="h-3 w-3 fill-indigo-600" /> AI Target Advice
+                </div>
+                <p className="text-[10px] text-indigo-650 dark:text-indigo-400 font-medium leading-relaxed">
+                  Tip: Telecallers closing deals between 2:00 PM - 4:00 PM see a 25% higher connect response rate. Schedule active high-intent dials for this interval!
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* --- Quick Insights Section (New) --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
@@ -509,44 +548,6 @@ export default function TelecallerDashboard() {
           </div>
         </div>
 
-        {/* --- Work session tracker attendance & performance gauges --- */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ErrorBoundary fallback={null}>
-            <AttendanceWidget />
-          </ErrorBoundary>
-
-          {/* --- Circular performance analytics Board --- */}
-          <Card className="shadow-xs border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
-            <CardHeader className="pb-3 border-b bg-slate-50/50 dark:bg-slate-800/20">
-              <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-150 flex items-center gap-1.5">
-                <Activity className="h-4 w-4 text-indigo-500" />
-                Session Analytics
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
-                  <RadialProgress percent={data.stats.conversionRate} colorClass="text-indigo-600 dark:text-indigo-400" />
-                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Conversion</span>
-                  <span className="text-[9px] text-slate-400 mt-0.5">Calls to Lead</span>
-                </div>
-                <div className="flex flex-col items-center justify-center p-3 bg-slate-50/70 dark:bg-slate-950/20 border rounded-xl dark:border-slate-850">
-                  <RadialProgress percent={data.stats.successRate} colorClass="text-emerald-500" />
-                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">Response Rate</span>
-                  <span className="text-[9px] text-slate-400 mt-0.5">Connect ratio</span>
-                </div>
-              </div>
-              <div className="p-3 bg-indigo-50/40 dark:bg-indigo-950/10 border border-indigo-100/60 dark:border-indigo-950/30 rounded-xl">
-                <div className="flex items-center gap-2 text-[9px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-widest mb-1">
-                  <Zap className="h-3 w-3 fill-indigo-600" /> AI Target Advice
-                </div>
-                <p className="text-[10px] text-indigo-650 dark:text-indigo-400 font-medium leading-relaxed">
-                  Tip: Telecallers closing deals between 2:00 PM - 4:00 PM see a 25% higher connect response rate. Schedule active high-intent dials for this interval!
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
         {/* --- Warning indicator banners --- */}
         {!isTargetMet && (
