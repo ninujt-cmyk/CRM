@@ -9,10 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare, MessageSquare, BarChart3, Presentation, Workflow, CloudUpload, Activity } from "lucide-react"
+import { Building2, Users, Loader2, Plus, Server, ShieldAlert, Settings, CheckSquare, MessageSquare, BarChart3, Presentation, Workflow, CloudUpload, Activity, Lock, Unlock, UserCheck } from "lucide-react"
 import { toast } from "sonner"
 
-import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations, fetchGlobalStatuses, addGlobalStatus } from "@/app/actions/super-admin"
+import { provisionNewTenant, updateTenantSettings, fetchAllOrganizations, fetchGlobalStatuses, addGlobalStatus, toggleTenantSuspension, impersonateTenant, fetchAllAnnouncements, createAnnouncement, toggleAnnouncement } from "@/app/actions/super-admin"
 import { MASTER_STATUSES, DEFAULT_WORKFLOW_TRIGGERS, resolveIcon } from "@/lib/lead-statuses"
 import { LoadingSkeleton } from "@/components/loading-skeleton"
 import { useRouter } from "next/navigation"
@@ -30,6 +30,14 @@ export default function SuperAdminConsole() {
   const [showModal, setShowModal] = useState(false)
   const [showAddStatusModal, setShowAddStatusModal] = useState(false)
   const [isAddingStatus, setIsAddingStatus] = useState(false)
+
+  const [isTogglingSuspension, setIsTogglingSuspension] = useState<string | null>(null)
+  const [isImpersonating, setIsImpersonating] = useState<string | null>(null)
+  
+  const [announcements, setAnnouncements] = useState<any[]>([])
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false)
+  const [isCreatingAnnouncement, setIsCreatingAnnouncement] = useState(false)
+  const [announcementForm, setAnnouncementForm] = useState({ title: "", message: "", type: "info" })
 
   // Status Form State
   const [statusForm, setStatusForm] = useState({
@@ -104,6 +112,58 @@ export default function SuperAdminConsole() {
     setIsUpdatingSettings(false)
   }
 
+  const handleToggleSuspension = async (orgId: string, currentStatus: boolean) => {
+    if (!confirm(`Are you sure you want to ${!currentStatus ? 'suspend' : 'activate'} this tenant?`)) return;
+    setIsTogglingSuspension(orgId)
+    const res = await toggleTenantSuspension(orgId, currentStatus)
+    if (res.success) {
+      toast.success(res.message)
+      fetchOrganizations()
+    } else {
+      toast.error(res.error)
+    }
+    setIsTogglingSuspension(null)
+  }
+
+  const handleImpersonate = async (orgId: string) => {
+    setIsImpersonating(orgId)
+    const res = await impersonateTenant(orgId)
+    if (res.success && res.link) {
+      toast.success("Logging in as tenant admin...")
+      window.open(res.link, '_blank')
+    } else {
+      toast.error(res.error)
+    }
+    setIsImpersonating(null)
+  }
+
+  const handleCreateAnnouncement = async () => {
+    if (!announcementForm.title || !announcementForm.message) {
+      return toast.error("Title and message are required.")
+    }
+    setIsCreatingAnnouncement(true)
+    const res = await createAnnouncement(announcementForm)
+    if (res.success) {
+      toast.success(res.message)
+      setShowAnnouncementModal(false)
+      setAnnouncementForm({ title: "", message: "", type: "info" })
+      fetchOrganizations()
+    } else {
+      toast.error(res.error)
+    }
+    setIsCreatingAnnouncement(false)
+  }
+
+  const handleToggleAnnouncement = async (id: string, currentStatus: boolean) => {
+    const res = await toggleAnnouncement(id, currentStatus)
+    if (res.success) {
+      toast.success(res.message)
+      fetchOrganizations()
+    } else {
+      toast.error(res.error)
+    }
+  }
+
   const handleAddStatus = async () => {
     if (!statusForm.label || !statusForm.value || !statusForm.iconName) {
         return toast.error("Please fill in all fields.")
@@ -146,6 +206,12 @@ export default function SuperAdminConsole() {
     const statusRes = await fetchGlobalStatuses()
     if (statusRes.success && statusRes.data && statusRes.data.length > 0) {
         setMasterStatuses(statusRes.data)
+    }
+
+    // Fetch Announcements
+    const annRes = await fetchAllAnnouncements()
+    if (annRes.success && annRes.data) {
+        setAnnouncements(annRes.data)
     }
 
     setLoading(false)
@@ -206,13 +272,67 @@ export default function SuperAdminConsole() {
         </div>
       </div>
 
+      {/* Announcements Section */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+            <div>
+                <CardTitle className="text-lg font-bold text-slate-800">Global Announcements</CardTitle>
+                <CardDescription>Push alerts to all active users across workspaces.</CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowAnnouncementModal(true)} className="bg-slate-900 text-white hover:bg-slate-800">
+                <Plus className="h-4 w-4 mr-1" /> New Broadcast
+            </Button>
+        </CardHeader>
+        <CardContent className="pt-4">
+            {announcements.length === 0 ? (
+                <div className="text-sm text-slate-500 text-center py-4">No active announcements.</div>
+            ) : (
+                <div className="space-y-3">
+                    {announcements.map((ann) => (
+                        <div key={ann.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-800 text-sm">{ann.title}</span>
+                                    <Badge variant="outline" className={
+                                        ann.type === 'warning' ? "text-amber-600 bg-amber-50" :
+                                        ann.type === 'error' ? "text-red-600 bg-red-50" :
+                                        ann.type === 'success' ? "text-green-600 bg-green-50" :
+                                        "text-blue-600 bg-blue-50"
+                                    }>{ann.type}</Badge>
+                                    {!ann.is_active && <Badge variant="secondary" className="text-xs">Inactive</Badge>}
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">{ann.message}</p>
+                            </div>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className={ann.is_active ? "text-red-600 hover:text-red-700 hover:bg-red-50" : "text-green-600 hover:text-green-700 hover:bg-green-50"}
+                                onClick={() => handleToggleAnnouncement(ann.id, ann.is_active)}
+                            >
+                                {ann.is_active ? "Deactivate" : "Activate"}
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </CardContent>
+      </Card>
+
       {/* Organization List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-slate-500" />
+            Active Workspaces
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {organizations.map((org) => (
             <Card key={org.id} className="hover:shadow-md transition-all border-slate-200">
                 <CardHeader className="pb-2">
                     <div className="flex justify-between items-start">
-                        <CardTitle className="text-lg font-bold text-slate-800">{org.name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                            <CardTitle className="text-lg font-bold text-slate-800">{org.name}</CardTitle>
+                            {org.is_suspended && <Badge variant="destructive" className="text-[10px]">SUSPENDED</Badge>}
+                        </div>
                         <Badge variant="outline" className={
                             org.plan === 'enterprise' ? "bg-purple-50 text-purple-700 border-purple-200 uppercase text-[10px]" : 
                             org.plan === 'pro' ? "bg-blue-50 text-blue-700 border-blue-200 uppercase text-[10px]" : 
@@ -225,13 +345,39 @@ export default function SuperAdminConsole() {
                 </CardHeader>
                 <CardContent>
                     <div className="flex items-center justify-between pt-4 border-t mt-2">
-                        <div className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                            <Users className="h-4 w-4 text-slate-400" />
-                            {org.users[0]?.count || 0} Total Users
+                        <div className="flex flex-col gap-2 text-sm text-slate-600 font-medium">
+                            <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4 text-slate-400" />
+                                {org.users[0]?.count || 0} Total Users
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Workflow className="h-4 w-4 text-slate-400" />
+                                {org.leadsCount || 0} Total Leads
+                            </div>
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => openSettings(org)} className="text-xs">
-                            <Settings className="h-3.5 w-3.5 mr-1" /> Settings
-                        </Button>
+                        <div className="flex items-center gap-1">
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Impersonate Admin"
+                                disabled={isImpersonating === org.id || org.is_suspended}
+                                onClick={() => handleImpersonate(org.id)}
+                            >
+                                {isImpersonating === org.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4 text-blue-600" />}
+                            </Button>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title={org.is_suspended ? "Activate Tenant" : "Suspend Tenant"}
+                                disabled={isTogglingSuspension === org.id}
+                                onClick={() => handleToggleSuspension(org.id, !!org.is_suspended)}
+                            >
+                                {isTogglingSuspension === org.id ? <Loader2 className="h-4 w-4 animate-spin" /> : org.is_suspended ? <Unlock className="h-4 w-4 text-green-600" /> : <Lock className="h-4 w-4 text-red-600" />}
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => openSettings(org)} className="text-xs">
+                                <Settings className="h-3.5 w-3.5 mr-1" /> Settings
+                            </Button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -291,6 +437,53 @@ export default function SuperAdminConsole() {
             <Button onClick={handleProvision} disabled={isProvisioning} className="bg-indigo-600 hover:bg-indigo-700">
                 {isProvisioning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Server className="h-4 w-4 mr-2" />}
                 Provision Tenant
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Announcement Modal */}
+      <Dialog open={showAnnouncementModal} onOpenChange={setShowAnnouncementModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-indigo-600" /> Broadcast Announcement
+            </DialogTitle>
+            <DialogDescription>
+              Push a system-wide alert to all users across all tenants.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+                <Label>Title <span className="text-red-500">*</span></Label>
+                <Input placeholder="e.g. Scheduled Maintenance" value={announcementForm.title} onChange={e => setAnnouncementForm({...announcementForm, title: e.target.value})} />
+            </div>
+
+            <div className="space-y-2">
+                <Label>Message <span className="text-red-500">*</span></Label>
+                <Input placeholder="System will be down for 10 mins..." value={announcementForm.message} onChange={e => setAnnouncementForm({...announcementForm, message: e.target.value})} />
+            </div>
+
+            <div className="space-y-2">
+                <Label>Type</Label>
+                <Select value={announcementForm.type} onValueChange={v => setAnnouncementForm({...announcementForm, type: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="info">Info (Blue)</SelectItem>
+                        <SelectItem value="warning">Warning (Yellow)</SelectItem>
+                        <SelectItem value="error">Error (Red)</SelectItem>
+                        <SelectItem value="success">Success (Green)</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAnnouncementModal(false)} disabled={isCreatingAnnouncement}>Cancel</Button>
+            <Button onClick={handleCreateAnnouncement} disabled={isCreatingAnnouncement} className="bg-indigo-600 hover:bg-indigo-700">
+                {isCreatingAnnouncement ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <MessageSquare className="h-4 w-4 mr-2" />}
+                Broadcast
             </Button>
           </DialogFooter>
         </DialogContent>

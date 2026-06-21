@@ -17,7 +17,7 @@ export async function getGlobalTenantData() {
     if (profile?.tenant_id) {
         const { data } = await supabase
             .from("organizations")
-            .select("id, name, plan, enabled_statuses, enabled_modules, workflow_triggers")
+            .select("id, name, plan, enabled_statuses, enabled_modules, workflow_triggers, is_suspended")
             .eq('id', profile.tenant_id)
             .limit(1)
             .maybeSingle()
@@ -29,8 +29,15 @@ export async function getGlobalTenantData() {
         .select("*")
         .order("created_at", { ascending: true })
 
+    const { data: activeAnnouncements } = await supabase
+        .from("system_announcements")
+        .select("*")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+
     return { 
         org, 
-        masterStatuses: globalStatuses || [] 
+        masterStatuses: globalStatuses || [],
+        announcements: activeAnnouncements || []
     }
 }

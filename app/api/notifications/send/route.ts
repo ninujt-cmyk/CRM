@@ -2,30 +2,26 @@ import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import webpush from "web-push"
 
-function configureWebPush() {
-  const vapidPublicKey = process.env.VAPID_PUBLIC_KEY
-  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
-  const vapidEmail = process.env.VAPID_EMAIL || "mailto:your-email@example.com"
 
-  if (!vapidPublicKey || !vapidPrivateKey) {
-    throw new Error("VAPID keys are not configured in environment variables")
+const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+let isWebPushConfigured = false;
+
+if (vapidPublicKey && vapidPrivateKey) {
+  try {
+    webpush.setVapidDetails(
+      "mailto:support@hanva.in",
+      vapidPublicKey,
+      vapidPrivateKey
+    )
+    isWebPushConfigured = true;
+    console.log("Web-push configured successfully")
+  } catch (error) {
+    console.error("Failed to configure web-push:", error instanceof Error ? error.message : "Unknown error")
   }
-
-  webpush.setVapidDetails(
-    vapidEmail,
-    vapidPublicKey,
-    vapidPrivateKey
-  )
-}
-
-let isWebPushConfigured = false
-
-try {
-  configureWebPush()
-  isWebPushConfigured = true
-  console.log("Web-push configured successfully")
-} catch (error) {
-  console.error("Failed to configure web-push:", error instanceof Error ? error.message : "Unknown error")
+} else {
+  console.warn("web-push warning: VAPID keys are not configured. Push notifications will be disabled.");
 }
 
 export async function POST(request: NextRequest) {

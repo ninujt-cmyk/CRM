@@ -34,5 +34,11 @@ export function TenantProvider({
   )
 }
 
-export const useTenant = () => useContext(TenantContext).org
-export const useMasterStatuses = () => useContext(TenantContext).masterStatuses
+export const useTenant = () => {
+  const ctx = useContext(TenantContext);
+  return ctx ? ctx.org : null;
+};
+export const useMasterStatuses = () => {
+  const ctx = useContext(TenantContext);
+  return ctx ? ctx.masterStatuses : [];
+};

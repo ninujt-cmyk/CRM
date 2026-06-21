@@ -79,12 +79,14 @@ export const viewport: Viewport = {
   themeColor: "#000000",
 }
 
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const { org, masterStatuses } = await getGlobalTenantData()
+  const { org = null, masterStatuses = [], announcements = [] } = await getGlobalTenantData() || {};
 
   return (
     <html 
@@ -123,7 +125,42 @@ export default async function RootLayout({
             <TenantProvider initialOrg={org as any} initialMasterStatuses={masterStatuses}>
               
               {/* Main content */}
-              {children}
+              {org?.is_suspended ? (
+                <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
+                  <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 text-center space-y-6">
+                    <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Workspace Suspended</h1>
+                      <p className="text-slate-500 mt-2 text-sm">
+                        Access to <strong>{org.name}</strong> has been temporarily suspended by the system administrator. Please contact support to resolve this issue and restore access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {announcements && announcements.length > 0 && (
+                    <div className="flex flex-col w-full relative z-[100]">
+                      {announcements.map((ann: any) => (
+                        <div key={ann.id} className={`w-full p-2.5 text-center text-sm font-medium border-b flex items-center justify-center gap-3 shadow-sm ${
+                            ann.type === 'warning' ? "bg-amber-500 text-amber-950 border-amber-600" :
+                            ann.type === 'error' ? "bg-red-500 text-white border-red-600" :
+                            ann.type === 'success' ? "bg-emerald-500 text-white border-emerald-600" :
+                            "bg-indigo-600 text-white border-indigo-700"
+                        }`}>
+                          <strong className="px-2 py-0.5 rounded bg-black/10 text-xs tracking-wider uppercase">{ann.title}</strong>
+                          <span>{ann.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {children}
+                </>
+              )}
 
               <PWAWrapper />
 
