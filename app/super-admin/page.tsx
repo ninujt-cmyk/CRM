@@ -382,6 +382,7 @@ export default function SuperAdminConsole() {
                 </CardContent>
             </Card>
         ))}
+        </div>
       </div>
 
       {/* Provisioning Modal */}
