@@ -31,12 +31,12 @@ async function DashboardContent() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('tenant_id, tenants(industry)')
+    .select('tenant_id, organizations(industry)')
     .eq('id', user.id)
     .single()
 
   const tenantId = profile?.tenant_id
-  const industry = (profile?.tenants as any)?.industry
+  const industry = (profile?.organizations as any)?.industry
   if (!tenantId) return <div className="p-6 text-red-500">Error: Workspace not found.</div>
 
   const todayStr = new Date().toISOString().split('T')[0];
