@@ -31,11 +31,12 @@ async function DashboardContent() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('tenant_id')
+    .select('tenant_id, tenants(industry)')
     .eq('id', user.id)
     .single()
 
   const tenantId = profile?.tenant_id
+  const industry = (profile?.tenants as any)?.industry
   if (!tenantId) return <div className="p-6 text-red-500">Error: Workspace not found.</div>
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -175,34 +176,36 @@ async function DashboardContent() {
       </div>
 
       {/* Hot Prospects Row */}
-      <div className="grid gap-6 md:grid-cols-1">
-        <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden mt-2">
-          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-orange-50/50 dark:bg-orange-950/20">
-            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
-              <Flame className="h-4.5 w-4.5 text-orange-500 animate-pulse" /> Hot Prospects Today
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {hotLeads && hotLeads.length > 0 ? hotLeads.map((lead: any) => (
-                  <div key={lead.id} className="flex flex-col border border-orange-100 dark:border-orange-900/50 bg-orange-50/30 dark:bg-orange-900/10 p-3 rounded-xl hover:shadow-sm transition-all duration-300">
-                    <div className="flex justify-between items-start mb-2">
-                        <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{lead.name || "Unnamed Lead"}</span>
-                        <div className="flex items-center gap-1 text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full text-xs font-bold">
-                            <Flame className="h-3 w-3" /> {lead.score}
-                        </div>
+      {industry === 'real_estate' && (
+        <div className="grid gap-6 md:grid-cols-1">
+          <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden mt-2">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-orange-50/50 dark:bg-orange-950/20">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+                <Flame className="h-4.5 w-4.5 text-orange-500 animate-pulse" /> Hot Prospects Today
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {hotLeads && hotLeads.length > 0 ? hotLeads.map((lead: any) => (
+                    <div key={lead.id} className="flex flex-col border border-orange-100 dark:border-orange-900/50 bg-orange-50/30 dark:bg-orange-900/10 p-3 rounded-xl hover:shadow-sm transition-all duration-300">
+                      <div className="flex justify-between items-start mb-2">
+                          <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{lead.name || "Unnamed Lead"}</span>
+                          <div className="flex items-center gap-1 text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full text-xs font-bold">
+                              <Flame className="h-3 w-3" /> {lead.score}
+                          </div>
+                      </div>
+                      <div className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full capitalize border shadow-none inline-block self-start mt-auto", getStatusPillClasses(lead.status))}>
+                        {lead.status?.replace('_', ' ') || "New"}
+                      </div>
                     </div>
-                    <div className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full capitalize border shadow-none inline-block self-start mt-auto", getStatusPillClasses(lead.status))}>
-                      {lead.status?.replace('_', ' ') || "New"}
-                    </div>
-                  </div>
-              )) : (
-                  <div className="col-span-1 md:col-span-3 lg:col-span-5 text-center py-4 text-sm text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">No hot prospects found. Lead scores of 50 or more will appear here!</div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                )) : (
+                    <div className="col-span-1 md:col-span-3 lg:col-span-5 text-center py-4 text-sm text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">No hot prospects found. Lead scores of 50 or more will appear here!</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </>
   )
 }
