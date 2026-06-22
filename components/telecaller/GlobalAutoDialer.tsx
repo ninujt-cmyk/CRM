@@ -53,7 +53,8 @@ export function GlobalAutoDialer() {
             if (userData) handleDatabaseStatusChange(userData.current_status, userData.auto_dialer_status)
 
             // 2. Listen for both status AND dialer_status changes
-            const channel = supabase.channel('auto_dialer_sync')
+            const channelName = `auto_dialer_sync-${user.id}-${Math.random()}`;
+            const channel = supabase.channel(channelName)
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${user.id}` }, 
                 (payload: any) => handleDatabaseStatusChange(payload.new.current_status, payload.new.auto_dialer_status))
                 .subscribe()

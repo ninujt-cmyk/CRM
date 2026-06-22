@@ -119,8 +119,10 @@ export function useChat() {
     fetchMessages();
 
     // Subscribe to new messages
+    // Use a unique channel name per mount to prevent race conditions in React Strict Mode
+    const channelName = `chat_messages-${Math.random()}`;
     const channel = supabase
-      .channel("chat_messages")
+      .channel(channelName)
       .on(
         "postgres_changes",
         {

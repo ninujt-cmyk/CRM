@@ -73,8 +73,11 @@ export function NotificationBell() {
 
       if (channelRef.current) return
 
+      // Use a unique channel name per mount to prevent race conditions in React Strict Mode
+      const channelName = `realtime:notifications:${user.id}-${Math.random()}`
+      
       const channel = supabase
-        .channel(`realtime:notifications:${user.id}`)
+        .channel(channelName)
         .on(
           'postgres_changes',
           {

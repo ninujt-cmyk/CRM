@@ -69,7 +69,8 @@ export function LiveLeaderboard() {
         fetchLeaders();
         
         // Listen for realtime inserts/updates
-        const channel = supabase.channel('leaderboard_updates')
+        const channelName = `leaderboard_updates-${Math.random()}`;
+        const channel = supabase.channel(channelName)
             .on('postgres_changes', { event: '*', schema: 'public', table: isRealEstate ? 'deals' : 'leads' }, fetchLeaders)
             .subscribe();
             
