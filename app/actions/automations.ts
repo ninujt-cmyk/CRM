@@ -98,7 +98,6 @@ export async function createTemplateAutomation(tenantId: string, templateType: '
         automationData = {
             tenant_id: tenantId,
             name: 'Stale Lead Nudge',
-            description: 'Automatically send a WhatsApp message if a lead is stuck in "New" for 48 hours.',
             trigger_type: 'TIME_IN_STATUS',
             trigger_condition: { status: 'new', hours: 48 },
             action_type: 'SEND_WHATSAPP',
@@ -109,7 +108,6 @@ export async function createTemplateAutomation(tenantId: string, templateType: '
         automationData = {
             tenant_id: tenantId,
             name: 'Hot Prospect Alert',
-            description: 'Assign a high-priority task to the agent when a lead score crosses 50.',
             trigger_type: 'SCORE_THRESHOLD',
             trigger_condition: { score: 50 },
             action_type: 'CREATE_TASK',

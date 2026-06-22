@@ -150,7 +150,11 @@ export function AutomationsClient({ initialAutomations, tenantId }: { initialAut
                                         {automation.is_active ? "Active" : "Inactive"}
                                     </Badge>
                                 </div>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">{automation.description}</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    {automation.name === 'Stale Lead Nudge' 
+                                        ? 'Automatically send a WhatsApp message if a lead is stuck in "New" for 48 hours.'
+                                        : 'Assign a high-priority task to the agent when a lead score crosses 50.'}
+                                </p>
                                 <div className="flex gap-2 mt-2">
                                     <Badge variant="outline" className="text-xs bg-slate-50 dark:bg-slate-800">
                                         Trigger: {automation.trigger_type}
