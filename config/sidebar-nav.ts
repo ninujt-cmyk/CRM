@@ -52,7 +52,7 @@ export const sidebarGroups = [
     label: "Team",
     items: [
       { name: "Team", href: "/admin/users", icon: Headset, module: "team" },
-      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy, module: "team" },
+      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy, module: "real_estate" },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck, module: "attendance" },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff, module: "attendance" },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle, module: "whatsapp" },

@@ -101,6 +101,9 @@ function RadialProgress({
 export default function TelecallerDashboard() {
   const router = useRouter()
   const supabase = createClient()
+  const { useTenant } = require("@/context/tenant-provider")
+  const org = useTenant()
+  const isRealEstate = org?.industry === 'real_estate'
   
   // Interactive Dialer & Streak Mock States
   const [dialerStatus, setDialerStatus] = useState<'Connected' | 'Paused' | 'Failed'>('Connected')
@@ -525,7 +528,7 @@ export default function TelecallerDashboard() {
 
         {/* --- Tasks & Leaderboard Section --- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
+          <div className={isRealEstate ? "lg:col-span-2 space-y-4" : "lg:col-span-3 space-y-4"}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
                 <Calendar className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" /> AI Recommended Schedule
@@ -536,16 +539,18 @@ export default function TelecallerDashboard() {
             </ErrorBoundary>
           </div>
           
-          <div className="lg:col-span-1 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
-                <Trophy className="h-4.5 w-4.5 text-yellow-500" /> Gamification
-              </h3>
+          {isRealEstate && (
+            <div className="lg:col-span-1 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-450 dark:text-slate-550 flex items-center gap-1.5">
+                  <Trophy className="h-4.5 w-4.5 text-yellow-500" /> Gamification
+                </h3>
+              </div>
+              <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load leaderboard." />}>
+                <LiveLeaderboard />
+              </ErrorBoundary>
             </div>
-            <ErrorBoundary fallback={<EmptyState icon={AlertTriangle} title="Error" description="Failed to load leaderboard." />}>
-              <LiveLeaderboard />
-            </ErrorBoundary>
-          </div>
+          )}
         </div>
 
 
