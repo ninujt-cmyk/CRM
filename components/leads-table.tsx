@@ -13,7 +13,7 @@ import {
   BarChart3, Users, DollarSign, Target, Zap,
   Layout, Table as TableIcon, Settings, Save,
   AlertTriangle, CheckCircle2, XCircle, Sparkles, Upload,
-  Pencil, RefreshCw, Skull, Loader2
+  Pencil, RefreshCw, Skull, Loader2, Flame
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,7 +22,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { LeadStatusDialog } from "@/components/lead-status-dialog"
 import { classifySentiment } from "@/components/lead-status-updater"
+import { sendBulkCampaign } from "@/app/actions/campaigns"
 import { QuickActions } from "@/components/quick-actions"
+import { PowerDialer } from "@/components/power-dialer"
 import { 
   Dialog, DialogContent, DialogDescription, DialogFooter, 
   DialogHeader, DialogTitle, DialogTrigger 
@@ -237,6 +239,7 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false)
   const [isCallInitiated, setIsCallInitiated] = useState(false)
+  const [isPowerDialerOpen, setIsPowerDialerOpen] = useState(false)
 
   // 1. Protected Debounce Sync state
   const [inputValue, setInputValue] = useState(searchParams.get("search") || "")
@@ -318,9 +321,11 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
   const [selectedLeadForTags, setSelectedLeadForTags] = useState<Lead | null>(null)
   const [showEmailDialog, setShowEmailDialog] = useState(false)
   const [showSMSDialog, setShowSMSDialog] = useState(false)
+  const [showWhatsAppDialog, setShowWhatsAppDialog] = useState(false)
   const [emailSubject, setEmailSubject] = useState("")
   const [emailBody, setEmailBody] = useState("")
   const [smsBody, setSmsBody] = useState("")
+  const [whatsappBody, setWhatsappBody] = useState("")
   const [showAutoAssignDialog, setShowAutoAssignDialog] = useState(false)
   const [autoAssignRules, setAutoAssignRules] = useState({
     enabled: false, method: 'round-robin', criteria: '',
@@ -570,6 +575,13 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
 
   const handleBulkEmail = async () => {
     if (selectedLeads.length === 0) return
+    const res = await sendBulkCampaign(selectedLeads, 'email', emailSubject, emailBody)
+    if (res.success) {
+      toast.success(`Sent emails to ${res.count} leads`)
+      setSelectedLeads([])
+    } else {
+      toast.error(`Failed to send emails: ${res.error}`)
+    }
     setShowEmailDialog(false)
     setEmailSubject("")
     setEmailBody("")
@@ -577,8 +589,28 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
 
   const handleBulkSMS = async () => {
     if (selectedLeads.length === 0) return
+    const res = await sendBulkCampaign(selectedLeads, 'sms', '', smsBody)
+    if (res.success) {
+      toast.success(`Sent SMS to ${res.count} leads`)
+      setSelectedLeads([])
+    } else {
+      toast.error(`Failed to send SMS: ${res.error}`)
+    }
     setShowSMSDialog(false)
     setSmsBody("")
+  }
+
+  const handleBulkWhatsApp = async () => {
+    if (selectedLeads.length === 0) return
+    const res = await sendBulkCampaign(selectedLeads, 'whatsapp', '', whatsappBody)
+    if (res.success) {
+      toast.success(`Sent WhatsApp to ${res.count} leads`)
+      setSelectedLeads([])
+    } else {
+      toast.error(`Failed to send WhatsApp: ${res.error}`)
+    }
+    setShowWhatsAppDialog(false)
+    setWhatsappBody("")
   }
 
  const handleBulkAssign = async () => {
@@ -1137,8 +1169,60 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
         </Card>
       )}
 
+      {/* Smart Lists (Tabs) */}
+      <div className="border-b border-slate-200 dark:border-slate-800 px-4 pt-2 flex gap-6 overflow-x-auto hide-scrollbar">
+        {[
+          { id: 'all', label: 'All Leads' },
+          { id: 'follow_ups', label: "Today's Follow-ups" },
+          { id: 'hot_no_contact', label: 'Hot / No Contact' },
+          { id: 'unassigned', label: 'Unassigned Pool' },
+          { id: 'recycle', label: 'Recycle Bin' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => {
+              if (tab.id === 'all') {
+                handleFilterChange('status', 'all')
+                handleFilterChange('priority', 'all')
+                handleFilterChange('assigned_to', 'all')
+              } else if (tab.id === 'follow_ups') {
+                handleFilterChange('status', 'follow_up')
+                handleFilterChange('priority', 'all')
+                handleFilterChange('assigned_to', 'all')
+              } else if (tab.id === 'hot_no_contact') {
+                handleFilterChange('status', 'new')
+                handleFilterChange('priority', 'high')
+                handleFilterChange('assigned_to', 'all')
+              } else if (tab.id === 'unassigned') {
+                handleFilterChange('status', 'all')
+                handleFilterChange('priority', 'all')
+                handleFilterChange('assigned_to', 'unassigned')
+              } else if (tab.id === 'recycle') {
+                handleFilterChange('status', 'recycle_pool')
+                handleFilterChange('priority', 'all')
+                handleFilterChange('assigned_to', 'all')
+              }
+            }}
+            className={cn(
+              "pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+              (
+                (tab.id === 'all' && statusFilter === 'all' && priorityFilter === 'all' && assignedToFilter === 'all') ||
+                (tab.id === 'follow_ups' && statusFilter === 'follow_up') ||
+                (tab.id === 'hot_no_contact' && statusFilter === 'new' && priorityFilter === 'high') ||
+                (tab.id === 'unassigned' && assignedToFilter === 'unassigned') ||
+                (tab.id === 'recycle' && statusFilter === 'recycle_pool')
+              )
+                ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+                : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Controls Bar */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4">
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between p-4 bg-slate-50/50 dark:bg-slate-900/20">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
           <div className="relative w-full sm:w-64">
             {isPending ? (
@@ -1298,6 +1382,10 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                 <MessageSquare className="h-4 w-4 mr-2" />
                 Bulk SMS
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowWhatsAppDialog(true)}>
+                <MessageSquare className="h-4 w-4 mr-2 text-green-500" />
+                Bulk WhatsApp
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Bulk Add Tags</DropdownMenuLabel>
               {availableTags.slice(0, 5).map((tag) => (
@@ -1350,6 +1438,17 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                   disabled={!bulkStatus}
                 >
                   Update
+                </Button>
+
+                {/* Power Dialer Button */}
+                <Button 
+                  size="sm"
+                  variant="default"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold tracking-tight shadow-sm"
+                  onClick={() => setIsPowerDialerOpen(true)}
+                >
+                  <PhoneCall className="w-4 h-4 mr-2" />
+                  Power Dialer ({selectedLeads.length})
                 </Button>
 
                 <Separator orientation="vertical" className="h-8 mx-2" />
@@ -1542,6 +1641,18 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                                     value={lead.name} 
                                     onSave={(val) => handleInlineUpdate(lead.id, 'name', val)} 
                                 />
+                                {lead.score && lead.score >= 50 && (
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger>
+                                                <Flame className="h-4 w-4 text-orange-500 animate-pulse" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>Hot Prospect (Score: {lead.score})</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                )}
                                 {lead.status === 'dead_bucket' && (
                                     <Badge variant="outline" className="text-[10px] bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-800 px-1 py-0 h-5">
                                         <Skull className="h-3 w-3 mr-1" /> Dead
@@ -1849,6 +1960,10 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
                                     <MessageSquare className="h-4 w-4 mr-2" />
                                     Send SMS
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setShowWhatsAppDialog(true)} className="rounded-lg">
+                                    <MessageSquare className="h-4 w-4 mr-2 text-green-500" />
+                                    Send WhatsApp
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-red-600 rounded-lg" onClick={() => { setSelectedLeads([lead.id]); handleBulkDelete(); }}>
                                     <Trash2 className="h-4 w-4 mr-2" />
@@ -2083,6 +2198,34 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showWhatsAppDialog} onOpenChange={setShowWhatsAppDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Bulk WhatsApp</DialogTitle>
+            <DialogDescription>Send WhatsApp broadcast to {selectedLeads.length} selected lead{selectedLeads.length !== 1 ? 's' : ''}. Use {"{{name}}"} and {"{{company}}"} for personalization.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="whatsapp-body">Message</Label>
+              <Textarea id="whatsapp-body" value={whatsappBody} onChange={(e) => setWhatsappBody(e.target.value)} placeholder="Enter your WhatsApp template..." rows={6} />
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-md text-xs text-slate-500">
+              <p className="font-semibold mb-1">Available variables:</p>
+              <div className="flex gap-2 flex-wrap">
+                <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">{"{{name}}"}</code>
+                <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">{"{{phone}}"}</code>
+                <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">{"{{email}}"}</code>
+                <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">{"{{company}}"}</code>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWhatsAppDialog(false)}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleBulkWhatsApp} disabled={!whatsappBody}>Send WhatsApp</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* CSV Import Dialog */}
       <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
         <DialogContent>
@@ -2252,6 +2395,12 @@ export function LeadsTable({ leads = [], telecallers = [], telecallerStatus = {}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PowerDialer 
+        isOpen={isPowerDialerOpen} 
+        onClose={() => setIsPowerDialerOpen(false)} 
+        leads={selectedLeads.map(id => leads.find(l => l.id === id)).filter(Boolean)} 
+      />
     </div>
   )
 }

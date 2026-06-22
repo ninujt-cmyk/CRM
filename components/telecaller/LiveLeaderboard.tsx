@@ -2,22 +2,20 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trophy, Medal } from "lucide-react"
+import { Trophy, Medal, IndianRupee } from "lucide-react"
 
 export function LiveLeaderboard() {
-    const [leaders, setLeaders] = useState<{name: string, logins: number}[]>([])
+    const [leaders, setLeaders] = useState<{name: string, revenue: number, deals: number}[]>([])
     const supabase = createClient()
 
     useEffect(() => {
         const fetchLeaders = async () => {
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
-
-            // Fetch actual login records created today to match the Admin Logins page
             const { data, error } = await supabase
-                .from('logins')
-                .select('assigned_to, users:assigned_to(full_name)')
-                .gte('created_at', startOfDay.toISOString());
+                .from('agent_leaderboard_view')
+                .select('*')
+                .order('total_revenue', { ascending: false })
+                .order('deals_closed', { ascending: false })
+                .limit(5);
 
             if (error) {
                 console.error("Leaderboard fetch error:", error);
@@ -25,55 +23,55 @@ export function LiveLeaderboard() {
             }
 
             if (data) {
-                const counts: Record<string, {name: string, count: number}> = {};
-                data.forEach((login: any) => {
-                    const agentId = login.assigned_to;
-                    const agentName = login.users?.full_name || "Unknown Agent";
-                    
-                    if (agentId) {
-                        if (!counts[agentId]) counts[agentId] = { name: agentName, count: 0 };
-                        counts[agentId].count++;
-                    }
-                });
-
-                const sorted = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 5);
-                setLeaders(sorted.map(s => ({ name: s.name, logins: s.count })));
+                setLeaders(data.map((d: any) => ({
+                    name: d.agent_name,
+                    revenue: d.total_revenue,
+                    deals: d.deals_closed
+                })));
             }
         }
         
         fetchLeaders();
         
-        // Listen for realtime inserts/updates on the 'logins' table instead of 'leads'
-        const channel = supabase.channel('leaderboard')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'logins' }, fetchLeaders)
+        // Listen for realtime inserts/updates on the 'deals' table to trigger a refresh
+        const channel = supabase.channel('leaderboard_deals')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, fetchLeaders)
             .subscribe();
             
         return () => { supabase.removeChannel(channel) }
     }, [supabase])
 
     return (
-        <Card className="border-2 border-yellow-400 bg-gradient-to-b from-yellow-50 to-white shadow-lg">
-            <CardHeader className="border-b border-yellow-100 pb-3">
-                <CardTitle className="text-yellow-800 flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-yellow-500" /> Today's Top Performers
+        <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
+                <Trophy className="h-24 w-24 text-yellow-500" />
+            </div>
+            <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 text-white pb-3 rounded-t-2xl">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                    <Trophy className="h-4.5 w-4.5 text-yellow-500" /> Top Deal Makers
                 </CardTitle>
             </CardHeader>
-            <CardContent className="pt-4 space-y-3">
+            <CardContent className="pt-3 p-2 space-y-2 relative z-10">
                 {leaders.length === 0 ? (
-                    <p className="text-sm text-slate-500 text-center">No logins yet today. Go get the first one!</p>
+                    <p className="text-xs text-slate-500 text-center py-4">No closed deals yet. Be the first!</p>
                 ) : null}
                 
                 {leaders.map((leader, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
-                        <div className="flex items-center gap-3">
-                            {index === 0 && <Medal className="h-5 w-5 text-yellow-500" />}
-                            {index === 1 && <Medal className="h-5 w-5 text-slate-400" />}
-                            {index === 2 && <Medal className="h-5 w-5 text-amber-600" />}
-                            {index > 2 && <span className="w-5 text-center font-bold text-slate-400">{index + 1}</span>}
-                            <span className="font-bold text-slate-700">{leader.name}</span>
+                    <div key={index} className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <div className="flex items-center gap-2.5">
+                            {index === 0 && <Medal className="h-4.5 w-4.5 text-yellow-500" />}
+                            {index === 1 && <Medal className="h-4.5 w-4.5 text-slate-400" />}
+                            {index === 2 && <Medal className="h-4.5 w-4.5 text-amber-600" />}
+                            {index > 2 && <span className="w-4.5 text-center font-bold text-slate-400 text-xs">{index + 1}</span>}
+                            
+                            <div>
+                                <span className="font-bold text-slate-800 dark:text-slate-200 text-sm leading-tight block">{leader.name}</span>
+                                <span className="text-[10px] text-slate-500 font-semibold">{leader.deals} Deals</span>
+                            </div>
                         </div>
-                        <div className="bg-yellow-100 text-yellow-800 font-bold px-3 py-1 rounded-full text-sm">
-                            {leader.logins} Logins
+                        <div className="flex items-center text-emerald-600 dark:text-emerald-400 font-black text-sm">
+                            <IndianRupee className="h-3 w-3 mr-0.5" />
+                            {leader.revenue.toLocaleString('en-IN')}
                         </div>
                     </div>
                 ))}

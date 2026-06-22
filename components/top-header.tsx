@@ -35,7 +35,8 @@ import {
 
 import { NotificationCenter } from "@/components/notification-center"
 import { ThemeToggle } from "@/components/theme-toggle"
-
+import { ClockInToggle } from "@/components/clock-in-toggle"
+import { CommandMenu } from "@/components/command-menu"
 
 // Route Mapping
 const ROUTE_LABELS: Record<string, string> = {
@@ -201,44 +202,15 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
           </Button>
         )}
 
-        <div className={`${isSearchOpen ? 'flex w-full md:w-96' : 'hidden md:flex md:w-80'} relative group transition-all`}>
-          {isPending ? (
-            <Loader2 className="absolute left-3 top-2.5 h-4 w-4 text-blue-500 animate-spin pointer-events-none" />
-          ) : (
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
-          )}
-          <Input 
-            ref={searchInputRef}
-            placeholder="Search phone number..." 
-            className="pl-9 pr-12 h-9 bg-slate-50/50 border-slate-200 focus-visible:ring-blue-500 focus-visible:bg-white dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100 dark:focus-visible:bg-slate-950 transition-all w-full"
-            value={searchValue}
-            onChange={(e) => {
-              isTyping.current = true;
-              setSearchValue(e.target.value);
-            }}
-            onBlur={() => {
-              isTyping.current = false;
-              // On mobile, collapse search on blur so layout restores. On desktop, only collapse if empty.
-              if (window.innerWidth < 768) {
-                setIsSearchOpen(false);
-              } else if (!searchValue) {
-                setIsSearchOpen(false);
-              }
-            }} 
-          />
-          <div className="absolute right-2 top-1.5 flex items-center gap-1.5">
-            {isSearchOpen ? (
-               <button 
-                 onMouseDown={(e) => {
-                   e.preventDefault();
-                   setSearchValue("");
-                   setIsSearchOpen(false);
-                 }} 
-                 className="md:hidden text-slate-400 p-1 hover:text-slate-600 active:scale-95 transition-transform"
-               >
-                 <X className="h-4 w-4" />
-               </button>
-            ) : null}
+        <div className="hidden md:flex md:w-80 relative group transition-all">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+          <button 
+            onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+            className="flex w-full items-center pl-9 pr-12 h-9 bg-slate-50/50 border border-slate-200 rounded-md hover:ring-2 hover:ring-blue-500 hover:bg-white dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100 transition-all text-sm text-slate-400 text-left"
+          >
+            Search leads, properties, or jump to...
+          </button>
+          <div className="absolute right-2 top-1.5 flex items-center gap-1.5 pointer-events-none">
             <kbd className="hidden md:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
               <span className="text-xs">⌘</span>K
             </kbd>
@@ -248,6 +220,8 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
 
       {/* RIGHT: Actions & Profile */}
       <div className={`flex items-center gap-2 sm:gap-3 shrink-0 ${isSearchOpen ? 'hidden md:flex' : 'flex'}`}>
+        
+        {!loading && user && <div className="hidden sm:block"><ClockInToggle userId={user.id} /></div>}
         
         <NotificationCenter />
         <ThemeToggle />
@@ -296,6 +270,7 @@ export function TopHeader({ user: initialUser, onMenuClick }: TopHeaderProps) {
           </DropdownMenu>
         )}
       </div>
+      <CommandMenu />
     </header>
   )
 }

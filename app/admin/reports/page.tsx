@@ -6,6 +6,8 @@ import { PerformanceChart } from "@/components/performance-chart"
 import { LeadConversionChart } from "@/components/lead-conversion-chart"
 import { TelecallerPerformance } from "@/components/telecaller-performance"
 import { ExportButtons } from "@/components/export-buttons"
+import { RevenueForecastChart } from "@/components/revenue-forecast-chart"
+import { LeadSourceROIChart } from "@/components/lead-source-roi-chart"
 import Link from "next/link"
 import { Suspense } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -353,8 +355,38 @@ export default async function ReportsPage({
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+              <TrendingUp className="h-4.5 w-4.5 text-emerald-500" />
+              6-Month Revenue Forecast
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <Suspense fallback={<div className="h-64 bg-slate-50 dark:bg-slate-900/50 animate-pulse rounded-xl flex items-center justify-center text-slate-400 text-sm">Loading Chart...</div>}>
+              <RevenueForecastChart startDate={startDate} endDate={endDate} />
+            </Suspense>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
+              <Users className="h-4.5 w-4.5 text-orange-500" />
+              Lead Source ROI
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <Suspense fallback={<div className="h-64 bg-slate-50 dark:bg-slate-900/50 animate-pulse rounded-xl flex items-center justify-center text-slate-400 text-sm">Loading Chart...</div>}>
+              <LeadSourceROIChart startDate={startDate} endDate={endDate} />
+            </Suspense>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* 6. Detailed Performance Table */}
-      <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden">
+      <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden mt-6">
         <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
           <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-200">
             <Users className="h-4.5 w-4.5 text-indigo-500" />

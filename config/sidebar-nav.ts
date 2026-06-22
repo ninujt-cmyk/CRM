@@ -19,7 +19,10 @@ import {
   CloudUpload,
   Webhook,
   Home,
-  MapPin
+  MapPin,
+  Handshake,
+  Zap,
+  Trophy
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -42,12 +45,14 @@ export const sidebarGroups = [
     items: [
       { name: "Properties", href: "/admin/properties", icon: Home, module: "real_estate" },
       { name: "Site Visits", href: "/admin/site-visits", icon: MapPin, module: "real_estate" },
+      { name: "Deals Pipeline", href: "/admin/deals", icon: Handshake, module: "real_estate" },
     ]
   },
   {
     label: "Team",
     items: [
       { name: "Team", href: "/admin/users", icon: Headset, module: "team" },
+      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy, module: "team" },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck, module: "attendance" },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff, module: "attendance" },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle, module: "whatsapp" },
@@ -69,8 +74,9 @@ export const sidebarGroups = [
   {
     label: "System",
     items: [
+      { name: "Automations", href: "/admin/automations", icon: Zap, module: "core" },
       { name: "Settings", href: "/admin/settings", icon: Settings, module: "core" },
-      { name: "Integrations", href: "/admin/integrations", icon: Webhook, module: "integrations" },
+      { name: "External Portals", href: "/admin/integrations/portals", icon: Webhook, module: "integrations" },
     ]
   }
 ]

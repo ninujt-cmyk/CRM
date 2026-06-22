@@ -37,7 +37,8 @@ import {
   AlignLeft,
   UserSearch,
   Home,
-  MapPin
+  MapPin,
+  Handshake
 } from "lucide-react"
 
 const navigation = [
@@ -45,6 +46,7 @@ const navigation = [
   { name: "My Leads", href: "/telecaller/leads", icon: Headset, module: "leads" },
   { name: "Properties", href: "/telecaller/properties", icon: Home, module: "real_estate" },
   { name: "Site Visits", href: "/telecaller/site-visits", icon: MapPin, module: "real_estate" },
+  { name: "Deals Pipeline", href: "/telecaller/deals", icon: Handshake, module: "real_estate" },
   { name: "Today's Tasks", href: "/telecaller/tasks", icon: ListTodo, module: "core" },
   { name: "Call History", href: "/telecaller/calls", icon: History, module: "core" },
   { name: "Follow-ups", href: "/telecaller/follow-ups", icon: CalendarClock, module: "core" },

@@ -24,8 +24,10 @@ import { TimelineView } from "@/components/timeline-view"
 import { LeadNotes } from "@/components/lead-notes"
 import { LeadCallHistory } from "@/components/lead-call-history"
 import { FollowUpsList } from "@/components/follow-ups-list"
+import { KycRequestDialog } from "@/components/kyc-request-dialog"
 import { LeadStatusUpdater } from "@/components/lead-status-updater"
-import { LeadAuditHistory } from "@/components/lead-audit-history"
+import { SmartMatches } from "@/components/smart-matches"
+import { LeadSiteVisits } from "@/components/lead-site-visits"
 import { formatDistanceToNow, differenceInDays } from "date-fns"
 import { toast } from "sonner" // Ensure you have installed sonner
 import {
@@ -92,6 +94,7 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
   const [lead, setLead] = useState<Lead | null>(null)
   const [telecallers, setTelecallers] = useState<Telecaller[] | null>(null)
   const [telecallerStatus, setTelecallerStatus] = useState<Record<string, boolean>>({})
+  const [isKycDialogOpen, setIsKycDialogOpen] = useState(false)
   const [kycMembers, setKycMembers] = useState<{id: string, full_name: string}[] | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -425,7 +428,7 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
       <Tabs defaultValue="overview" className="w-full animate-in fade-in duration-300">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1 shadow-sm inline-flex mb-6 overflow-x-auto max-w-full">
           <TabsList className="h-auto bg-transparent p-0 gap-1">
-            {['overview', 'timeline', 'notes', 'calls', 'followups', 'history'].map((tab) => (
+            {['overview', 'timeline', 'notes', 'calls', 'followups', 'documents', ...(org?.industry === 'real_estate' ? ['smart_matches', 'site_visits'] : []), 'history'].map((tab) => (
                 <TabsTrigger 
                     key={tab} 
                     value={tab} 
@@ -730,6 +733,60 @@ export default function EditLeadPage({ params }: EditLeadPageProps) {
 
         <TabsContent value="followups">
             <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"><CardContent className="pt-6"><FollowUpsList leadId={lead.id} /></CardContent></Card>
+        </TabsContent>
+
+        <TabsContent value="documents">
+            <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+               <CardHeader className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-150 dark:border-slate-850 flex flex-row items-center justify-between">
+                   <div>
+                       <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+                           Documents & KYC
+                       </CardTitle>
+                       <CardDescription>Securely manage KYC files and booking documents.</CardDescription>
+                   </div>
+                   <Button onClick={() => setIsKycDialogOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                       Request KYC
+                   </Button>
+               </CardHeader>
+               <CardContent className="pt-6">
+                   <div className="flex items-center justify-center p-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                       <div className="text-center">
+                           <p className="text-slate-500 mb-2 font-medium">No documents uploaded yet.</p>
+                           <p className="text-xs text-slate-400">Request documents from the client to get started.</p>
+                       </div>
+                   </div>
+               </CardContent>
+            </Card>
+            <KycRequestDialog isOpen={isKycDialogOpen} onClose={() => setIsKycDialogOpen(false)} leadName={lead.name} />
+        </TabsContent>
+
+        <TabsContent value="smart_matches">
+            <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+               <CardHeader className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-150 dark:border-slate-850">
+                   <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+                       AI Property Matchmaker
+                   </CardTitle>
+                   <CardDescription>Automatically matching properties to this lead's requirements.</CardDescription>
+               </CardHeader>
+               <CardContent className="pt-6">
+                   {/* We will build the SmartMatches component to render here */}
+                   <SmartMatches leadId={lead.id} />
+               </CardContent>
+            </Card>
+        </TabsContent>
+
+        <TabsContent value="site_visits">
+            <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+               <CardHeader className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-150 dark:border-slate-850">
+                   <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+                       Site Visits
+                   </CardTitle>
+                   <CardDescription>Schedule and manage physical property tours for this lead.</CardDescription>
+               </CardHeader>
+               <CardContent className="pt-6">
+                   <LeadSiteVisits leadId={lead.id} telecallerId={user?.id} />
+               </CardContent>
+            </Card>
         </TabsContent>
 
         <TabsContent value="history">

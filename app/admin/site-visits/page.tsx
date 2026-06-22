@@ -82,6 +82,42 @@ export default function SiteVisitsPage() {
                       </div>
                     </div>
                   </div>
+
+                  <div className="p-6 md:w-1/4 border-l border-slate-100 dark:border-slate-800 flex flex-col justify-center items-end gap-2 bg-slate-50/30 dark:bg-slate-900/30">
+                     {visit.status === 'scheduled' ? (
+                       <div className="flex flex-col gap-2 w-full max-w-[150px]">
+                           <button 
+                             onClick={async () => {
+                               await updateSiteVisitStatus(visit.id, 'conducted');
+                               fetchVisits();
+                             }}
+                             className="px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 rounded-md text-xs font-semibold w-full flex items-center justify-center gap-1 transition-colors"
+                           >
+                             <CheckCircle className="h-3.5 w-3.5" /> Conducted
+                           </button>
+                           <button 
+                             onClick={async () => {
+                               await updateSiteVisitStatus(visit.id, 'no_show');
+                               fetchVisits();
+                             }}
+                             className="px-3 py-1.5 bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 rounded-md text-xs font-semibold w-full flex items-center justify-center gap-1 transition-colors"
+                           >
+                             <Clock className="h-3.5 w-3.5" /> No Show
+                           </button>
+                           <button 
+                             onClick={async () => {
+                               await updateSiteVisitStatus(visit.id, 'cancelled');
+                               fetchVisits();
+                             }}
+                             className="px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-md text-xs font-semibold w-full flex items-center justify-center gap-1 transition-colors"
+                           >
+                             <XCircle className="h-3.5 w-3.5" /> Cancelled
+                           </button>
+                       </div>
+                     ) : (
+                       <div className="text-sm text-slate-400 font-medium">No actions available</div>
+                     )}
+                  </div>
                 </CardContent>
               </Card>
             ))

@@ -70,7 +70,7 @@
     "react-is": "^19.2.7",
     "react-resizable-panels": "^2.1.7",
     "react-toastify": "latest",
-    "recharts": "latest",
+    "recharts": "^3.8.1",
     "resend": "^6.5.2",
     "sonner": "latest",
     "tailwind-merge": "^2.5.5",

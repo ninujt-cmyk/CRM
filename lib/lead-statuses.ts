@@ -22,7 +22,13 @@ export const MASTER_STATUSES = [
   { value: "not_eligible", label: "Not Eligible", color: "bg-rose-100 text-rose-800", btnColor: "bg-rose-600 hover:bg-rose-700", icon_name: "XCircle" },
   { value: "nr", label: "NR", color: "bg-gray-100 text-gray-800", btnColor: "bg-slate-600 hover:bg-slate-700", icon_name: "PhoneMissed" },
   { value: "self_employed", label: "Self Employed", color: "bg-amber-100 text-amber-800", btnColor: "bg-amber-600 hover:bg-amber-700", icon_name: "Briefcase" },
-  { value: "recycle_pool", label: "Recycle Pool", color: "bg-gray-200 text-gray-800", btnColor: "bg-gray-600 hover:bg-gray-700", icon_name: "Recycle" }
+  { value: "recycle_pool", label: "Recycle Pool", color: "bg-gray-200 text-gray-800", btnColor: "bg-gray-600 hover:bg-gray-700", icon_name: "Recycle" },
+  // Real Estate Specific Statuses
+  { value: "site_visit_scheduled", label: "Site Visit Scheduled", color: "bg-sky-100 text-sky-800", btnColor: "bg-sky-600 hover:bg-sky-700", icon_name: "MapPin" },
+  { value: "site_visit_done", label: "Site Visit Done", color: "bg-blue-100 text-blue-800", btnColor: "bg-blue-600 hover:bg-blue-700", icon_name: "CheckCircle2" },
+  { value: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-800", btnColor: "bg-amber-600 hover:bg-amber-700", icon_name: "MessageSquare" },
+  { value: "booked", label: "Booked", color: "bg-emerald-100 text-emerald-800", btnColor: "bg-emerald-600 hover:bg-emerald-700", icon_name: "Building2" },
+  { value: "dropped", label: "Dropped", color: "bg-slate-100 text-slate-800", btnColor: "bg-slate-600 hover:bg-slate-700", icon_name: "XCircle" },
 ];
 
 export function resolveIcon(iconName: string) {

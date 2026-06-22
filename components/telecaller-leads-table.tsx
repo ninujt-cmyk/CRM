@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { 
   Building, ChevronDown, ChevronUp, ArrowUpRight, 
   Copy, PhoneMissed, MessageSquare, Loader2, Phone, PhoneOutgoing,
-  Sparkles, Calendar, User, Clock, CheckCircle2, ClipboardCopy, ExternalLink, MapPin
+  Sparkles, Calendar, User, Clock, CheckCircle2, ClipboardCopy, ExternalLink, MapPin, Flame
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -491,6 +491,19 @@ export function TelecallerLeadsTable({
                     className="font-extrabold text-[15px] text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 flex-wrap"
                   >
                     <span>{lead.name}</span>
+                    {lead.score && lead.score >= 50 && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center text-orange-500 bg-orange-100 dark:bg-orange-900/30 px-1.5 py-0.5 rounded-md shadow-sm border border-orange-200 dark:border-orange-800">
+                                        <Flame className="h-3.5 w-3.5 animate-pulse mr-1" />
+                                        <span className="text-[10px] font-bold">{lead.score}</span>
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent>Hot Prospect!</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                     {isToday(lead.created_at) && !lead.last_contacted && (
                         <Badge className="text-[9px] px-1.5 py-0 rounded-md font-extrabold bg-red-600 hover:bg-red-600 text-white shadow-sm animate-pulse shrink-0">
                             HIGH
