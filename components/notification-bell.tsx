@@ -69,8 +69,9 @@ export function NotificationBell() {
     fetchNotifications();
 
     // Real-time subscription for new notifications
+    const channelName = `notifications-${userId}-${Math.random()}`;
     const channel = supabase
-      .channel('notifications')
+      .channel(channelName)
       .on('postgres_changes', 
         { 
           event: 'INSERT', 

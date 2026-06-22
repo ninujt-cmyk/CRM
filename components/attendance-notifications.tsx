@@ -31,8 +31,9 @@ export function AttendanceNotifications() {
     loadNotifications();
     
     // Set up real-time subscription for new notifications
+    const channelName = `notifications-${Math.random()}`;
     const channel = supabase
-      .channel('notifications')
+      .channel(channelName)
       .on(
         'postgres_changes',
         {

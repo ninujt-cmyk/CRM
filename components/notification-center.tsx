@@ -49,8 +49,9 @@ export function NotificationCenter() {
     fetchNotifications();
     fetchUnreadCount();
 
+    const channelName = `notifications-${userId}-${Math.random()}`;
     const channel = supabase
-      .channel("notifications")
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
