@@ -89,3 +89,50 @@ export async function runStaleLeadAutomation(tenantId: string) {
         return { success: false, error: error.message }
     }
 }
+
+export async function createTemplateAutomation(tenantId: string, templateType: 'STALE_LEAD' | 'HOT_PROSPECT') {
+    const supabase = await createClient();
+    
+    let automationData = {};
+    if (templateType === 'STALE_LEAD') {
+        automationData = {
+            tenant_id: tenantId,
+            name: 'Stale Lead Nudge',
+            description: 'Automatically send a WhatsApp message if a lead is stuck in "New" for 48 hours.',
+            trigger_type: 'TIME_IN_STATUS',
+            trigger_condition: { status: 'new', hours: 48 },
+            action_type: 'SEND_WHATSAPP',
+            action_payload: { message: 'Hi there, are you still interested? Let us know if you have any questions.' },
+            is_active: true
+        }
+    } else if (templateType === 'HOT_PROSPECT') {
+        automationData = {
+            tenant_id: tenantId,
+            name: 'Hot Prospect Alert',
+            description: 'Assign a high-priority task to the agent when a lead score crosses 50.',
+            trigger_type: 'SCORE_THRESHOLD',
+            trigger_condition: { score: 50 },
+            action_type: 'CREATE_TASK',
+            action_payload: { priority: 'high', title: 'Follow up with hot prospect immediately' },
+            is_active: true
+        }
+    }
+
+    const { data, error } = await supabase.from('automations').insert(automationData).select().single();
+    if (error) return { success: false, error: error.message }
+    return { success: true, data }
+}
+
+export async function toggleAutomation(id: string, currentStatus: boolean) {
+    const supabase = await createClient();
+    const { error } = await supabase.from('automations').update({ is_active: !currentStatus }).eq('id', id);
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+}
+
+export async function deleteAutomation(id: string) {
+    const supabase = await createClient();
+    const { error } = await supabase.from('automations').delete().eq('id', id);
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+}
