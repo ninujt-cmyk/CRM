@@ -2,44 +2,79 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trophy, Medal, IndianRupee } from "lucide-react"
+import { Trophy, Medal, IndianRupee, Target } from "lucide-react"
 
 export function LiveLeaderboard() {
     const [leaders, setLeaders] = useState<{name: string, revenue: number, deals: number}[]>([])
     const supabase = createClient()
+    const { useTenant } = require("@/context/tenant-provider")
+    const org = useTenant()
+
+    const isRealEstate = org?.industry === 'real_estate'
+    const title = isRealEstate ? "Top Deal Makers" : "Top Closers"
+    const unit = isRealEstate ? "Deals" : "Disbursed"
+    const emptyText = isRealEstate ? "No closed deals yet. Be the first!" : "No disbursed leads yet. Be the first!"
 
     useEffect(() => {
         const fetchLeaders = async () => {
-            const { data, error } = await supabase
-                .from('agent_leaderboard_view')
-                .select('*')
-                .order('total_revenue', { ascending: false })
-                .order('deals_closed', { ascending: false })
-                .limit(5);
+            if (isRealEstate) {
+                // Real Estate uses deals table
+                const { data, error } = await supabase
+                    .from('agent_leaderboard_view')
+                    .select('*')
+                    .order('total_revenue', { ascending: false })
+                    .order('deals_closed', { ascending: false })
+                    .limit(5);
 
-            if (error) {
-                console.error("Leaderboard fetch error:", error);
-                return;
-            }
+                if (!error && data) {
+                    setLeaders(data.map((d: any) => ({
+                        name: d.agent_name,
+                        revenue: d.total_revenue,
+                        deals: d.deals_closed
+                    })));
+                }
+            } else {
+                // General CRM uses leads table with disbursed amount
+                const { data: leadsData, error } = await supabase
+                    .from('leads')
+                    .select('assigned_to, disbursed_amount, users!leads_assigned_to_fkey(full_name)')
+                    .ilike('status', 'disbursed');
 
-            if (data) {
-                setLeaders(data.map((d: any) => ({
-                    name: d.agent_name,
-                    revenue: d.total_revenue,
-                    deals: d.deals_closed
-                })));
+                if (!error && leadsData) {
+                    const agentStats: Record<string, { name: string, revenue: number, deals: number }> = {};
+                    leadsData.forEach(lead => {
+                        const agentId = lead.assigned_to;
+                        if (!agentId) return;
+                        
+                        if (!agentStats[agentId]) {
+                            agentStats[agentId] = {
+                                name: (lead.users as any)?.full_name || 'Unknown Agent',
+                                revenue: 0,
+                                deals: 0
+                            };
+                        }
+                        agentStats[agentId].revenue += Number(lead.disbursed_amount || 0);
+                        agentStats[agentId].deals += 1;
+                    });
+
+                    const sortedLeaders = Object.values(agentStats)
+                        .sort((a, b) => b.revenue - a.revenue || b.deals - a.deals)
+                        .slice(0, 5);
+                    
+                    setLeaders(sortedLeaders);
+                }
             }
         }
         
         fetchLeaders();
         
-        // Listen for realtime inserts/updates on the 'deals' table to trigger a refresh
-        const channel = supabase.channel('leaderboard_deals')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, fetchLeaders)
+        // Listen for realtime inserts/updates
+        const channel = supabase.channel('leaderboard_updates')
+            .on('postgres_changes', { event: '*', schema: 'public', table: isRealEstate ? 'deals' : 'leads' }, fetchLeaders)
             .subscribe();
             
         return () => { supabase.removeChannel(channel) }
-    }, [supabase])
+    }, [supabase, isRealEstate])
 
     return (
         <Card className="border border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-2xl overflow-hidden relative group">
@@ -48,12 +83,12 @@ export function LiveLeaderboard() {
             </div>
             <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 text-white pb-3 rounded-t-2xl">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <Trophy className="h-4.5 w-4.5 text-yellow-500" /> Top Deal Makers
+                    <Trophy className="h-4.5 w-4.5 text-yellow-500" /> {title}
                 </CardTitle>
             </CardHeader>
             <CardContent className="pt-3 p-2 space-y-2 relative z-10">
                 {leaders.length === 0 ? (
-                    <p className="text-xs text-slate-500 text-center py-4">No closed deals yet. Be the first!</p>
+                    <p className="text-xs text-slate-500 text-center py-4">{emptyText}</p>
                 ) : null}
                 
                 {leaders.map((leader, index) => (
@@ -66,7 +101,7 @@ export function LiveLeaderboard() {
                             
                             <div>
                                 <span className="font-bold text-slate-800 dark:text-slate-200 text-sm leading-tight block">{leader.name}</span>
-                                <span className="text-[10px] text-slate-500 font-semibold">{leader.deals} Deals</span>
+                                <span className="text-[10px] text-slate-500 font-semibold">{leader.deals} {unit}</span>
                             </div>
                         </div>
                         <div className="flex items-center text-emerald-600 dark:text-emerald-400 font-black text-sm">
