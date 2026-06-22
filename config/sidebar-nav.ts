@@ -76,7 +76,7 @@ export const sidebarGroups = [
     items: [
       { name: "Automations", href: "/admin/automations", icon: Zap, module: "core" },
       { name: "Settings", href: "/admin/settings", icon: Settings, module: "core" },
-      { name: "External Portals", href: "/admin/integrations/portals", icon: Webhook, module: "integrations" },
+      { name: "External Portals", href: "/admin/integrations/portals", icon: Webhook, module: "real_estate" },
     ]
   }
 ]
