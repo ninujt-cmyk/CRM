@@ -31,14 +31,20 @@ async function DashboardContent() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('tenant_id, organizations(industry)')
+    .select('tenant_id')
     .eq('id', user.id)
     .single()
 
   const tenantId = profile?.tenant_id
-  const industry = (profile?.organizations as any)?.industry
   if (!tenantId) return <div className="p-6 text-red-500">Error: Workspace not found.</div>
 
+  const { data: orgData } = await supabase
+    .from('organizations')
+    .select('industry')
+    .eq('id', tenantId)
+    .single()
+
+  const industry = orgData?.industry
   const todayStr = new Date().toISOString().split('T')[0];
 
   // Fetch minimal data and count it safely in memory. No SQL RPC needed.
