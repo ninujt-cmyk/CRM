@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { fetchDeals, updateDealStage } from "@/app/actions/deals"
 import { toast } from "sonner"
-import { Loader2, DollarSign, User, Building2, FileText } from "lucide-react"
+import { Loader2, IndianRupee, User, Building2, FileText } from "lucide-react"
 import { DealDocumentGenerator } from "./deal-document-generator"
 import { Button } from "./ui/button"
 
@@ -90,7 +90,7 @@ export function DealsKanban() {
                         </div>
                         
                         <div className="text-sm font-medium text-slate-500 mb-4 flex items-center">
-                            <DollarSign className="w-4 h-4 mr-1" />
+                            <IndianRupee className="w-4 h-4 mr-1" />
                             {totalAmount.toLocaleString()}
                         </div>
 
@@ -107,7 +107,7 @@ export function DealsKanban() {
                                         
                                         {deal.amount && (
                                             <div className="text-emerald-600 font-medium flex items-center text-sm">
-                                                <DollarSign className="w-4 h-4 mr-1" />
+                                                <IndianRupee className="w-4 h-4 mr-1" />
                                                 {Number(deal.amount).toLocaleString()}
                                                 
                                                 {deal.expected_commission && (
