@@ -32,7 +32,7 @@ export function GlobalModuleGuard({ children }: { children: React.ReactNode }) {
   }
 
   // If the user's org has enabled_modules, check access
-  const hasAccess = !org || !org.enabled_modules || org.enabled_modules.includes(requiredModule) || requiredModule === "core"
+  const hasAccess = !org || !org.enabled_modules || org.enabled_modules.includes(requiredModule) || requiredModule === "core" || (requiredModule === "real_estate" && org.industry === "real_estate")
 
   if (!hasAccess) {
     return (

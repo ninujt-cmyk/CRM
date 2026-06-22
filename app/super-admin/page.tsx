@@ -74,6 +74,7 @@ export default function SuperAdminConsole() {
     { id: "logs", name: "System Logs", icon: Activity },
     { id: "properties", name: "Property Management", icon: Building2 },
     { id: "site_visits", name: "Site Visits", icon: MapPin },
+    { id: "real_estate", name: "Real Estate Tools", icon: Building2 },
   ]
 
   const openSettings = (org: any) => {
