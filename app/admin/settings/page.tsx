@@ -28,6 +28,7 @@ export default function WorkspaceSettingsPage() {
     fonada_secret: "",
     whatsapp_api_key: "",
     whatsapp_ai_agent_enabled: false,
+    unicorn_api_key: "",
     // Cron Job States
     cron_auto_checkout: true,
     cron_auto_refill: true,
@@ -59,7 +60,7 @@ export default function WorkspaceSettingsPage() {
           .select(`
             fonada_client_id, fonada_secret, whatsapp_api_key, whatsapp_ai_agent_enabled,
             cron_auto_checkout, cron_auto_refill, cron_daily_report, 
-            cron_kyc, cron_sla, cron_smart_notifications
+            cron_kyc, cron_sla, cron_smart_notifications, unicorn_api_key
           `)
           .eq('tenant_id', profile.tenant_id)
           .maybeSingle()
@@ -72,6 +73,7 @@ export default function WorkspaceSettingsPage() {
             fonada_secret: data.fonada_secret || "",
             whatsapp_api_key: data.whatsapp_api_key || "",
             whatsapp_ai_agent_enabled: data.whatsapp_ai_agent_enabled ?? false,
+            unicorn_api_key: data.unicorn_api_key || "",
             cron_auto_checkout: data.cron_auto_checkout ?? true,
             cron_auto_refill: data.cron_auto_refill ?? true,
             cron_daily_report: data.cron_daily_report ?? true,
@@ -173,6 +175,36 @@ export default function WorkspaceSettingsPage() {
             </div>
             <div className="bg-blue-50 border border-blue-100 rounded-md p-3 text-xs text-blue-800">
               <strong>Note:</strong> Telecallers must have their exact 10-digit phone number saved in their profile for the dialer to ring their device.
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* UNICORN AI CARD */}
+        <Card className="shadow-sm border-slate-200">
+          <CardHeader className="border-b bg-slate-50/50 pb-4">
+            <CardTitle className="text-lg flex items-center gap-2 text-slate-800">
+              <PhoneCall className="h-5 w-5 text-indigo-600" />
+              Unicorn AI Calling Integration
+            </CardTitle>
+            <CardDescription>
+              Connect your Unicorn AI Solution account to enable advanced AI voice calling.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 space-y-5">
+            <div className="space-y-2">
+              <Label className="text-slate-700 font-semibold flex items-center gap-2">
+                Unicorn API Key <KeyRound className="h-3 w-3 text-slate-400" />
+              </Label>
+              <Input 
+                type="password"
+                placeholder="Paste your Unicorn AI Client API Key..." 
+                value={formData.unicorn_api_key}
+                onChange={(e) => setFormData(prev => ({ ...prev, unicorn_api_key: e.target.value }))}
+                className="font-mono text-sm bg-slate-50"
+              />
+            </div>
+            <div className="bg-indigo-50 border border-indigo-100 rounded-md p-3 text-xs text-indigo-800">
+              <strong>Webhook Setup:</strong> Please configure your call-outcome webhook in Unicorn AI portal to point to <code>https://yourdomain.com/api/webhooks/unicorn-call-outcomes</code>
             </div>
           </CardContent>
         </Card>

@@ -13,6 +13,7 @@ export async function updateWorkspaceSettings(formData: {
     cron_kyc: boolean;
     cron_sla: boolean;
     cron_smart_notifications: boolean;
+    unicorn_api_key: string;
 }) {
     try {
         const supabase = await createClient()
@@ -46,6 +47,7 @@ export async function updateWorkspaceSettings(formData: {
                 cron_kyc: formData.cron_kyc,
                 cron_sla: formData.cron_sla,
                 cron_smart_notifications: formData.cron_smart_notifications,
+                unicorn_api_key: formData.unicorn_api_key,
                 updated_at: new Date().toISOString()
             })
             .eq('tenant_id', profile.tenant_id)
