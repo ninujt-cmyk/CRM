@@ -29,6 +29,12 @@ async function fetchWithTimeout(resource: string, options: RequestInit & { timeo
 
 // Helper to get the tenant's Unicorn API Key
 async function getUnicornApiKey() {
+  // 1. Check Environment Variables first (prioritize local/server config)
+  if (process.env.UNICORN_API_KEY) {
+    return process.env.UNICORN_API_KEY;
+  }
+
+  // 2. Fallback to Database Tenant Settings
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
