@@ -4,6 +4,29 @@ import { createClient } from "@/lib/supabase/server"
 
 const UNICORN_API_BASE = "https://voice.unicornaisolution.com/api/v1";
 
+// Helper to fetch with a timeout
+async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number } = {}) {
+  const { timeout = 10000 } = options; // 10 seconds default
+  
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(resource, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error: any) {
+    clearTimeout(id);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout / 1000} seconds`);
+    }
+    throw error;
+  }
+}
+
 // Helper to get the tenant's Unicorn API Key
 async function getUnicornApiKey() {
   const supabase = await createClient();
@@ -34,7 +57,7 @@ async function getUnicornApiKey() {
 export async function getUnicornBalance() {
   try {
     const apiKey = await getUnicornApiKey();
-    const res = await fetch(`${UNICORN_API_BASE}/balance`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/balance`, {
       headers: {
         "X-API-Key": apiKey
       }
@@ -53,7 +76,7 @@ export async function getUnicornBalance() {
 export async function getUnicornScripts() {
   try {
     const apiKey = await getUnicornApiKey();
-    const res = await fetch(`${UNICORN_API_BASE}/scripts`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/scripts`, {
       headers: {
         "X-API-Key": apiKey
       }
@@ -87,7 +110,7 @@ export async function createUnicornCallCampaign(scriptId: number | string, campa
       orders
     };
 
-    const res = await fetch(`${UNICORN_API_BASE}/orders`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/orders`, {
       method: 'POST',
       headers: {
         "X-API-Key": apiKey,
@@ -123,7 +146,7 @@ export async function createUnicornCallCampaign(scriptId: number | string, campa
 export async function getUnicornScript(scriptId: string | number) {
   try {
     const apiKey = await getUnicornApiKey();
-    const res = await fetch(`${UNICORN_API_BASE}/scripts/${scriptId}`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/scripts/${scriptId}`, {
       headers: { "X-API-Key": apiKey }
     });
     if (!res.ok) throw new Error("Failed to fetch script details");
@@ -137,7 +160,7 @@ export async function getUnicornScript(scriptId: string | number) {
 export async function createUnicornScript(payload: any) {
   try {
     const apiKey = await getUnicornApiKey();
-    const res = await fetch(`${UNICORN_API_BASE}/scripts`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/scripts`, {
       method: 'POST',
       headers: {
         "X-API-Key": apiKey,
@@ -156,7 +179,7 @@ export async function createUnicornScript(payload: any) {
 export async function updateUnicornScript(scriptId: string | number, payload: any) {
   try {
     const apiKey = await getUnicornApiKey();
-    const res = await fetch(`${UNICORN_API_BASE}/scripts/${scriptId}`, {
+    const res = await fetchWithTimeout(`${UNICORN_API_BASE}/scripts/${scriptId}`, {
       method: 'PUT',
       headers: {
         "X-API-Key": apiKey,
