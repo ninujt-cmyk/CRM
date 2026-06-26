@@ -64,7 +64,8 @@ export async function getUnicornBalance() {
     });
     
     if (!res.ok) {
-        throw new Error("Failed to fetch balance");
+        const errText = await res.text();
+        throw new Error(`API returned ${res.status}: ${errText.substring(0, 100)}`);
     }
     const data = await res.json();
     return { success: true, balance: data };
@@ -83,7 +84,8 @@ export async function getUnicornScripts() {
     });
     
     if (!res.ok) {
-        throw new Error("Failed to fetch scripts");
+        const errText = await res.text();
+        throw new Error(`API returned ${res.status}: ${errText.substring(0, 100)}`);
     }
     const data = await res.json();
     // Assuming data is an array or has a standard structure
