@@ -31,7 +31,9 @@ async function fetchWithTimeout(resource: string, options: RequestInit & { timeo
 async function getUnicornApiKey() {
   // 1. Check Environment Variables first (prioritize local/server config)
   if (process.env.UNICORN_API_KEY) {
-    return process.env.UNICORN_API_KEY;
+    const key = process.env.UNICORN_API_KEY.trim();
+    console.log(`[Unicorn AI] Using API Key from Environment Variable (Starts with: ${key.substring(0, 8)}...)`);
+    return key;
   }
 
   // 2. Fallback to Database Tenant Settings
@@ -53,11 +55,13 @@ async function getUnicornApiKey() {
     .eq('tenant_id', profile.tenant_id)
     .single();
 
-  if (!settings?.unicorn_api_key) {
+  const dbKey = settings?.unicorn_api_key?.trim();
+  if (!dbKey) {
     throw new Error("Unicorn API Key not configured. Please add it in Settings.");
   }
-
-  return settings.unicorn_api_key;
+  
+  console.log(`[Unicorn AI] Using API Key from Database Settings (Starts with: ${dbKey.substring(0, 8)}...)`);
+  return dbKey;
 }
 
 export async function getUnicornBalance() {
