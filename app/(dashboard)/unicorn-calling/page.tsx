@@ -60,10 +60,18 @@ export default function UnicornCallingPage() {
 
       // Fetch Unicorn Data
       const balanceRes = await getUnicornBalance();
-      if (balanceRes.success) setBalance(balanceRes.balance);
+      if (balanceRes.success) {
+        setBalance(balanceRes.balance);
+      } else {
+        setNotification({ type: 'error', msg: `Balance Error: ${balanceRes.error}` });
+      }
       
       const scriptsRes = await getUnicornScripts();
-      if (scriptsRes.success) setScripts(scriptsRes.scripts);
+      if (scriptsRes.success) {
+        setScripts(scriptsRes.scripts);
+      } else if (!balanceRes.error) { // Only show script error if balance didn't already error
+        setNotification({ type: 'error', msg: `Scripts Error: ${scriptsRes.error}` });
+      }
 
       setLoadingUnicorn(false);
     };
@@ -188,7 +196,11 @@ export default function UnicornCallingPage() {
               <CardContent className="p-4 flex flex-col justify-center">
                 <p className="text-xs text-slate-500 font-medium uppercase">Wallet Balance</p>
                 <p className="text-lg font-bold text-slate-900">
-                  {balance ? JSON.stringify(balance) : "N/A"}
+                  {balance !== null && balance !== undefined ? (
+                    typeof balance === 'object' 
+                      ? (balance.balance !== undefined ? `₹${balance.balance}` : (balance.walletBalance !== undefined ? `₹${balance.walletBalance}` : JSON.stringify(balance)))
+                      : `₹${balance}`
+                  ) : "N/A"}
                 </p>
               </CardContent>
             </Card>
