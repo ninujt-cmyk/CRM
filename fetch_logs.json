@@ -1,0 +1,10 @@
+[
+  {
+    "url": "/api/public/brand-config",
+    "text": "{\"success\":true,\"data\":{\"useDbBranding\":false,\"name\":\"ThinkAIQ\",\"tagline\":\"AI Calling\",\"logoUrl\":\"/images/chatlogoagent.svg\"}}"
+  },
+  {
+    "url": "/api/user/profile",
+    "text": "{\"success\":true,\"data\":{\"email\":\"demowork0112000@gmail.com\",\"name\":\"demo\",\"avatar\":\"\",\"phone\":\"8511272311\"}}"
+  }
+]

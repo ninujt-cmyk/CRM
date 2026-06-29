@@ -159,27 +159,73 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
 
             {/* CHOOSE VOICE TAB */}
             <TabsContent value="voice" className="flex-1 p-6 overflow-y-auto m-0 border-none">
-              <div className="max-w-2xl space-y-8">
-                <div className="space-y-4">
+              <div className="max-w-4xl space-y-8">
+                
+                {/* Voice Categories */}
+                <div className="flex items-center gap-2 mb-6">
+                  <Button variant="outline" className="text-indigo-600 border-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md">V3 Flagship</Button>
+                  <Button variant="outline" className="text-slate-600 rounded-md">All</Button>
+                  <Button variant="outline" className="text-slate-600 rounded-md">Male</Button>
+                  <Button variant="outline" className="text-slate-600 rounded-md">Female</Button>
+                  <Button variant="outline" className="text-slate-600 rounded-md">Language <span className="ml-2 text-xs">▼</span></Button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { id: 'Vinay', name: 'Vinay', tone: 'Energetic' },
+                    { id: 'Kashish', name: 'Kashish', tone: 'Energetic' },
+                    { id: 'Askar', name: 'Askar', tone: 'Warm & Friendly' },
+                    { id: 'Rohit Simple', name: 'Rohit Simple', tone: 'Energetic' },
+                    { id: 'Maya', name: 'Maya', tone: 'Warm & Friendly' },
+                    { id: 'Neha', name: 'Neha', tone: 'Confident' },
+                    { id: 'Nikita', name: 'Nikita', tone: 'Confident' },
+                    { id: 'Fatima', name: 'Fatima', tone: 'Calm' },
+                  ].map((voice) => (
+                    <Card 
+                      key={voice.id} 
+                      className={`cursor-pointer transition-all hover:shadow-md ${formData.voiceId === voice.id ? 'border-indigo-600 ring-1 ring-indigo-600' : 'border-slate-200'}`}
+                      onClick={() => setFormData(prev => ({ ...prev, voiceId: voice.id, ttsProvider: 'UNICORN AI TTS' }))}
+                    >
+                      <CardContent className="p-5 flex flex-col items-center text-center">
+                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-green-400 to-black mb-3 shadow-inner flex items-center justify-center overflow-hidden">
+                          {/* Placeholder abstract gradient for avatar */}
+                          <div className="w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-green-300 via-green-600 to-black opacity-80"></div>
+                        </div>
+                        <h4 className="font-bold text-slate-900">{voice.name}</h4>
+                        <p className="text-xs text-slate-500 mt-1">{voice.tone}</p>
+                        <div className="flex items-center gap-1 mt-2">
+                          <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">A</span>
+                          <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-bold">अ</span>
+                          <span className="text-[10px] text-slate-500 italic ml-1">Hindi + 1</span>
+                        </div>
+                        <div className="flex gap-2 mt-4 w-full">
+                          <Button variant="secondary" className="flex-1 text-[10px] h-8 bg-slate-100 hover:bg-slate-200 text-slate-700" onClick={(e) => e.stopPropagation()}>English<br/>Play</Button>
+                          <Button variant="secondary" className="flex-1 text-[10px] h-8 bg-slate-100 hover:bg-slate-200 text-slate-700" onClick={(e) => e.stopPropagation()}>Hinglish<br/>Play</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                <div className="pt-6 border-t border-slate-200 mt-8 space-y-4">
                   <h3 className="text-lg font-semibold text-slate-800">Custom Voice UUID</h3>
                   <p className="text-sm text-slate-500">If the UUID isn't in the list, it will still be saved and used for TTS.</p>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 max-w-md">
                     <Input 
                       placeholder="e.g. 09c595da-6d0e-4789-b339-5a6a56a79d72" 
                       value={formData.voiceId}
                       onChange={(e) => setFormData(prev => ({ ...prev, voiceId: e.target.value }))}
                       className="font-mono text-sm flex-1"
                     />
-                    <Button variant="outline">Browse Voices</Button>
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 pt-4">
                   <h3 className="text-lg font-semibold text-slate-800">TTS Provider</h3>
                   <RadioGroup 
                     value={formData.ttsProvider} 
                     onValueChange={(val) => setFormData(prev => ({ ...prev, ttsProvider: val }))}
-                    className="grid grid-cols-2 md:grid-cols-4 gap-4"
+                    className="flex flex-wrap gap-4"
                   >
                     {[
                       { id: "UNICORN AI TTS", label: "UNICORN AI" },
@@ -191,7 +237,7 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
                         <RadioGroupItem value={provider.id} id={provider.id} className="peer sr-only" />
                         <Label
                           htmlFor={provider.id}
-                          className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-indigo-600 peer-data-[state=checked]:bg-indigo-50 [&:has([data-state=checked])]:border-indigo-600 cursor-pointer text-center"
+                          className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-6 py-2 text-sm font-medium hover:bg-slate-50 hover:text-slate-900 peer-data-[state=checked]:border-indigo-600 peer-data-[state=checked]:text-indigo-600 peer-data-[state=checked]:bg-indigo-50 cursor-pointer min-w-[120px]"
                         >
                           {provider.label}
                         </Label>
@@ -200,7 +246,7 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
                   </RadioGroup>
                 </div>
                 
-                {/* Voice Cloning Promo Banner (Visual Only) */}
+                {/* Voice Cloning Promo Banner */}
                 <Card className="bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 border-0 text-white overflow-hidden relative mt-8">
                   <CardContent className="p-8">
                     <div className="flex flex-col md:flex-row items-center gap-6">
@@ -211,7 +257,7 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
                         <h4 className="text-xl font-bold mb-2">Voice Cloning</h4>
                         <p className="text-white/80 text-sm max-w-md">Instantly mirror your voice in seconds, give a branded voice to your store.</p>
                       </div>
-                      <Button variant="secondary" className="ml-auto whitespace-nowrap bg-white text-indigo-600 hover:bg-slate-50">
+                      <Button variant="secondary" className="ml-auto whitespace-nowrap bg-white text-indigo-600 hover:bg-slate-50 font-semibold rounded-full px-6">
                         Start Recording
                       </Button>
                     </div>
