@@ -25,6 +25,8 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
 
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<any[]>([]);
+  const [voiceFilter, setVoiceFilter] = useState("all");
 
   const [formData, setFormData] = useState({
     name: "New AI Agent",
@@ -58,6 +60,14 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
       fetchScript();
     }
   }, [params.id, isNew]);
+
+  useEffect(() => {
+    // Fetch real voices
+    fetch('/data/unicorn_voices.json')
+      .then(res => res.json())
+      .then(data => setAvailableVoices(data))
+      .catch(err => console.error("Failed to load voices", err));
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -161,46 +171,45 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
             <TabsContent value="voice" className="flex-1 p-6 overflow-y-auto m-0 border-none">
               <div className="max-w-4xl space-y-8">
                 
-                {/* Voice Categories */}
                 <div className="flex items-center gap-2 mb-6">
-                  <Button variant="outline" className="text-indigo-600 border-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md">V3 Flagship</Button>
-                  <Button variant="outline" className="text-slate-600 rounded-md">All</Button>
-                  <Button variant="outline" className="text-slate-600 rounded-md">Male</Button>
-                  <Button variant="outline" className="text-slate-600 rounded-md">Female</Button>
-                  <Button variant="outline" className="text-slate-600 rounded-md">Language <span className="ml-2 text-xs">▼</span></Button>
+                  <Button variant={voiceFilter === "all" ? "default" : "outline"} onClick={() => setVoiceFilter("all")} className={voiceFilter === "all" ? "bg-indigo-600 text-white rounded-md" : "text-slate-600 rounded-md"}>All</Button>
+                  <Button variant={voiceFilter === "hi" ? "default" : "outline"} onClick={() => setVoiceFilter("hi")} className={voiceFilter === "hi" ? "bg-indigo-600 text-white rounded-md" : "text-slate-600 rounded-md"}>Hindi</Button>
+                  <Button variant={voiceFilter === "en" ? "default" : "outline"} onClick={() => setVoiceFilter("en")} className={voiceFilter === "en" ? "bg-indigo-600 text-white rounded-md" : "text-slate-600 rounded-md"}>English</Button>
+                  <Button variant={voiceFilter === "other" ? "default" : "outline"} onClick={() => setVoiceFilter("other")} className={voiceFilter === "other" ? "bg-indigo-600 text-white rounded-md" : "text-slate-600 rounded-md"}>Other</Button>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { id: 'Vinay', name: 'Vinay', tone: 'Energetic' },
-                    { id: 'Kashish', name: 'Kashish', tone: 'Energetic' },
-                    { id: 'Askar', name: 'Askar', tone: 'Warm & Friendly' },
-                    { id: 'Rohit Simple', name: 'Rohit Simple', tone: 'Energetic' },
-                    { id: 'Maya', name: 'Maya', tone: 'Warm & Friendly' },
-                    { id: 'Neha', name: 'Neha', tone: 'Confident' },
-                    { id: 'Nikita', name: 'Nikita', tone: 'Confident' },
-                    { id: 'Fatima', name: 'Fatima', tone: 'Calm' },
-                  ].map((voice) => (
+                  {availableVoices.filter(v => {
+                    if (voiceFilter === "all") return true;
+                    if (voiceFilter === "hi") return v.language === "hi";
+                    if (voiceFilter === "en") return v.language === "en";
+                    if (voiceFilter === "other") return !["hi", "en"].includes(v.language);
+                    return true;
+                  }).map((voice) => (
                     <Card 
                       key={voice.id} 
-                      className={`cursor-pointer transition-all hover:shadow-md ${formData.voiceId === voice.id ? 'border-indigo-600 ring-1 ring-indigo-600' : 'border-slate-200'}`}
-                      onClick={() => setFormData(prev => ({ ...prev, voiceId: voice.id, ttsProvider: 'UNICORN AI TTS' }))}
+                      className={`cursor-pointer transition-all hover:shadow-md ${formData.voiceId === voice.id ? 'border-indigo-600 ring-1 ring-indigo-600 bg-indigo-50/50' : 'border-slate-200 bg-white'}`}
+                      onClick={() => setFormData(prev => ({ ...prev, voiceId: voice.id, ttsProvider: 'cartesia' }))}
                     >
-                      <CardContent className="p-5 flex flex-col items-center text-center">
-                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-green-400 to-black mb-3 shadow-inner flex items-center justify-center overflow-hidden">
-                          {/* Placeholder abstract gradient for avatar */}
-                          <div className="w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-green-300 via-green-600 to-black opacity-80"></div>
+                      <CardContent className="p-5 flex flex-col items-center text-center h-full">
+                        <div className="h-14 w-14 rounded-full bg-gradient-to-br from-indigo-400 to-purple-600 mb-3 shadow-sm flex items-center justify-center overflow-hidden">
+                           <span className="text-white font-bold text-lg">{voice.name.charAt(0).toUpperCase()}</span>
                         </div>
-                        <h4 className="font-bold text-slate-900">{voice.name}</h4>
-                        <p className="text-xs text-slate-500 mt-1">{voice.tone}</p>
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">A</span>
-                          <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-bold">अ</span>
-                          <span className="text-[10px] text-slate-500 italic ml-1">Hindi + 1</span>
+                        <h4 className="font-bold text-slate-900 text-sm line-clamp-1" title={voice.name}>{voice.name.split('-')[0].trim()}</h4>
+                        <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 min-h-[32px]" title={voice.description}>{voice.description}</p>
+                        
+                        <div className="flex items-center gap-1 mt-3 mb-4">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-bold uppercase border border-slate-200">{voice.language.substring(0,2)}</span>
+                          <span className="text-[10px] text-slate-500 italic ml-1 capitalize">{voice.language}</span>
                         </div>
-                        <div className="flex gap-2 mt-4 w-full">
-                          <Button variant="secondary" className="flex-1 text-[10px] h-8 bg-slate-100 hover:bg-slate-200 text-slate-700" onClick={(e) => e.stopPropagation()}>English<br/>Play</Button>
-                          <Button variant="secondary" className="flex-1 text-[10px] h-8 bg-slate-100 hover:bg-slate-200 text-slate-700" onClick={(e) => e.stopPropagation()}>Hinglish<br/>Play</Button>
+                        
+                        <div className="mt-auto w-full">
+                          <Button variant="secondary" className="w-full text-xs h-8 bg-slate-100 hover:bg-slate-200 text-slate-700" onClick={(e) => {
+                            e.stopPropagation();
+                            toast.info("Demo audio playing...");
+                          }}>
+                            <Play className="h-3 w-3 mr-1" /> Play Demo
+                          </Button>
                         </div>
                       </CardContent>
                     </Card>

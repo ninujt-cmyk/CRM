@@ -1,0 +1,42 @@
+[
+  {
+    "text": "Shopify Orders",
+    "href": "https://voice.unicornaisolution.com/all-orders?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Campaigns",
+    "href": "https://voice.unicornaisolution.com/campaigns?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Verification",
+    "href": "https://voice.unicornaisolution.com/settings?card=verification-docs&shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Test Agent",
+    "href": "https://voice.unicornaisolution.com/test-call?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Billing",
+    "href": "https://voice.unicornaisolution.com/stats?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Call Agents",
+    "href": "https://voice.unicornaisolution.com/playground?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Voice Library",
+    "href": "https://voice.unicornaisolution.com/voices?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Voice Cloning",
+    "href": "https://voice.unicornaisolution.com/clone-voice?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "API & Docs",
+    "href": "https://voice.unicornaisolution.com/integrations/v1-api?shop=demowork0112000.myshopify.com"
+  },
+  {
+    "text": "Settings",
+    "href": "https://voice.unicornaisolution.com/settings?shop=demowork0112000.myshopify.com"
+  }
+]
