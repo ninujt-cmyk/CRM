@@ -189,7 +189,7 @@ export default function UnicornAgentBuilder({ params }: { params: { id: string }
                     <Card 
                       key={voice.id} 
                       className={`cursor-pointer transition-all hover:shadow-md ${formData.voiceId === voice.id ? 'border-indigo-600 ring-1 ring-indigo-600 bg-indigo-50/50' : 'border-slate-200 bg-white'}`}
-                      onClick={() => setFormData(prev => ({ ...prev, voiceId: voice.id, ttsProvider: 'cartesia' }))}
+                      onClick={() => setFormData(prev => ({ ...prev, voiceId: voice.id, ttsProvider: 'elevenlabs' }))}
                     >
                       <CardContent className="p-5 flex flex-col items-center text-center h-full">
                         <div className="h-14 w-14 rounded-full bg-gradient-to-br from-indigo-400 to-purple-600 mb-3 shadow-sm flex items-center justify-center overflow-hidden">
