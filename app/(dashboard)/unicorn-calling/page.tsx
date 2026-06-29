@@ -198,7 +198,7 @@ export default function UnicornCallingPage() {
                 <p className="text-lg font-bold text-slate-900">
                   {balance !== null && balance !== undefined ? (
                     typeof balance === 'object' 
-                      ? (balance.balance !== undefined ? `₹${balance.balance}` : (balance.walletBalance !== undefined ? `₹${balance.walletBalance}` : JSON.stringify(balance)))
+                      ? (balance.currentBalance !== undefined ? `₹${balance.currentBalance}` : (balance.balance !== undefined ? `₹${balance.balance}` : JSON.stringify(balance)))
                       : `₹${balance}`
                   ) : "N/A"}
                 </p>
