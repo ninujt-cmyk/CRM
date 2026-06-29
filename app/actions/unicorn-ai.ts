@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server"
 
-const UNICORN_API_BASE = "https://voice.unicornaisolution.com/api/v1";
+const UNICORN_API_BASE = "https://think-ai.up.railway.app/api/v1";
 
 // Helper to fetch with a timeout
 async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number } = {}) {
