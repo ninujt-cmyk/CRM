@@ -118,9 +118,42 @@ export function PerformanceDebugOverlay() {
     const origXhrOpen = XMLHttpRequest.prototype.open
     const origXhrSend = XMLHttpRequest.prototype.send
 
+    const resolveUrl = (input: any, init?: any): string => {
+      let str = ""
+      if (typeof input === "string") {
+        str = input
+      } else if (input && typeof input === "object") {
+        str = input.url || input.href || (typeof input.toString === "function" && input.toString() !== "[object Object]" ? input.toString() : "")
+      } else {
+        str = String(input || "")
+      }
+
+      // Check if it's a Next.js Server Action
+      const headers = init?.headers || (input && typeof input === "object" ? input.headers : null)
+      let nextActionId = ""
+      if (headers) {
+        if (typeof headers.get === "function") {
+          nextActionId = headers.get("next-action") || headers.get("Next-Action") || ""
+        } else if (typeof headers === "object") {
+          nextActionId = headers["next-action"] || headers["Next-Action"] || ""
+        }
+      }
+
+      if (nextActionId) {
+        const path = str && str.trim() !== "" ? str : (typeof window !== "undefined" ? window.location.pathname : "/")
+        return `${path} [Next.js Server Action: ${nextActionId.substring(0, 10)}...]`
+      }
+
+      if (!str || str.trim() === "") {
+        return typeof window !== "undefined" ? window.location.pathname : "/ (Current Route)"
+      }
+
+      return str
+    }
+
     // Patch fetch
     window.fetch = async function (...args) {
-      const url = typeof args[0] === "string" ? args[0] : (args[0] as Request)?.url || "unknown"
+      const url = resolveUrl(args[0], args[1])
       const method =
         (typeof args[0] === "object" && (args[0] as Request)?.method) ||
         (args[1]?.method || "GET").toUpperCase()
@@ -183,7 +216,7 @@ export function PerformanceDebugOverlay() {
     ) {
       ;(this as any)._debugId = Math.random().toString(36).substring(2, 9)
       ;(this as any)._debugMethod = method.toUpperCase()
-      ;(this as any)._debugUrl = url.toString()
+      ;(this as any)._debugUrl = resolveUrl(url)
       return origXhrOpen.apply(this, [method, url, ...rest] as any)
     }
 
