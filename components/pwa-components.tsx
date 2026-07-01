@@ -7,6 +7,7 @@ import { AppStatusBar } from "@/components/pwa/app-status-bar"
 import { NativeInteractions } from "@/components/pwa/native-interactions"
 import { AppShortcuts } from "@/components/pwa/app-shortcuts"
 import { OfflineIndicator } from "@/components/offline-indicator"
+import { PerformanceDebugOverlay } from "@/components/performance-debug-overlay"
 
 import { useEffect } from "react"
 import { toast } from "sonner"
@@ -39,6 +40,8 @@ export default function PWAComponents() {
       <PWAInstallPrompt />
       <PWAUpdatePrompt />
       <OfflineIndicator />
+      <PerformanceDebugOverlay />
     </>
   )
 }
+

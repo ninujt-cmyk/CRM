@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { globalSearch, SearchResult } from "@/app/actions/search"
 import { Command } from "cmdk"
-import { Search, Building, User, LayoutDashboard, Calendar, Users, X, Loader2 } from "lucide-react"
+import { Search, Building, User, LayoutDashboard, Calendar, Users, X, Loader2, Bug } from "lucide-react"
 
 export function CommandMenu() {
   const router = useRouter()
@@ -15,6 +15,7 @@ export function CommandMenu() {
   
   // Quick Actions (always available)
   const quickActions = [
+    { id: 'debug', title: '🐞 Open Performance Debugger & Profiler', icon: Bug, action: () => { window.dispatchEvent(new CustomEvent('hanva-open-debugger')); setOpen(false); } },
     { id: 'dashboard', title: 'Dashboard', icon: LayoutDashboard, href: '/admin' },
     { id: 'leads', title: 'Lead Management', icon: User, href: '/admin/leads' },
     { id: 'properties', title: 'Property Inventory', icon: Building, href: '/admin/properties' },
@@ -166,7 +167,7 @@ export function CommandMenu() {
               {quickActions.map(action => (
                 <button
                   key={action.id}
-                  onClick={() => handleSelect(action.href)}
+                  onClick={() => action.action ? action.action() : (action.href && handleSelect(action.href))}
                   className="w-full text-left flex items-center px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <action.icon className="h-4 w-4 text-slate-400 mr-3 shrink-0" />

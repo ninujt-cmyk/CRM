@@ -22,7 +22,8 @@ import {
   MapPin,
   Handshake,
   Zap,
-  Trophy
+  Trophy,
+  ChevronsLeft
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -53,7 +54,8 @@ export const sidebarGroups = [
     label: "Team",
     items: [
       { name: "Team", href: "/admin/users", icon: Headset, module: "team" },
-      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy, module: "real_estate" },
+      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy,
+  ChevronsLeft, module: "real_estate" },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck, module: "attendance" },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff, module: "attendance" },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle, module: "whatsapp" },
@@ -78,6 +80,50 @@ export const sidebarGroups = [
       { name: "Automations", href: "/admin/automations", icon: Zap, module: "core" },
       { name: "Settings", href: "/admin/settings", icon: Settings, module: "core" },
       { name: "External Portals", href: "/admin/integrations/portals", icon: Webhook, module: "real_estate" },
+    ]
+  }
+]
+
+import { 
+  Bot, 
+  Library, 
+  Mic2, 
+  History, 
+  PlaySquare, 
+  Zap, 
+  BarChart, 
+  CreditCard 
+} from "lucide-react"
+
+export const unicornSidebarGroups = [
+  {
+    label: "Main",
+    items: [
+      { name: "Analytics", href: "/unicorn-calling/dashboard", icon: BarChart, module: "core", exact: true },
+    ]
+  },
+  {
+    label: "AI Calling",
+    items: [
+      { name: "Agent Scripts", href: "/unicorn-calling/scripts", icon: Bot, module: "core" },
+      { name: "Knowledge Base", href: "/unicorn-calling/knowledge-base", icon: Library, module: "core" },
+      { name: "Voice Library", href: "/unicorn-calling/voices", icon: Mic2, module: "core" },
+    ]
+  },
+  {
+    label: "Campaigns",
+    items: [
+      { name: "Auto Campaigns", href: "/unicorn-calling/campaigns", icon: PlaySquare, module: "core" },
+      { name: "Call Logs", href: "/unicorn-calling/logs", icon: History, module: "core" },
+      { name: "Automations", href: "/unicorn-calling/automations", icon: Zap, module: "core" },
+    ]
+  },
+  {
+    label: "Settings",
+    items: [
+      { name: "Integrations", href: "/unicorn-calling/settings", icon: Settings, module: "core" },
+      { name: "Billing", href: "/unicorn-calling/billing", icon: CreditCard, module: "core" },
+      { name: "Back to CRM", href: "/admin", icon: ChevronsLeft, module: "core" },
     ]
   }
 ]
