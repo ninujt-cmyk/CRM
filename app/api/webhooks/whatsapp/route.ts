@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 🔴 2. FETCH THIS SPECIFIC COMPANY'S CREDENTIALS
-    let fonadaUser = process.env.FONADA_USERID || "bankscart";
-    let fonadaPass = process.env.FONADA_PASSWORD || "zfsWTyKw";
-    let fonadaWaba = process.env.FONADA_WABA_NUMBER || "918217354172";
+    let fonadaUser = process.env.FONADA_USERID || "";
+    let fonadaPass = process.env.FONADA_PASSWORD || "";
+    let fonadaWaba = process.env.FONADA_WABA_NUMBER || "";
 
     const { data: settings } = await supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
     const actualUser = settings?.wa_userid || settings?.fonada_userid;

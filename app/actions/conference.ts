@@ -28,11 +28,23 @@ export async function initiateManagerConference(leadId: string, agentId: string,
     // 2. Fetch the Agent's Phone Number
     const { data: agent } = await supabase
       .from('users')
-      .select('phone')
+      .select('phone, tenant_id')
       .eq('id', agentId)
       .single();
 
     if (!agent?.phone) throw new Error("Agent phone not found.");
+
+    let fonadaUser = process.env.FONADA_USERID || "";
+    let fonadaPass = process.env.FONADA_PASSWORD || "";
+    if (agent.tenant_id) {
+      const { data: settings } = await supabase
+        .from('tenant_settings')
+        .select('fonada_userid, fonada_password, wa_userid, wa_password')
+        .eq('tenant_id', agent.tenant_id)
+        .maybeSingle();
+      if (settings?.wa_userid || settings?.fonada_userid) fonadaUser = (settings.wa_userid || settings.fonada_userid)!;
+      if (settings?.wa_password || settings?.fonada_password) fonadaPass = (settings.wa_password || settings.fonada_password)!;
+    }
 
     // 3. Prepare the Fonada Conference API Payload
     // ⚠️ NOTE: Replace 'apiUrl' with Fonada's exact Conference/Call Patching endpoint
@@ -40,8 +52,8 @@ export async function initiateManagerConference(leadId: string, agentId: string,
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const formData = new FormData();
-    formData.append("userid", process.env.FONADA_USERID || "bankscart");
-    formData.append("password", process.env.FONADA_PASSWORD || "zfsWTyKw");
+    formData.append("userid", fonadaUser);
+    formData.append("password", fonadaPass);
     
     // Normalize phones
     let safeCustomerPhone = customerPhone.replace(/^\+?91/, '');

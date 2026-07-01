@@ -6,17 +6,31 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 // Helper to fetch tenant settings securely
 async function getTenantWaCredentials(tenantId: string | null) {
-  let fonadaUser = process.env.FONADA_USERID || "bankscart";
-  let fonadaPass = process.env.FONADA_PASSWORD || "zfsWTyKw";
-  let fonadaWaba = process.env.FONADA_WABA_NUMBER || "918217354172";
-  let whatsappApiKey = process.env.FONADA_WHATSAPP_BEARER_TOKEN || "fsk_fa674b9a167787e48b2b29f48939a4570fe02efc1a4ec012c9f60bacc76bc250";
+  let fonadaUser = process.env.FONADA_USERID || "";
+  let fonadaPass = process.env.FONADA_PASSWORD || "";
+  let fonadaWaba = process.env.FONADA_WABA_NUMBER || "";
+  let whatsappApiKey = process.env.FONADA_WHATSAPP_BEARER_TOKEN || "";
 
-  if (tenantId) {
+  let targetTenantId = tenantId;
+  if (!targetTenantId) {
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).maybeSingle();
+        if (profile?.tenant_id) targetTenantId = profile.tenant_id;
+      }
+    } catch (e) {
+      // Ignore auth errors if calling from background context without session
+    }
+  }
+
+  if (targetTenantId) {
     const supabaseAdmin = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: settings } = await supabaseAdmin
       .from('tenant_settings')
       .select('fonada_userid, fonada_password, fonada_waba_number, whatsapp_api_key, wa_userid, wa_password, wa_waba_number')
-      .eq('tenant_id', tenantId)
+      .eq('tenant_id', targetTenantId)
       .maybeSingle();
     
     const actualUser = settings?.wa_userid || settings?.fonada_userid;
