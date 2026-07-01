@@ -356,6 +356,14 @@ export function LeadStatusUpdater({
           } else {
               toast.error("Failed to send automated KYC template.");
           }
+      } else if (activeStatus === "nr" && leadPhoneNumber) {
+          toast.info("Sending Missed Call WhatsApp template...");
+          const nrResult = await sendMissedCallMessage(leadId, leadPhoneNumber);
+          if (nrResult.success) {
+              toast.success("Missed Call WhatsApp template sent!");
+          } else {
+              toast.error("Failed to send automated Missed Call template: " + nrResult.error);
+          }
       }
       
       // Reset UI state
