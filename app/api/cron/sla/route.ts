@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   console.log("⏱️ [CRON] Running Multi-Tenant SLA & NR Auto-Reassignment check...");
 
   try {
-    const SLA_MINUTES = 30;
+    const SLA_MINUTES = 60;
     const NR_HOURS = 3;
     
     const slaTimeLimit = new Date(Date.now() - SLA_MINUTES * 60 * 1000).toISOString();
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
         // Fetch SLA and NR Leads strictly for this tenant
         const [slaResponse, nrResponse] = await Promise.all([
-          // SLA LEADS (Stuck in 'new' for 30+ mins)
+          // SLA LEADS (Stuck in 'new' for 60+ mins)
           supabaseAdmin
             .from("leads")
             .select("id, assigned_to, notes")
