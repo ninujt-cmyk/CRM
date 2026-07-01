@@ -45,6 +45,34 @@ async function getTenantWaCredentials(tenantId: string | null) {
   return { fonadaUser, fonadaPass, fonadaWaba, whatsappApiKey };
 }
 
+// Unified helper to send WhatsApp messages using Fonada SendMsgOld endpoint
+async function sendViaFonadaOldApi(creds: any, phone: string, text: string) {
+  const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+  const formData = new FormData();
+  formData.append("userid", creds.fonadaUser);
+  formData.append("password", creds.fonadaPass);
+  formData.append("wabaNumber", creds.fonadaWaba);
+
+  let safePhone = phone.replace(/^\+/, '');
+  if (safePhone.length === 10) safePhone = `91${safePhone}`;
+  formData.append("mobile", safePhone); 
+  
+  formData.append("msg", text);
+  formData.append("msgType", "text");
+  formData.append("sendMethod", "quick");
+  formData.append("output", "json");
+
+  const res = await fetch(apiUrl, { method: "POST", body: formData });
+  const data = await res.json();
+
+  if (data.status === "error" || data.error) {
+    throw new Error(data.message || data.error || "Fonada API Error");
+  }
+  return { safePhone, msgId: data.msgId || null };
+}
+
 // ============================================================================
 // 1. SEND NORMAL TEXT MESSAGE (Used in your new Chat UI)
 // ============================================================================
@@ -57,31 +85,11 @@ export async function sendWhatsAppText(leadId: string, customerPhone: string, te
     const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
     const creds = await getTenantWaCredentials(profile?.tenant_id || null);
 
-    const apiUrl = "https://waba.fonada.com/api/SendMsgOld";
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    const formData = new FormData();
-    formData.append("userid", creds.fonadaUser);
-    formData.append("password", creds.fonadaPass);
-    formData.append("wabaNumber", creds.fonadaWaba);
-
-    let safePhone = customerPhone.replace(/^\+/, '');
-    if (safePhone.length === 10) safePhone = `91${safePhone}`;
-    formData.append("mobile", safePhone); 
-    
-    formData.append("msg", text);
-    formData.append("msgType", "text");
-    formData.append("sendMethod", "quick");
-    formData.append("output", "json");
-
-    const res = await fetch(apiUrl, { method: "POST", body: formData });
-    const data = await res.json();
-
-    if (data.status === "error" || data.error) throw new Error(data.message || data.error || "Fonada API Error");
+    const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, text);
 
     const { error: insertError } = await supabase.from("chat_messages").insert({
         lead_id: leadId, phone_number: safePhone, direction: 'outbound',
-        message_type: 'text', content: text, fonada_message_id: data.msgId || null, status: 'sent'
+        message_type: 'text', content: text, fonada_message_id: msgId, status: 'sent'
     });
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -110,38 +118,11 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
 
     const textMessage = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you.`;
 
-    const apiUrl = "https://app.fonada.ai/functions/v1/whatsapp_campaign_creator";
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
-
-    const payload = {
-      campaign_name: "agent_callback_request1",
-      template_name: "agent_callback_request",
-      audience_rows: [
-        {
-          Phone: safePhone10,
-          Body_1: agent.full_name,
-          Body_2: agent.phone || ""
-        }
-      ]
-    };
-
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${creds.whatsappApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.message || data.error || "Fonada API Error");
+    const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, textMessage);
 
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId, phone_number: safePhone10, direction: 'outbound',
-        message_type: 'template', content: textMessage, fonada_message_id: data.campaignId || data.msgId || null, status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: msgId, status: 'sent'
     });
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -167,36 +148,11 @@ export async function sendKYCRequestTemplate(leadId: string, customerPhone: stri
 
     const textMessage = `Hello,\n\nThis is an update regarding your loan application. Your application is currently pending.\n\nPlease share clear photos or PDFs of your Aadhar Card, PAN Card, and latest Bank Statement by replying directly to this chat.\n\nThank you.`;
 
-    const apiUrl = "https://app.fonada.ai/functions/v1/whatsapp_campaign_creator";
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
-
-    const payload = {
-      campaign_name: "kyc_document_request2",
-      template_name: "kyc_document_request",
-      audience_rows: [
-        {
-          Phone: safePhone10
-        }
-      ]
-    };
-
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${creds.whatsappApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.message || data.error || "Fonada API Error");
+    const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, textMessage);
 
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId, phone_number: safePhone10, direction: 'outbound',
-        message_type: 'template', content: textMessage, fonada_message_id: data.campaignId || data.msgId || null, status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: msgId, status: 'sent'
     });
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -230,42 +186,14 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
     const { data: profile } = await supabase.from('users').select('tenant_id').eq('id', user.id).single();
     const creds = await getTenantWaCredentials(profile?.tenant_id || null);
 
-    const textMessage = `Hi ${customerName}, our agent noted that you are no longer interested in a loan at this time.\n\nTo help us improve our service, could you let us know why by tapping a button below?\n\n🔘 Rate is too high\n🔘 Got another loan\n🔘 I am still interested`;
+    const textMessage = `Hi ${customerName}, our agent noted that you are no longer interested in a loan at this time.\n\nTo help us improve our service, could you let us know why by replying with one of the following?\n\n1. Rate is too high\n2. Got another loan\n3. I am still interested`;
 
-    const apiUrl = "https://app.fonada.ai/functions/v1/whatsapp_campaign_creator";
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
-
-    const payload = {
-      campaign_name: "not_interested_audit1",
-      template_name: "not_interested_audit",
-      audience_rows: [
-        {
-          Phone: safePhone10,
-          Body_1: customerName
-        }
-      ]
-    };
-
-    console.log(`📡 [QA AUDIT] Sending payload to Fonada API...`);
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${creds.whatsappApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    console.log(`📤 [FONADA QA RESPONSE]:`, data);
-
-    if (!res.ok || data.error) throw new Error(data.message || data.error || "Fonada API Rejected Template");
+    console.log(`📡 [QA AUDIT] Sending payload via Fonada SendMsgOld API...`);
+    const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, textMessage);
 
     await supabase.from("chat_messages").insert({
-        lead_id: leadId, phone_number: safePhone10, direction: 'outbound',
-        message_type: 'template', content: textMessage, fonada_message_id: data.campaignId || data.msgId || null, status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: msgId, status: 'sent'
     });
 
     await supabase.from("leads").update({ 
@@ -278,7 +206,7 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
     return { success: true };
 
   } catch (error: any) {
-    console.error("❌ [QA Audit WA Error]:", error);
+    console.error("❌ [QA AUDIT FAILURE]:", error);
     return { success: false, error: error.message };
   }
 }
@@ -296,43 +224,11 @@ export async function sendCallbackReminderTemplate(leadId: string, customerPhone
 
     const textMessage = `Hello ${customerName}, this is a reminder for your scheduled call with our loan advisor ${agentName} at ${timeString}. We will call you shortly. Thank you!`;
 
-    const apiUrl = "https://app.fonada.ai/functions/v1/whatsapp_campaign_creator";
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
-
-    const payload = {
-      campaign_name: "callback_reminder1",
-      template_name: "callback_reminder",
-      audience_rows: [
-        {
-          Phone: safePhone10,
-          Body_1: customerName,
-          Body_2: agentName,
-          Body_3: timeString
-        }
-      ]
-    };
-
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${creds.whatsappApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      // Fallback to sending standard WA text in case template is not pre-registered in Fonada
-      await sendWhatsAppText(leadId, customerPhone, textMessage);
-      return { success: true, method: "text_fallback" };
-    }
+    const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, textMessage);
 
     const { error: insertError } = await supabase.from("chat_messages").insert({
-        lead_id: leadId, phone_number: safePhone10, direction: 'outbound',
-        message_type: 'template', content: textMessage, fonada_message_id: data.campaignId || data.msgId || null, status: 'sent'
+        lead_id: leadId, phone_number: safePhone, direction: 'outbound',
+        message_type: 'template', content: textMessage, fonada_message_id: msgId, status: 'sent'
     });
 
     if (insertError) throw new Error(`Database Insert Failed: ${insertError.message}`);
@@ -349,4 +245,3 @@ export async function sendCallbackReminderTemplate(leadId: string, customerPhone
     return { success: false, error: error.message };
   }
 }
-
