@@ -23,7 +23,14 @@ import {
   Handshake,
   Zap,
   Trophy,
-  ChevronsLeft
+  ChevronsLeft,
+  Bot,
+  Library,
+  Mic2,
+  History,
+  PlaySquare,
+  BarChart,
+  CreditCard
 } from "lucide-react"
 
 export const sidebarGroups = [
@@ -54,8 +61,7 @@ export const sidebarGroups = [
     label: "Team",
     items: [
       { name: "Team", href: "/admin/users", icon: Headset, module: "team" },
-      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy,
-  ChevronsLeft, module: "real_estate" },
+      { name: "Leaderboard", href: "/admin/leaderboard", icon: Trophy, module: "real_estate" },
       { name: "Attendance", href: "/admin/attendance", icon: CalendarCheck, module: "attendance" },
       { name: "Leave Management", href: "/admin/leave-management", icon: CalendarOff, module: "attendance" },
       { name: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle, module: "whatsapp" },
@@ -83,17 +89,6 @@ export const sidebarGroups = [
     ]
   }
 ]
-
-import { 
-  Bot, 
-  Library, 
-  Mic2, 
-  History, 
-  PlaySquare, 
-  Zap, 
-  BarChart, 
-  CreditCard 
-} from "lucide-react"
 
 export const unicornSidebarGroups = [
   {
