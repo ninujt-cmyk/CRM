@@ -148,6 +148,11 @@ export function PerformanceDebugOverlay() {
         return typeof window !== "undefined" ? window.location.pathname : "/ (Current Route)"
       }
 
+      if (str.includes("_rsc=")) {
+        const cleanPath = str.split("?")[0] || str
+        return `${cleanPath} [Next.js RSC Route / Prefetch]`
+      }
+
       return str
     }
 
