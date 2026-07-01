@@ -102,7 +102,7 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
     let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
 
     const payload = {
-      campaign_name: "agent_callback_request",
+      campaign_name: "agent_callback_request1",
       template_name: "agent_callback_request",
       audience_rows: [
         {
@@ -159,7 +159,7 @@ export async function sendKYCRequestTemplate(leadId: string, customerPhone: stri
     let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
 
     const payload = {
-      campaign_name: "kyc_document_request",
+      campaign_name: "kyc_document_request2",
       template_name: "kyc_document_request",
       audience_rows: [
         {
@@ -224,7 +224,7 @@ export async function sendNotInterestedAudit(leadId: string, customerPhone: stri
     let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
 
     const payload = {
-      campaign_name: "not_interested_audit",
+      campaign_name: "not_interested_audit1",
       template_name: "not_interested_audit",
       audience_rows: [
         {
@@ -288,7 +288,7 @@ export async function sendCallbackReminderTemplate(leadId: string, customerPhone
     let safePhone10 = customerPhone.replace(/^\+?91/, '').replace(/\D/g, '').slice(-10);
 
     const payload = {
-      campaign_name: "callback_reminder",
+      campaign_name: "callback_reminder1",
       template_name: "callback_reminder",
       audience_rows: [
         {
