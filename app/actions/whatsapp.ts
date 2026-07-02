@@ -116,7 +116,7 @@ export async function sendMissedCallMessage(leadId: string, customerPhone: strin
 
     const creds = await getTenantWaCredentials(agent.tenant_id);
 
-    const textMessage = `Hello! 👋\n\nOur expert *${agent.full_name}* just tried calling you but couldn't get through. \n\nWe want to ensure your application process is smooth. When is a good time for us to call you back? You can also reach directly at *${agent.phone}*.\nThank you.`;
+    const textMessage = `⚠️ We tried calling you but *couldn't connect*.\n\nYour loan application is pending due to missing documents. To avoid processing delays, *please share* the following *immediately*:\n\n*• PAN Card*\n*• Aadhaar Card*\n*• Latest Payslip*`;
 
     const { safePhone, msgId } = await sendViaFonadaOldApi(creds, customerPhone, textMessage);
 
