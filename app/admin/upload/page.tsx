@@ -292,15 +292,19 @@ export default function UploadPage() {
                         try {
                             const { _originalIndex, _id, ...cleanLeadData } = row;
                             
-                            // Determine assignee (preserve existing, or assign if empty)
+                            // Determine assignee: if lead is not in skipStatuses, assign/re-assign it according to selection
                             let assigneeId = existingLead.assigned_to;
-                            if (!assigneeId) {
-                                if (autoDistribute && distributionList.length > 0) {
-                                    assigneeId = distributionList[roundRobinIndex % distributionList.length];
-                                    roundRobinIndex++;
-                                } else if (selectedTelecaller && selectedTelecaller !== "unassigned") {
-                                    assigneeId = selectedTelecaller;
-                                }
+                            let wasAssignedInThisUpload = false;
+
+                            if (autoDistribute && distributionList.length > 0) {
+                                assigneeId = distributionList[roundRobinIndex % distributionList.length];
+                                roundRobinIndex++;
+                                wasAssignedInThisUpload = true;
+                            } else if (selectedTelecaller && selectedTelecaller !== "unassigned") {
+                                assigneeId = selectedTelecaller;
+                                wasAssignedInThisUpload = true;
+                            } else if (selectedTelecaller === "unassigned") {
+                                assigneeId = null;
                             }
 
                             // Determine priority
@@ -342,7 +346,9 @@ export default function UploadPage() {
                                 source: (globalSource || cleanLeadData.source || "other").toLowerCase(),
                                 tags: globalTags ? globalTags.split(",").map(t => t.trim()) : [],
                                 assigned_to: assigneeId,
-                                assigned_at: assigneeId && !existingLead.assigned_to ? new Date().toISOString() : undefined,
+                                assigned_by: wasAssignedInThisUpload && assigneeId ? currentUserId : undefined,
+                                assigned_at: wasAssignedInThisUpload && assigneeId ? new Date().toISOString() : undefined,
+                                status: wasAssignedInThisUpload ? 'new' : undefined,
                                 priority: finalPriority,
                                 updated_at: new Date().toISOString()
                             };
@@ -368,7 +374,7 @@ export default function UploadPage() {
                             else if (finalPriority === 'low') setLowPriorityCount(prev => prev + 1);
                             else setMediumPriorityCount(prev => prev + 1);
 
-                            if (assigneeId) {
+                            if (assigneeId && wasAssignedInThisUpload) {
                                 setAssignmentSummary(prev => ({
                                     ...prev,
                                     [assigneeId]: (prev[assigneeId] || 0) + 1
