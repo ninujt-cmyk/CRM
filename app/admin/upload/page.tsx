@@ -14,7 +14,8 @@ import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { 
   Upload, CheckCircle, AlertCircle, Download, 
-  Zap, ArrowRight, History, PieChart, Share2, Sparkles 
+  Zap, ArrowRight, History, PieChart, Share2, Sparkles,
+  Search, Copy, Check, Phone
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -103,9 +104,13 @@ export default function UploadPage() {
   const [uploadStats, setUploadStats] = useState({ total: 0, success: 0, failed: 0, skipped: 0 })
   const [failedRows, setFailedRows] = useState<any[]>([])
   
-  // --- NEW STATE: Assignment Summary ---
+  // --- NEW STATE: Assignment Summary & Skipped Numbers ---
   const [assignmentSummary, setAssignmentSummary] = useState<Record<string, number>>({})
   const [showSummaryDialog, setShowSummaryDialog] = useState(false)
+  const [skippedRows, setSkippedRows] = useState<any[]>([])
+  const [showSkippedDialog, setShowSkippedDialog] = useState(false)
+  const [skippedSearchQuery, setSkippedSearchQuery] = useState("")
+  const [copiedPhone, setCopiedPhone] = useState<string | null>(null)
 
   // --- Effects ---
   useEffect(() => {
@@ -204,6 +209,7 @@ export default function UploadPage() {
     setUploadStats({ total: 0, success: 0, failed: 0, skipped: 0 })
     setFailedRows([])
     setAssignmentSummary({}) 
+    setSkippedRows([])
     setHighPriorityCount(0)
     setMediumPriorityCount(0)
     setLowPriorityCount(0)
@@ -213,6 +219,7 @@ export default function UploadPage() {
     
     let tempSkipCount = 0;
     const seenPhonesInFile = new Set<string>();
+    const tempSkippedRows: any[] = [];
     
     // Parse and Deduplicate within the file immediately
     const uniqueRows = lines.reduce((acc: any[], line, idx) => {
@@ -234,6 +241,12 @@ export default function UploadPage() {
             if (seenPhonesInFile.has(row.phone)) {
                 if (duplicateAction === 'skip') {
                     tempSkipCount++;
+                    tempSkippedRows.push({
+                        phone: row.phone,
+                        name: row.name || 'Unknown',
+                        reason: 'Duplicate in CSV file',
+                        _originalIndex: idx + 2
+                    });
                     return acc;
                 }
             } else {
@@ -270,7 +283,7 @@ export default function UploadPage() {
             
             const { data: existing } = await supabase
                 .from("leads")
-                .select("id, phone, status, notes, assigned_to")
+                .select("id, phone, status, notes, assigned_to, name")
                 .in("phone", phones)
             
             const existingMap = new Map<string, any>();
@@ -287,6 +300,12 @@ export default function UploadPage() {
                     
                     if (existingStatus && skipStatuses.includes(existingStatus)) {
                         skipCount++
+                        tempSkippedRows.push({
+                            phone: row.phone,
+                            name: row.name || existingLead.name || 'Unknown',
+                            reason: `Existing Lead (${existingStatus})`,
+                            _originalIndex: row._originalIndex || '-'
+                        });
                     } else {
                         // SMART MERGE: Update the existing lead instead of creating a duplicate!
                         try {
@@ -501,6 +520,7 @@ export default function UploadPage() {
         failed: failCount
     })
     setFailedRows(errors)
+    setSkippedRows(tempSkippedRows)
     setIsUploading(false)
 
     // Log the bulk import event in CRM audit log to trigger Recent Activity view
@@ -667,6 +687,27 @@ export default function UploadPage() {
     a.download = "leads_template.csv"
     a.click()
   }
+
+  const downloadSkippedCSV = () => {
+    if (skippedRows.length === 0) return;
+    const headers = ["Row", "Name", "Phone", "Reason"];
+    const csvContent = [
+      headers.join(","),
+      ...skippedRows.map(row => `${row._originalIndex || '-'},"${(row.name || '').replace(/"/g, '""')}","${row.phone || ''}","${(row.reason || '').replace(/"/g, '""')}"`)
+    ].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `skipped-duplicates-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
+  const handleCopyPhone = (phone: string) => {
+    navigator.clipboard.writeText(phone);
+    setCopiedPhone(phone);
+    setTimeout(() => setCopiedPhone(null), 2000);
+  };
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6 min-h-screen animate-in fade-in duration-300">
@@ -1000,9 +1041,27 @@ export default function UploadPage() {
                   <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{uploadStats.success}</div>
                   <div className="text-[10px] uppercase font-bold text-emerald-650/80 dark:text-emerald-500 mt-1">Uploaded to CRM</div>
                 </div>
-                <div className="bg-amber-500/5 p-4.5 rounded-2xl border border-amber-500/10 shadow-2xs flex flex-col justify-center">
-                  <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{uploadStats.skipped}</div>
-                  <div className="text-[10px] uppercase font-bold text-amber-650/80 dark:text-amber-500 mt-1">Skipped (Duplicate Check)</div>
+                <div 
+                  onClick={() => {
+                    if (uploadStats.skipped > 0) setShowSkippedDialog(true);
+                  }}
+                  className={`bg-amber-500/5 p-4.5 rounded-2xl border border-amber-500/10 shadow-2xs flex flex-col justify-center transition-all ${
+                    uploadStats.skipped > 0 ? "cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 group relative" : ""
+                  }`}
+                  title={uploadStats.skipped > 0 ? "Click to view skipped duplicate numbers" : undefined}
+                >
+                  <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1.5">
+                    {uploadStats.skipped}
+                  </div>
+                  <div className="text-[10px] uppercase font-bold text-amber-650/80 dark:text-amber-500 mt-1 flex items-center justify-center gap-1">
+                    Skipped (Duplicate Check)
+                  </div>
+                  {uploadStats.skipped > 0 && (
+                    <div className="mt-2 pt-1.5 border-t border-amber-500/10 flex items-center justify-center gap-1 text-[11px] font-extrabold text-amber-600 dark:text-amber-400 group-hover:underline">
+                      <span>Click to view numbers</span>
+                      <ArrowRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1030,38 +1089,173 @@ export default function UploadPage() {
                 </div>
               )}
 
-              {/* DISTRIBUTION SUMMARY BUTTON */}
-              {(Object.keys(assignmentSummary).length > 0) && (
-                <div className="flex justify-center pt-2">
-                  <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="gap-2 border-blue-200/60 dark:border-slate-800 bg-blue-500/5 text-blue-600 hover:bg-blue-500/10 font-bold text-xs py-5 px-6 rounded-xl hover:shadow-sm shadow-2xs">
-                        <PieChart className="h-4 w-4" />
-                        View Allocation Breakdown Report
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md overflow-hidden">
-                      <DialogHeader className="flex flex-row items-center justify-between pr-6 border-b border-slate-100 dark:border-slate-800 pb-3 bg-slate-50/50 dark:bg-slate-950/20">
-                        <div className="space-y-0.5">
-                          <DialogTitle className="text-base font-extrabold text-slate-850 dark:text-slate-100">Roster Distribution Report</DialogTitle>
-                          <DialogDescription className="text-xs">Agent allocation details for this batch.</DialogDescription>
+              {/* DISTRIBUTION SUMMARY & SKIPPED DUPLICATES BUTTONS */}
+              {(Object.keys(assignmentSummary).length > 0 || uploadStats.skipped > 0) && (
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  {(Object.keys(assignmentSummary).length > 0) && (
+                    <Dialog open={showSummaryDialog} onOpenChange={setShowSummaryDialog}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2 border-blue-200/60 dark:border-slate-800 bg-blue-500/5 text-blue-600 hover:bg-blue-500/10 font-bold text-xs py-5 px-6 rounded-xl hover:shadow-sm shadow-2xs">
+                          <PieChart className="h-4 w-4" />
+                          View Allocation Breakdown Report
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md overflow-hidden">
+                        <DialogHeader className="flex flex-row items-center justify-between pr-6 border-b border-slate-100 dark:border-slate-800 pb-3 bg-slate-50/50 dark:bg-slate-950/20">
+                          <div className="space-y-0.5 text-left">
+                            <DialogTitle className="text-base font-extrabold text-slate-850 dark:text-slate-100">Roster Distribution Report</DialogTitle>
+                            <DialogDescription className="text-xs">Agent allocation details for this batch.</DialogDescription>
+                          </div>
+                          <Button variant="secondary" size="sm" onClick={handleShareReport} className="gap-1.5 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:bg-blue-600 dark:hover:bg-blue-700 dark:text-white font-bold text-xs rounded-lg py-1 px-3 shadow-none border-0">
+                            <Share2 className="h-3.5 w-3.5" /> Share
+                          </Button>
+                        </DialogHeader>
+                        <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 px-2">
+                          {Object.entries(assignmentSummary).map(([id, count]) => {
+                            const agent = telecallers.find(t => t.id === id)
+                            return (
+                              <div key={id} className="flex items-center justify-between py-3 first:pt-0">
+                                <span className="font-bold text-slate-800 dark:text-slate-250 text-xs">{agent?.full_name || "Unknown Agent"}</span>
+                                <Badge className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-350 font-extrabold text-[11px] py-1 px-2.5 rounded-lg border-0 shadow-none">
+                                  {count} leads
+                                </Badge>
+                              </div>
+                            )
+                          })}
                         </div>
-                        <Button variant="secondary" size="sm" onClick={handleShareReport} className="gap-1.5 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:bg-blue-600 dark:hover:bg-blue-700 dark:text-white font-bold text-xs rounded-lg py-1 px-3 shadow-none border-0">
-                          <Share2 className="h-3.5 w-3.5" /> Share
+
+                        {uploadStats.skipped > 0 && (
+                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-amber-500/5 p-3 rounded-xl border border-amber-500/20">
+                            <div className="flex flex-col text-left">
+                              <span className="font-bold text-amber-800 dark:text-amber-300 text-xs flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                Skipped Duplicates
+                              </span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{uploadStats.skipped} numbers skipped during import</span>
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setShowSummaryDialog(false);
+                                setShowSkippedDialog(true);
+                              }}
+                              className="bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/50 font-bold text-[11px] h-7 px-3 rounded-lg flex items-center gap-1 shadow-2xs"
+                            >
+                              View Numbers <ArrowRight className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+
+                  {uploadStats.skipped > 0 && (
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowSkippedDialog(true)} 
+                      className="gap-2 border-amber-200/60 dark:border-amber-900/40 bg-amber-500/5 text-amber-600 hover:bg-amber-500/10 font-bold text-xs py-5 px-6 rounded-xl hover:shadow-sm shadow-2xs"
+                    >
+                      <AlertCircle className="h-4 w-4" />
+                      View Skipped Duplicates ({uploadStats.skipped})
+                    </Button>
+                  )}
+
+                  {/* SKIPPED DUPLICATES DIALOG */}
+                  <Dialog open={showSkippedDialog} onOpenChange={setShowSkippedDialog}>
+                    <DialogContent className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-xl overflow-hidden max-h-[85vh] flex flex-col">
+                      <DialogHeader className="flex flex-row items-center justify-between pr-6 border-b border-slate-100 dark:border-slate-800 pb-3 bg-slate-50/50 dark:bg-slate-950/20">
+                        <div className="space-y-0.5 text-left">
+                          <DialogTitle className="text-base font-extrabold text-slate-850 dark:text-slate-100 flex items-center gap-2">
+                            <AlertCircle className="h-4.5 w-4.5 text-amber-500" />
+                            Skipped Duplicate Leads ({skippedRows.length})
+                          </DialogTitle>
+                          <DialogDescription className="text-xs">
+                            Numbers skipped due to existing database records or duplicate CSV rows.
+                          </DialogDescription>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={downloadSkippedCSV} className="gap-1.5 border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 font-bold text-xs rounded-lg py-1 px-3 shadow-2xs">
+                          <Download className="h-3.5 w-3.5" /> Export CSV
                         </Button>
                       </DialogHeader>
-                      <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 px-2">
-                        {Object.entries(assignmentSummary).map(([id, count]) => {
-                          const agent = telecallers.find(t => t.id === id)
-                          return (
-                            <div key={id} className="flex items-center justify-between py-3 first:pt-0">
-                              <span className="font-bold text-slate-800 dark:text-slate-250 text-xs">{agent?.full_name || "Unknown Agent"}</span>
-                              <Badge className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-350 font-extrabold text-[11px] py-1 px-2.5 rounded-lg border-0 shadow-none">
-                                {count} leads
-                              </Badge>
+
+                      {/* Filter Search Input */}
+                      <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                          <Input
+                            placeholder="Search by phone number or name..."
+                            value={skippedSearchQuery}
+                            onChange={(e) => setSkippedSearchQuery(e.target.value)}
+                            className="pl-9 h-9 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Numbers List */}
+                      <div className="space-y-2 max-h-[360px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 px-4 py-2">
+                        {skippedRows
+                          .filter(row => {
+                            if (!skippedSearchQuery) return true;
+                            const q = skippedSearchQuery.toLowerCase();
+                            return (
+                              String(row.phone || "").toLowerCase().includes(q) ||
+                              String(row.name || "").toLowerCase().includes(q) ||
+                              String(row.reason || "").toLowerCase().includes(q)
+                            );
+                          })
+                          .map((row, idx) => (
+                            <div key={idx} className="flex items-center justify-between py-3 first:pt-1 last:pb-1 text-left">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 font-extrabold text-xs flex items-center justify-center flex-shrink-0">
+                                  {row._originalIndex ? `#${row._originalIndex}` : '-'}
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                                    <Phone className="w-3 h-3 text-slate-400" />
+                                    <span className="font-mono text-sm font-extrabold tracking-tight text-slate-900 dark:text-white">
+                                      {row.phone || "No Phone"}
+                                    </span>
+                                  </span>
+                                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                    {row.name !== 'Unknown' ? row.name : 'Unnamed Lead'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900 font-bold text-[10px] py-0.5 px-2 rounded-md">
+                                  {row.reason}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleCopyPhone(row.phone)}
+                                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  title="Copy Phone Number"
+                                >
+                                  {copiedPhone === row.phone ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
-                          )
-                        })}
+                          ))}
+                        {skippedRows.filter(row => {
+                          if (!skippedSearchQuery) return true;
+                          const q = skippedSearchQuery.toLowerCase();
+                          return (
+                            String(row.phone || "").toLowerCase().includes(q) ||
+                            String(row.name || "").toLowerCase().includes(q) ||
+                            String(row.reason || "").toLowerCase().includes(q)
+                          );
+                        }).length === 0 && (
+                          <div className="text-center py-8 text-xs font-semibold text-slate-400 dark:text-slate-500">
+                            No skipped numbers match your search.
+                          </div>
+                        )}
                       </div>
                     </DialogContent>
                   </Dialog>
