@@ -109,6 +109,11 @@ export default async function RootLayout({
         <link rel="icon" type="image/x-icon" href="/favicon1.ico" />
         <link rel="mask-icon" href="/icons/safari-pinned-tab.svg" color="#000000" />
         <link rel="shortcut icon" href="/favicon1.ico" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t='__st__';window.localStorage.setItem(t,t);window.localStorage.removeItem(t);}catch(e){var m=function(){var s={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(s,k)?s[k]:null;},setItem:function(k,v){s[k]=String(v);},removeItem:function(k){delete s[k];},clear:function(){s={};},key:function(i){return Object.keys(s)[i]||null;},get length(){return Object.keys(s).length;}};};var l=m(),ss=m();try{Object.defineProperty(window,'localStorage',{value:l,writable:true,configurable:true});}catch(err){}try{Object.defineProperty(window,'sessionStorage',{value:ss,writable:true,configurable:true});}catch(err){}}})();`,
+          }}
+        />
       </head>
       <body className="font-sans">
         <ErrorBoundary>

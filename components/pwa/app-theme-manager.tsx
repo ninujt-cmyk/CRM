@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Sun, Moon, Monitor } from "lucide-react"
+import { safeLocalStorage } from "@/lib/safe-storage"
 
 type Theme = "light" | "dark" | "system"
 
@@ -11,7 +12,7 @@ export function AppThemeManager() {
 
   useEffect(() => {
     // Get saved theme or default to system
-    const savedTheme = (localStorage.getItem("theme") as Theme) || "system"
+    const savedTheme = (safeLocalStorage.getItem("theme") as Theme) || "system"
     setTheme(savedTheme)
     applyTheme(savedTheme)
 
@@ -47,7 +48,7 @@ export function AppThemeManager() {
 
   const changeTheme = (newTheme: Theme) => {
     setTheme(newTheme)
-    localStorage.setItem("theme", newTheme)
+    safeLocalStorage.setItem("theme", newTheme)
     applyTheme(newTheme)
   }
 
@@ -82,7 +83,7 @@ export function useTheme() {
   const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
-    const savedTheme = (localStorage.getItem("theme") as Theme) || "system"
+    const savedTheme = (safeLocalStorage.getItem("theme") as Theme) || "system"
     setTheme(savedTheme)
 
     const updateIsDark = () => {

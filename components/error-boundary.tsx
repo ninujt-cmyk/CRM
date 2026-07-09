@@ -38,14 +38,17 @@ export class ErrorBoundary extends Component<Props, State> {
         error.message?.includes("loading-chunk-failed"))
     ) {
       if (typeof window !== "undefined") {
-        const lastReload = sessionStorage.getItem("last_chunk_reload")
-        const now = Date.now()
-        // Force-reload only if we haven't reloaded within the last 10 seconds (safeguards from network blackouts causing infinite loops)
-        if (!lastReload || now - Number(lastReload) > 10000) {
-          sessionStorage.setItem("last_chunk_reload", String(now))
-          window.location.reload()
-          // Suppress displaying the error page layout while reload is executing
-          return { hasError: false, error: null, errorInfo: null, isExpanded: false }
+        try {
+          const lastReload = sessionStorage.getItem("last_chunk_reload")
+          const now = Date.now()
+          // Force-reload only if we haven't reloaded within the last 10 seconds
+          if (!lastReload || now - Number(lastReload) > 10000) {
+            sessionStorage.setItem("last_chunk_reload", String(now))
+            window.location.reload()
+            return { hasError: false, error: null, errorInfo: null, isExpanded: false }
+          }
+        } catch (e) {
+          // Ignore SecurityError or sessionStorage failure
         }
       }
     }

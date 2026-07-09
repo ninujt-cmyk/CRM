@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr"
+import { safeLocalStorage } from "@/lib/safe-storage"
 
 const makeMockQuery = () => {
   const query: any = {
@@ -33,13 +34,19 @@ export function createClient() {
     } as any
   }
 
+  const clientOptions = {
+    auth: {
+      storage: safeLocalStorage,
+    },
+  }
+
   // Only use the singleton client on the client-side (browser)
   if (typeof window === "undefined") {
-    return createBrowserClient(supabaseUrl, supabaseAnonKey)
+    return createBrowserClient(supabaseUrl, supabaseAnonKey, clientOptions)
   }
 
   if (!clientInstance) {
-    clientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey)
+    clientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey, clientOptions)
   }
 
   return clientInstance

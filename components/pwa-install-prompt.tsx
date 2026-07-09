@@ -80,7 +80,9 @@ export function PWAInstallPrompt() {
     setShowPrompt(false)
     // Don't show again for this session
     if (typeof window !== "undefined") {
-      sessionStorage.setItem("pwa-prompt-dismissed", "true")
+      try {
+        sessionStorage.setItem("pwa-prompt-dismissed", "true")
+      } catch (e) {}
     }
   }
 
@@ -89,7 +91,14 @@ export function PWAInstallPrompt() {
     return null
   }
 
-  if (typeof window !== "undefined" && sessionStorage.getItem("pwa-prompt-dismissed")) {
+  let dismissed = false
+  try {
+    if (typeof window !== "undefined" && sessionStorage.getItem("pwa-prompt-dismissed")) {
+      dismissed = true
+    }
+  } catch (e) {}
+
+  if (dismissed) {
     return null
   }
 
