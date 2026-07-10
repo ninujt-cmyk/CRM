@@ -48,23 +48,28 @@ export async function PATCH(
 
     // 2. Parse Data
     const body = await request.json();
-    const { full_name, phone, role, manager_id } = body;
+    const { full_name, phone, role, manager_id, allow_wfh } = body;
     const targetUserId = params.id;
 
-    console.log(`👉 Updating User ${targetUserId} to Role: ${role}, Manager: ${manager_id}`);
+    console.log(`👉 Updating User ${targetUserId} to Role: ${role}, Manager: ${manager_id}, Allow WFH: ${allow_wfh}`);
 
     // 3. Update via Admin Client
     const supabaseAdmin = getAdminClient();
 
+    const updatePayload: Record<string, any> = {
+      full_name,
+      phone,
+      role,
+      manager_id,
+      updated_at: new Date().toISOString(),
+    };
+    if (typeof allow_wfh === "boolean") {
+      updatePayload.allow_wfh = allow_wfh;
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from("users")
-      .update({
-        full_name,
-        phone,
-        role,
-        manager_id,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", targetUserId);
 
     if (updateError) {

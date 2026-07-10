@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import { AlertCircle, Loader2, Building2 } from "lucide-react"
 
 interface UserFormProps {
@@ -19,6 +20,7 @@ interface UserFormProps {
     role: string
     manager_id: string | null
     tenant_id?: string | null // Added for Super Admin editing
+    allow_wfh?: boolean
   }
   isEditing?: boolean
 }
@@ -34,6 +36,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     role: initialData?.role || "telecaller",
     manager_id: initialData?.manager_id || "none",
     tenant_id: initialData?.tenant_id || "none", // Added to form state
+    allow_wfh: initialData?.allow_wfh ?? false,
     password: "", 
   })
   
@@ -91,7 +94,8 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       password: formData.password, // Ignored in PATCH usually
       manager_id: formData.manager_id === "none" || formData.manager_id === "" ? null : formData.manager_id,
       // Pass tenant_id ONLY if super_admin selected one
-      tenant_id: formData.tenant_id === "none" || formData.tenant_id === "" ? undefined : formData.tenant_id
+      tenant_id: formData.tenant_id === "none" || formData.tenant_id === "" ? undefined : formData.tenant_id,
+      allow_wfh: formData.allow_wfh,
     }
 
     try {
@@ -260,6 +264,22 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
             <p className="text-xs text-muted-foreground">
               Assign a manager for this user. Admins can manage their own team.
             </p>
+          </div>
+
+          <div className="flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+            <div className="space-y-0.5">
+              <Label htmlFor="allow_wfh" className="text-sm font-medium">
+                Allow Work From Home (WFH)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When disabled, this user can only access the CRM when physically within the configured Office Geofence radius.
+              </p>
+            </div>
+            <Switch
+              id="allow_wfh"
+              checked={formData.allow_wfh}
+              onCheckedChange={(checked) => setFormData({ ...formData, allow_wfh: checked })}
+            />
           </div>
 
           {error && (

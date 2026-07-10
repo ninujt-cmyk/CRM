@@ -9,6 +9,7 @@ import { Watermark } from "@/components/watermark"
 
 // ✅ 1. IMPORT YOUR AGENT STATUS BAR & SUPABASE SERVER
 import { AgentStatusBar } from "@/components/telecaller/AgentStatusBar"
+import { GeofenceAccessGuard } from "@/components/telecaller/GeofenceAccessGuard"
 import { createClient } from "@/lib/supabase/server"
 
 // ✅ IMPORT THE THEME PROVIDER
@@ -67,7 +68,9 @@ export default async function TelecallerLayout({
 
               {/* ✅ Main Content Area - Clicks will work perfectly here now */}
               <main className="flex-1 overflow-y-auto relative p-6">
-                {children}
+                <GeofenceAccessGuard>
+                  {children}
+                </GeofenceAccessGuard>
               </main>
             </div>
           </div>

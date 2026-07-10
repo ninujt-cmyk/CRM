@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     console.log("👉 Incoming Data:", body); // Debug log
 
-    const { email, password, full_name, phone, role, manager_id } = body;
+    const { email, password, full_name, phone, role, manager_id, allow_wfh } = body;
 
     // 3. VALIDATE ROLE
     // We strictly check against your ALLOWED database roles
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         phone: phone,
         role: roleToSave, // <--- This now matches your DB constraint perfectly
         manager_id: manager_id,
-        // tenant_id: adminCheck.tenant_id // Optional: If you use tenant_id, you should copy it from the creator here
+        allow_wfh: Boolean(allow_wfh),
         created_at: new Date().toISOString(),
       });
 
