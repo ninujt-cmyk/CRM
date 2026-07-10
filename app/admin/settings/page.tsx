@@ -13,8 +13,8 @@ import {
   Save, KeyRound, Loader2, ShieldCheck, Clock, Activity 
 } from "lucide-react"
 
-// Import our Server Action
-import { updateWorkspaceSettings } from "@/app/actions/tenant-settings"
+// Import our Server Actions
+import { updateWorkspaceSettings, getWorkspaceSettings } from "@/app/actions/tenant-settings"
 
 export default function WorkspaceSettingsPage() {
   const supabase = createClient()
@@ -42,30 +42,13 @@ export default function WorkspaceSettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error("Unauthorized")
+        const result = await getWorkspaceSettings()
 
-        const { data: profile, error: profileError } = await supabase
-          .from('users')
-          .select('tenant_id')
-          .eq('id', user.id)
-          .single()
-
-        if (profileError || !profile?.tenant_id) {
-          throw new Error("User organization profile not found")
+        if (!result.success) {
+          throw new Error(result.error || "Failed to load settings")
         }
 
-        const { data, error } = await supabase
-          .from('tenant_settings')
-          .select(`
-            fonada_client_id, fonada_secret, whatsapp_api_key, whatsapp_ai_agent_enabled,
-            cron_auto_checkout, cron_auto_refill, cron_daily_report, 
-            cron_kyc, cron_sla, cron_smart_notifications, unicorn_api_key
-          `)
-          .eq('tenant_id', profile.tenant_id)
-          .maybeSingle()
-
-        if (error) throw error
+        const data = result.data
 
         if (data) {
           setFormData({
@@ -91,7 +74,7 @@ export default function WorkspaceSettingsPage() {
     }
 
     fetchSettings()
-  }, [supabase])
+  }, [])
 
   const handleSave = async () => {
     setIsSaving(true)
