@@ -93,10 +93,12 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
                 retryTimeOnAns: 0, 
                 retryOnNoAns: 1, 
                 retryTimeOnNoAns: 5, 
-                noOfRetry: retryCount // 🔴 INJECT DYNAMIC RETRY COUNT
+                noOfRetry: Number(retryCount) || 1
             },
             phoneNumberDetails: cleanPhoneDetails
         };
+
+        console.log(`📡 Pushing IVR Campaign to Hanva/Fonada: campaignId=${payload.campaignId}, userId=${payload.userId}, contacts=${cleanPhoneDetails.length}`);
 
         const res = await fetch("https://mltj.ivrobd.com/api/v1/astrixdispatcher/v6/lead?isDND=false", {
             method: "POST",
