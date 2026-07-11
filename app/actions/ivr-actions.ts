@@ -66,15 +66,21 @@ export async function launchIvrCampaign(configId: string, leadBatchName: string,
 
         const batchId = batchRecord.id;
 
-        // 2. CLEAN NUMBERS
+        // 2. CLEAN NUMBERS & provide multiple key aliases so IVROBD v6 parses row correctly
         const cleanPhoneDetails = phoneNumbers.map(phone => {
-            return { phoneNumber: phone.replace(/\D/g, '').slice(-10) };
+            const clean = phone.replace(/\D/g, '').slice(-10);
+            return {
+                Phone: clean,
+                phoneNumber: clean,
+                phone: clean,
+                number: clean
+            };
         });
 
         const payload = {
             leadName: leadBatchName,
-            campaignId: config.fonada_campaign_id,
-            userId: config.fonada_user_id,
+            campaignId: Number(config.fonada_campaign_id) || config.fonada_campaign_id,
+            userId: Number(config.fonada_user_id) || config.fonada_user_id,
             ukey: config.fonada_ukey,
             header: "Phone", 
             retryInfo: {
