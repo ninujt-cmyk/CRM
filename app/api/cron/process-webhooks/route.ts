@@ -58,6 +58,23 @@ async function processSingleEvent(event: any) {
         throw new Error(`Unmapped Call. LeadID: ${fonadaLeadId} | Mobile: ${mobileNumber}`);
     }
 
+    // Deduplication check: prevent duplicate CDR and wallet deductions
+    if (batchId && mobileNumber) {
+        const { data: existingLog } = await supabaseAdmin.from("ivr_call_logs")
+            .select("id")
+            .eq("batch_id", batchId)
+            .eq("mobile_number", mobileNumber)
+            .eq("call_duration", duration)
+            .limit(1)
+            .maybeSingle();
+
+        if (existingLog) {
+            console.log(`⚠️ [CRON] Duplicate CDR ignored for ${mobileNumber} in Batch ${batchId}`);
+            await supabaseAdmin.from('webhook_buffer').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', event.id);
+            return true;
+        }
+    }
+
     let creditsToDeduct = 0;
     if (billsec > 0 && disposition === "ANSWERED") {
         const { data: settings } = await supabaseAdmin.from('tenant_settings').select('billing_pulse_seconds, credits_per_pulse').eq('tenant_id', tenantId).single();
@@ -70,10 +87,14 @@ async function processSingleEvent(event: any) {
         });
     }
 
+    const startDate = safeBody.starttime || safeBody.start_time || safeBody.start || safeBody.startdate || safeBody.start_date || null;
+    const answerDate = safeBody.answertime || safeBody.answer_time || safeBody.answer || safeBody.answerdate || safeBody.answer_date || null;
+    const endDate = safeBody.endtime || safeBody.end_time || safeBody.end || safeBody.enddate || safeBody.end_date || null;
+
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId, batch_id: batchId, mobile_number: mobileNumber,
-        attempt_num: parseInt(safeBody.attemptnum || "1"), start_date: safeBody.start || null,
-        answer_date: safeBody.answer || null, end_date: safeBody.end || null, call_duration: duration,
+        attempt_num: parseInt(safeBody.attemptnum || "1"), start_date: startDate,
+        answer_date: answerDate, end_date: endDate, call_duration: duration,
         bill_seconds: billsec, disposition: disposition, hangup_cause: safeBody.hangupcause || null,
         hangup_code: safeBody.hangupcode || null, clid: safeBody.clid || null, digits_pressed: digitsPressed, credits_used: creditsToDeduct
     });

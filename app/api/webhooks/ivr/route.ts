@@ -216,6 +216,21 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        if (batchId && dbPhone) {
+            const { data: existingLog } = await supabaseAdmin.from("ivr_call_logs")
+                .select("id")
+                .eq("batch_id", batchId)
+                .eq("mobile_number", dbPhone)
+                .eq("call_duration", parseInt(callDuration) || 0)
+                .limit(1)
+                .maybeSingle();
+
+            if (existingLog) {
+                console.log(`⚠️ [WEBHOOK] Duplicate CDR ignored for ${dbPhone} in Batch ${batchId}`);
+                return NextResponse.json({ status: "success", message: "Duplicate CDR ignored" });
+            }
+        }
+
         await supabaseAdmin.from("ivr_call_logs").insert({
             tenant_id: tenantId,
             batch_id: batchId,
