@@ -143,21 +143,44 @@ async function processWebhook(request: NextRequest) {
         if (ledgerError) console.error("🚨 [DB ERROR] Wallet Ledger Insert Failed:", ledgerError);
     }
 
-    // 6. LOG THE INDIVIDUAL CALL
+    // 6. EXTRACT TIMESTAMPS & HANGUP INFO
+    const startDate = safeBody.starttime || safeBody.start_time || safeBody.start || safeBody.startdate || safeBody.start_date || null;
+    const answerDate = safeBody.answertime || safeBody.answer_time || safeBody.answer || safeBody.answerdate || safeBody.answer_date || null;
+    const endDate = safeBody.endtime || safeBody.end_time || safeBody.end || safeBody.enddate || safeBody.end_date || null;
+    const hangupCause = safeBody.hangupcause || safeBody.hangup_cause || safeBody.cause || null;
+    const hangupCode = safeBody.hangupcode || safeBody.hangup_code || safeBody.code || null;
+
+    // 7. PREVENT DUPLICATE CDR INFLATION (IDEMPOTENCY CHECK)
+    if (batchId && mobileNumber) {
+        const { data: existingLog } = await supabaseAdmin.from("ivr_call_logs")
+            .select("id")
+            .eq("batch_id", batchId)
+            .eq("mobile_number", mobileNumber)
+            .eq("call_duration", duration)
+            .limit(1)
+            .maybeSingle();
+
+        if (existingLog) {
+            console.log(`⚠️ [WORKER] Duplicate CDR ignored for ${mobileNumber} in Batch ${batchId}`);
+            return NextResponse.json({ status: "success", message: "Duplicate CDR ignored" });
+        }
+    }
+
+    // 8. LOG THE INDIVIDUAL CALL
     const { error: insertError } = await supabaseAdmin.from("ivr_call_logs").insert({
         tenant_id: tenantId,
         batch_id: batchId, 
         mobile_number: mobileNumber,
         attempt_num: parseInt(safeBody.attemptnum || safeBody.attempt_num || "1"),
-        start_date: safeBody.start || safeBody.start_date || null,
-        answer_date: safeBody.answer || safeBody.answer_date || null,
-        end_date: safeBody.end || safeBody.end_date || null,
+        start_date: startDate,
+        answer_date: answerDate,
+        end_date: endDate,
         call_duration: duration,
         bill_seconds: billsec,
         disposition: disposition,
-        hangup_cause: safeBody.hangupcause || safeBody.hangup_cause || null,
-        hangup_code: safeBody.hangupcode || safeBody.hangup_code || null,
-        clid: safeBody.clid || null,
+        hangup_cause: hangupCause,
+        hangup_code: hangupCode,
+        clid: safeBody.clid || safeBody.callerid || null,
         digits_pressed: digitsPressed, 
         credits_used: creditsToDeduct
     });

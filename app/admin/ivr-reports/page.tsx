@@ -337,7 +337,9 @@ export default function IvrReportsPage() {
                                                     <Badge className="bg-purple-100 text-purple-800 border-0 font-black px-2.5 py-0.5 shadow-sm text-sm">{log.digits_pressed}</Badge>
                                                 ) : <span className="text-slate-300">-</span>}
                                             </TableCell>
-                                            <TableCell className="text-right font-black text-amber-600">-{log.credits_used}</TableCell>
+                                            <TableCell className="text-right font-black text-amber-600">
+                                                {log.credits_used ? `-${Math.abs(log.credits_used)}` : '0'}
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                     {logs.length === 0 && (
