@@ -73,6 +73,19 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ [EDGE CATCHER] Successfully queued ${insertData.length} ANSWERED calls to Buffer!`);
+
+    // 🔴 INSTANT BACKGROUND TRIGGER: Drain buffer immediately without waiting for cron
+    try {
+        const origin = request.nextUrl.origin;
+        const cronSecret = process.env.CRON_SECRET || "my_secure_cron_password_958";
+        fetch(`${origin}/api/cron/process-webhooks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': cronSecret.startsWith('Bearer ') ? cronSecret : `Bearer ${cronSecret}`
+            }
+        }).catch(() => {});
+    } catch (e) {}
+
     return NextResponse.json({ status: "queued_in_db", count: insertData.length });
 
   } catch (error) {
