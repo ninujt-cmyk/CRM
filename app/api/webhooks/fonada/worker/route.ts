@@ -185,7 +185,13 @@ async function processWebhook(request: NextRequest) {
         credits_used: creditsToDeduct
     });
 
-    if (insertError) throw new Error(insertError.message);
+    if (insertError) {
+        if (insertError.code === '23505' || String(insertError.message || '').includes('duplicate key')) {
+            console.log(`⚠️ [WORKER] Duplicate CDR blocked by unique index (23505). Ignored.`);
+            return NextResponse.json({ status: "success", message: "Duplicate CDR ignored by DB index" });
+        }
+        throw new Error(insertError.message);
+    }
 
     console.log(`✅ [WORKER] Logged ${mobileNumber} | Digits: ${digitsPressed} | Credits: -${creditsToDeduct}`);
     

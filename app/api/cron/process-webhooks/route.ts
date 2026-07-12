@@ -99,7 +99,14 @@ async function processSingleEvent(event: any) {
         hangup_code: safeBody.hangupcode || null, clid: safeBody.clid || null, digits_pressed: digitsPressed, credits_used: creditsToDeduct
     });
 
-    if (insertError) throw insertError;
+    // 🟢 Treat Postgres duplicate key violation (23505) as already processed success so buffer drains cleanly
+    if (insertError) {
+        if (insertError.code === '23505' || String(insertError.message || '').includes('duplicate key')) {
+            console.log(`⚠️ [BATCH PROCESSOR] Duplicate CDR blocked by unique index (23505). Marking buffer row completed.`);
+        } else {
+            throw insertError;
+        }
+    }
 
     // Mark successful
     await supabaseAdmin.from('webhook_buffer').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', event.id);
